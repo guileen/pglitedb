@@ -95,6 +95,9 @@ func TestPebbleKV_WriteBuffer(t *testing.T) {
 			t.Fatalf("set: %v", err)
 		}
 
+		// Wait a bit to ensure the write is registered before checking
+		time.Sleep(10 * time.Millisecond)
+		
 		beforeStats := kv.Stats()
 		if beforeStats.PendingWrites == 0 {
 			t.Error("expected pending writes before background flush")

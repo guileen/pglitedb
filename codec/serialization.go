@@ -1,7 +1,7 @@
 package codec
 
 import (
-	"github.com/guileen/pqlitedb/table"
+	"github.com/guileen/pglitedb/table"
 )
 
 // Serializer defines the interface for serializing and deserializing data types

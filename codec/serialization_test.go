@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/guileen/pqlitedb/table"
+	"github.com/guileen/pglitedb/table"
 )
 
 func TestJSONEncoding(t *testing.T) {

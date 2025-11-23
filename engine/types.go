@@ -3,8 +3,8 @@ package engine
 import (
 	"context"
 
-	"github.com/guileen/pqlitedb/kv"
-	"github.com/guileen/pqlitedb/table"
+	"github.com/guileen/pglitedb/kv"
+	"github.com/guileen/pglitedb/table"
 )
 
 type StorageEngine interface {

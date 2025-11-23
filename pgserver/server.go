@@ -1,19 +1,13 @@
 package pgserver
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 
-	"github.com/guileen/pqlitedb/executor"
-	"github.com/guileen/pqlitedb/manager"
-	"github.com/guileen/pqlitedb/engine"
-	"github.com/guileen/pqlitedb/sql"
+	"github.com/guileen/pglitedb/executor"
+	"github.com/guileen/pglitedb/sql"
 	"github.com/jackc/pgx/v5/pgproto3"
 )
 
@@ -29,7 +23,7 @@ type PostgreSQLServer struct {
 func NewPostgreSQLServer(executor executor.QueryExecutor) *PostgreSQLServer {
 	parser := sql.NewMySQLParser()
 	planner := sql.NewPlanner(parser)
-	
+
 	return &PostgreSQLServer{
 		executor: executor,
 		parser:   parser,
@@ -52,7 +46,7 @@ func (s *PostgreSQLServer) Start(port string) error {
 			s.mu.Lock()
 			closed := s.closed
 			s.mu.Unlock()
-			
+
 			if closed {
 				return nil
 			}
@@ -80,13 +74,15 @@ func (s *PostgreSQLServer) handleConnection(conn net.Conn) {
 	switch startupMessage.(type) {
 	case *pgproto3.StartupMessage:
 		// Send authentication OK
-		if err := backend.Send(&pgproto3.AuthenticationOk{}); err != nil {
+		backend.Send(&pgproto3.AuthenticationOk{})
+		if err := backend.Flush(); err != nil {
 			log.Printf("Failed to send AuthenticationOk: %v", err)
 			return
 		}
 
 		// Send ready for query
-		if err := backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'}); err != nil {
+		backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+		if err := backend.Flush(); err != nil {
 			log.Printf("Failed to send ReadyForQuery: %v", err)
 			return
 		}
@@ -126,9 +122,9 @@ func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) 
 	// 2. Create an execution plan
 	// 3. Execute the plan
 	// 4. Return results in PostgreSQL format
-	
+
 	// For now, we'll just send a simple response
-	if err := backend.Send(&pgproto3.RowDescription{
+	backend.Send(&pgproto3.RowDescription{
 		Fields: []pgproto3.FieldDescription{
 			{
 				Name:                 []byte("result"),
@@ -140,26 +136,30 @@ func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) 
 				Format:               0,
 			},
 		},
-	}); err != nil {
+	})
+	if err := backend.Flush(); err != nil {
 		return err
 	}
 
 	// Send a dummy row
-	if err := backend.Send(&pgproto3.DataRow{
+	backend.Send(&pgproto3.DataRow{
 		Values: [][]byte{[]byte("Query executed: " + query)},
-	}); err != nil {
+	})
+	if err := backend.Flush(); err != nil {
 		return err
 	}
 
 	// Send command complete
-	if err := backend.Send(&pgproto3.CommandComplete{
+	backend.Send(&pgproto3.CommandComplete{
 		CommandTag: []byte("SELECT 1"),
-	}); err != nil {
+	})
+	if err := backend.Flush(); err != nil {
 		return err
 	}
 
 	// Send ready for query
-	return backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+	backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+	return backend.Flush()
 }
 
 func (s *PostgreSQLServer) Close() error {
@@ -177,4 +177,3 @@ func (s *PostgreSQLServer) Close() error {
 
 	return nil
 }
-

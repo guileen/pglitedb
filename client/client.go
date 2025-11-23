@@ -2,11 +2,14 @@ package client
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/guileen/pqlitedb/engine"
-	"github.com/guileen/pqlitedb/executor"
-	"github.com/guileen/pqlitedb/manager"
-	"github.com/guileen/pqlitedb/table"
+	"github.com/guileen/pglitedb/codec"
+	"github.com/guileen/pglitedb/engine"
+	"github.com/guileen/pglitedb/executor"
+	"github.com/guileen/pglitedb/kv"
+	"github.com/guileen/pglitedb/manager"
+	"github.com/guileen/pglitedb/table"
 )
 
 // Client provides a unified interface for interacting with the database
@@ -16,9 +19,19 @@ type Client struct {
 }
 
 // NewClient creates a new embedded client
-func NewClient() *Client {
-	mgr := manager.NewManager()
-	eng := engine.NewStorageEngine()
+func NewClient(dbPath string) *Client {
+	// Create a pebble KV store
+	kvStore, err := kv.NewPebbleKV(kv.DefaultPebbleConfig(dbPath))
+	if err != nil {
+		panic(fmt.Sprintf("failed to create pebble kv: %v", err))
+	}
+	
+	// Create codec
+	c := codec.NewMemComparableCodec()
+	
+	// Create engine and manager
+	eng := engine.NewPebbleEngine(kvStore, c)
+	mgr := manager.NewTableManager(eng)
 	exec := executor.NewExecutor(mgr, eng)
 
 	return &Client{
@@ -71,8 +84,8 @@ func (c *Client) Select(ctx context.Context, tenantID int64, tableName string, o
 		Select: &executor.SelectQuery{
 			Columns: options.Columns,
 			Where:   convertFilters(options.Where),
-			Limit:   options.Limit,
-			Offset:  options.Offset,
+			Limit:   intPtrToInt(options.Limit),
+			Offset:  intPtrToInt(options.Offset),
 		},
 	}
 
@@ -131,4 +144,11 @@ func convertFilters(filters map[string]interface{}) []executor.Filter {
 		})
 	}
 	return result
+}
+
+func intPtrToInt(ptr *int) int {
+	if ptr == nil {
+		return 0
+	}
+	return *ptr
 }

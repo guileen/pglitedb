@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/guileen/pqlitedb/table"
+	"github.com/guileen/pglitedb/table"
 )
 
 // TypeValidator provides utilities for validating data types

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guileen/pqlitedb/table"
+	"github.com/guileen/pglitedb/table"
 )
 
 func TestMemComparableInt64Encoding(t *testing.T) {

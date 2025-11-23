@@ -5,31 +5,20 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/guileen/metabase/pkg/infra/auth/rls"
-	"github.com/guileen/pqlitedb/engine"
-	"github.com/guileen/pqlitedb/manager"
-	"github.com/guileen/pqlitedb/table"
+	"github.com/guileen/pglitedb/engine"
+	"github.com/guileen/pglitedb/manager"
+	"github.com/guileen/pglitedb/table"
 )
 
 type queryExecutor struct {
-	manager   manager.Manager
-	engine    engine.StorageEngine
-	rlsEngine *rls.RLSEngine
+	manager manager.Manager
+	engine  engine.StorageEngine
 }
 
 func NewExecutor(mgr manager.Manager, eng engine.StorageEngine) QueryExecutor {
 	return &queryExecutor{
-		manager:   mgr,
-		engine:    eng,
-		rlsEngine: nil,
-	}
-}
-
-func NewExecutorWithRLS(mgr manager.Manager, eng engine.StorageEngine, rlsEng *rls.RLSEngine) QueryExecutor {
-	return &queryExecutor{
-		manager:   mgr,
-		engine:    eng,
-		rlsEngine: rlsEng,
+		manager: mgr,
+		engine:  eng,
 	}
 }
 
@@ -53,20 +42,6 @@ func (e *queryExecutor) Execute(ctx context.Context, query *Query) (*QueryResult
 }
 
 func (e *queryExecutor) executeSelect(ctx context.Context, query *Query) (*QueryResult, error) {
-	rlsCtx := ctx.Value("rlsContext")
-	if e.rlsEngine != nil && rlsCtx != nil {
-		execCtx, ok := rlsCtx.(*rls.ExecutionContext)
-		if ok {
-			result, err := e.rlsEngine.CheckPermission(ctx, query.TableName, "SELECT", execCtx)
-			if err != nil {
-				return nil, fmt.Errorf("RLS check failed: %w", err)
-			}
-			if !result.Allowed {
-				return nil, fmt.Errorf("access denied: %s", result.Reason)
-			}
-		}
-	}
-
 	filters := e.convertFilters(query.Select.Where)
 	qOpts := &table.QueryOptions{
 		Where: filters,
@@ -99,25 +74,6 @@ func (e *queryExecutor) executeSelect(ctx context.Context, query *Query) (*Query
 }
 
 func (e *queryExecutor) executeInsert(ctx context.Context, query *Query) (*QueryResult, error) {
-	rlsCtx := ctx.Value("rlsContext")
-	if e.rlsEngine != nil && rlsCtx != nil {
-		execCtx, ok := rlsCtx.(*rls.ExecutionContext)
-		if ok {
-			data := make(map[string]interface{})
-			for k, v := range query.Insert.Values {
-				data[k] = v.Data
-			}
-
-			result, err := e.rlsEngine.ValidateInsert(ctx, query.TableName, data, execCtx)
-			if err != nil {
-				return nil, fmt.Errorf("RLS validation failed: %w", err)
-			}
-			if !result.Allowed {
-				return nil, fmt.Errorf("access denied: %s", result.Reason)
-			}
-		}
-	}
-
 	data := make(map[string]interface{})
 	for k, v := range query.Insert.Values {
 		data[k] = v.Data

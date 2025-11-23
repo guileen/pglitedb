@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guileen/pqlitedb/codec"
-	"github.com/guileen/pqlitedb/kv"
-	"github.com/guileen/pqlitedb/table"
+	"github.com/guileen/pglitedb/codec"
+	"github.com/guileen/pglitedb/kv"
+	"github.com/guileen/pglitedb/table"
 )
 
 func setupTestEngine(t *testing.T) (StorageEngine, func()) {

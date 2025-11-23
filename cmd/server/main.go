@@ -2,34 +2,55 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/guileen/pqlitedb/api"
-	"github.com/guileen/pqlitedb/executor"
-	"github.com/guileen/pqlitedb/manager"
-	"github.com/guileen/pqlitedb/engine"
-	"github.com/guileen/pqlitedb/pgserver"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/guileen/pglitedb/api"
+	"github.com/guileen/pglitedb/codec"
+	"github.com/guileen/pglitedb/engine"
+	"github.com/guileen/pglitedb/executor"
+	"github.com/guileen/pglitedb/kv"
+	"github.com/guileen/pglitedb/manager"
+	"github.com/guileen/pglitedb/pgserver"
 )
 
 func main() {
+	dbPath := "/tmp/pglitedb"
+	if len(os.Args) > 1 {
+		// If first argument is not a flag or command, use it as db path
+		if os.Args[1] != "pg" && os.Args[1][0] != '-' {
+			dbPath = os.Args[1]
+			// Remove the first argument (dbPath) from os.Args
+			os.Args = append(os.Args[:1], os.Args[2:]...)
+		}
+	}
+	
 	if len(os.Args) > 1 && os.Args[1] == "pg" {
-		startPostgreSQLServer()
+		startPostgreSQLServer(dbPath)
 	} else {
-		startHTTPServer()
+		startHTTPServer(dbPath)
 	}
 }
 
-func startHTTPServer() {
+func startHTTPServer(dbPath string) {
 	// Create database components
-	mgr := manager.NewManager()
-	eng := engine.NewStorageEngine()
+	// Create a pebble KV store
+	kvStore, err := kv.NewPebbleKV(kv.DefaultPebbleConfig(dbPath + "-http"))
+	if err != nil {
+		log.Fatalf("failed to create pebble kv: %v", err)
+	}
+	
+	// Create codec
+	c := codec.NewMemComparableCodec()
+	
+	// Create engine and manager
+	eng := engine.NewPebbleEngine(kvStore, c)
+	mgr := manager.NewTableManager(eng)
 	exec := executor.NewExecutor(mgr, eng)
 
 	// Create REST handler
@@ -75,10 +96,20 @@ func startHTTPServer() {
 	log.Println("HTTP server shutdown complete")
 }
 
-func startPostgreSQLServer() {
+func startPostgreSQLServer(dbPath string) {
 	// Create database components
-	mgr := manager.NewManager()
-	eng := engine.NewStorageEngine()
+	// Create a pebble KV store
+	kvStore, err := kv.NewPebbleKV(kv.DefaultPebbleConfig(dbPath + "-postgres"))
+	if err != nil {
+		log.Fatalf("failed to create pebble kv: %v", err)
+	}
+	
+	// Create codec
+	c := codec.NewMemComparableCodec()
+	
+	// Create engine and manager
+	eng := engine.NewPebbleEngine(kvStore, c)
+	mgr := manager.NewTableManager(eng)
 	exec := executor.NewExecutor(mgr, eng)
 
 	// Create PostgreSQL server

@@ -3,7 +3,7 @@ package executor
 import (
 	"context"
 
-	"github.com/guileen/pqlitedb/table"
+	"github.com/guileen/pglitedb/table"
 )
 
 type QueryType int

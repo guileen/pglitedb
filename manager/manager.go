@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/guileen/pqlitedb/engine"
-	"github.com/guileen/pqlitedb/table"
+	"github.com/guileen/pglitedb/engine"
+	"github.com/guileen/pglitedb/table"
 )
 
 type tableManager struct {

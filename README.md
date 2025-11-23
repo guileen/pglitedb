@@ -15,20 +15,20 @@ This implementation provides a PostgreSQL-compatible server interface for the Pe
 ### Starting the Server
 
 ```bash
-# Start HTTP REST API server
-go run cmd/server/main.go
+# Start HTTP REST API server with custom database path
+go run cmd/server/main.go /path/to/db
 
-# Start PostgreSQL wire protocol server
-go run cmd/server/main.go pg
+# Start PostgreSQL wire protocol server with custom database path
+go run cmd/server/main.go /path/to/db pg
 ```
 
 ### Using the Embedded Client
 
 ```go
-import "github.com/guileen/pqlitedb/client"
+import "github.com/guileen/pglitedb/client"
 
 // Create an embedded client
-db := client.NewClient()
+db := client.NewClient("/path/to/db")
 
 // Insert a record
 data := map[string]interface{}{

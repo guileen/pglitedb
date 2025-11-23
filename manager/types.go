@@ -3,7 +3,7 @@ package manager
 import (
 	"context"
 
-	"github.com/guileen/pqlitedb/table"
+	"github.com/guileen/pglitedb/table"
 )
 
 type Manager interface {

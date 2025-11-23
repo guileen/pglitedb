@@ -1,7 +1,7 @@
 package codec
 
 import (
-	"github.com/guileen/pqlitedb/table"
+	"github.com/guileen/pglitedb/table"
 )
 
 type KeyType byte

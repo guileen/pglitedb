@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
-	"github.com/guileen/pqlitedb/client"
+	"github.com/guileen/pglitedb/client"
+	"github.com/guileen/pglitedb/table"
 )
 
 func main() {
 	// Create an embedded client
-	db := client.NewClient()
+	db := client.NewClient("/tmp/pglitedb-example")
 
 	// Example: Insert a record
 	ctx := context.Background()
@@ -42,7 +42,7 @@ func main() {
 	}
 
 	fmt.Printf("Found %d records\n", result.Count)
-	for _, record := range result.Records {
+	for _, record := range result.Rows {
 		fmt.Printf("Record: %+v\n", record.Data)
 	}
 

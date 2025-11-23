@@ -7,8 +7,8 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/guileen/pqlitedb/executor"
-	"github.com/guileen/pqlitedb/table"
+	"github.com/guileen/pglitedb/executor"
+	"github.com/guileen/pglitedb/table"
 )
 
 type RESTHandler struct {
