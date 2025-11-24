@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/guileen/pglitedb/internal/codec"
-	"github.com/guileen/pglitedb/internal/engine"
-	"github.com/guileen/pglitedb/internal/executor"
-	"github.com/guileen/pglitedb/internal/kv"
-	"github.com/guileen/pglitedb/internal/manager"
-	"github.com/guileen/pglitedb/internal/table"
+	"github.com/guileen/pglitedb/codec"
+	"github.com/guileen/pglitedb/engine"
+	"github.com/guileen/pglitedb/protocol/executor"
+	"github.com/guileen/pglitedb/storage"
+	
+	"github.com/guileen/pglitedb/catalog"
 	"github.com/guileen/pglitedb/types"
 )
 
@@ -23,7 +23,8 @@ type Client struct {
 // NewClient creates a new embedded client
 func NewClient(dbPath string) *Client {
 	// Create a pebble KV store
-	kvStore, err := kv.NewPebbleKV(kv.DefaultPebbleConfig(dbPath))
+	config := storage.DefaultPebbleConfig(dbPath)
+	kvStore, err := storage.NewPebbleKV(config)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create pebble kv: %v", err))
 	}
@@ -33,7 +34,7 @@ func NewClient(dbPath string) *Client {
 	
 	// Create engine and manager
 	eng := engine.NewPebbleEngine(kvStore, c)
-	mgr := manager.NewTableManager(eng)
+	mgr := catalog.NewTableManager(eng)
 	exec := executor.NewExecutor(mgr, eng)
 
 	return &Client{
@@ -64,7 +65,7 @@ func convertInternalToExternalResult(internalResult *types.QueryResult) *types.Q
 	}
 
 	// Convert Records to Rows if needed
-	records, ok := internalResult.Records.([]*table.Record)
+	records, ok := internalResult.Records.([]*types.Record)
 	if !ok {
 		return internalResult
 	}
@@ -87,7 +88,7 @@ func convertInternalToExternalResult(internalResult *types.QueryResult) *types.Q
 	}
 }
 
-// convertExternalToInternalOptions converts external client.QueryOptions to internal table.QueryOptions
+// convertExternalToInternalOptions converts external client.QueryOptions to internal types.QueryOptions
 func convertExternalToInternalOptions(options *types.QueryOptions) *types.QueryOptions {
 	// Since we're using unified types, we can return the same object
 	// or create a copy if needed
@@ -134,11 +135,11 @@ func (c *Client) Explain(ctx context.Context, query interface{}) (interface{}, e
 // Insert inserts a new record into the specified table
 func (c *Client) Insert(ctx context.Context, tenantID int64, tableName string, data map[string]interface{}) (*types.QueryResult, error) {
 	// Convert data map to executor.Value map
-	values := make(map[string]*table.Value)
+	values := make(map[string]*types.Value)
 	for key, value := range data {
-		values[key] = &table.Value{
+		values[key] = &types.Value{
 			Data: value,
-			Type: table.GetColumnTypeFromGoType(fmt.Sprintf("%T", value)),
+			Type: types.GetColumnTypeFromGoType(fmt.Sprintf("%T", value)),
 		}
 	}
 
@@ -227,11 +228,11 @@ func (c *Client) Select(ctx context.Context, tenantID int64, tableName string, o
 // Update updates records in the specified table
 func (c *Client) Update(ctx context.Context, tenantID int64, tableName string, where map[string]interface{}, data map[string]interface{}) (*types.QueryResult, error) {
 	// Convert data map to executor.Value map
-	values := make(map[string]*table.Value)
+	values := make(map[string]*types.Value)
 	for key, value := range data {
-		values[key] = &table.Value{
+		values[key] = &types.Value{
 			Data: value,
-			Type: table.GetColumnTypeFromGoType(fmt.Sprintf("%T", value)),
+			Type: types.GetColumnTypeFromGoType(fmt.Sprintf("%T", value)),
 		}
 	}
 

@@ -10,13 +10,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/guileen/pglitedb/api"
-	"github.com/guileen/pglitedb/internal/codec"
-	"github.com/guileen/pglitedb/internal/engine"
-	"github.com/guileen/pglitedb/internal/executor"
-	"github.com/guileen/pglitedb/internal/kv"
-	"github.com/guileen/pglitedb/internal/manager"
-	"github.com/guileen/pglitedb/pgserver"
+	"github.com/guileen/pglitedb/protocol/api"
+	"github.com/guileen/pglitedb/codec"
+	"github.com/guileen/pglitedb/engine"
+	"github.com/guileen/pglitedb/protocol/executor"
+	"github.com/guileen/pglitedb/storage"
+	
+	"github.com/guileen/pglitedb/catalog"
+	"github.com/guileen/pglitedb/protocol/pgserver"
 )
 
 func main() {
@@ -40,7 +41,8 @@ func main() {
 func startHTTPServer(dbPath string) {
 	// Create database components
 	// Create a pebble KV store
-	kvStore, err := kv.NewPebbleKV(kv.DefaultPebbleConfig(dbPath + "-http"))
+	config := storage.DefaultPebbleConfig(dbPath + "-http")
+	kvStore, err := storage.NewPebbleKV(config)
 	if err != nil {
 		log.Fatalf("failed to create pebble kv: %v", err)
 	}
@@ -50,7 +52,7 @@ func startHTTPServer(dbPath string) {
 	
 	// Create engine and manager
 	eng := engine.NewPebbleEngine(kvStore, c)
-	mgr := manager.NewTableManager(eng)
+	mgr := catalog.NewTableManager(eng)
 	exec := executor.NewExecutor(mgr, eng)
 
 	// Create REST handler
@@ -99,7 +101,7 @@ func startHTTPServer(dbPath string) {
 func startPostgreSQLServer(dbPath string) {
 	// Create database components
 	// Create a pebble KV store
-	kvStore, err := kv.NewPebbleKV(kv.DefaultPebbleConfig(dbPath + "-postgres"))
+	kvStore, err := storage.NewPebbleKV(storage.DefaultPebbleConfig(dbPath + "-postgres"))
 	if err != nil {
 		log.Fatalf("failed to create pebble kv: %v", err)
 	}
@@ -109,7 +111,7 @@ func startPostgreSQLServer(dbPath string) {
 	
 	// Create engine and manager
 	eng := engine.NewPebbleEngine(kvStore, c)
-	mgr := manager.NewTableManager(eng)
+	mgr := catalog.NewTableManager(eng)
 	exec := executor.NewExecutor(mgr, eng)
 
 	// Create PostgreSQL server
