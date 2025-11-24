@@ -8,8 +8,18 @@ import (
 
 // WriteOptions defines options for write operations
 type WriteOptions struct {
-	Sync bool
+	Sync       bool
+	Durability DurabilityLevel
 }
+
+// DurabilityLevel defines the durability guarantee level
+type DurabilityLevel int
+
+const (
+	DurabilityEventual    DurabilityLevel = iota
+	DurabilityGroupCommit
+	DurabilityImmediate
+)
 
 // IsolationLevel defines the isolation level for transactions
 type IsolationLevel int
@@ -28,8 +38,9 @@ const (
 )
 
 var (
-	DefaultWriteOptions = &WriteOptions{Sync: false}
-	SyncWriteOptions    = &WriteOptions{Sync: true}
+	DefaultWriteOptions  = &WriteOptions{Sync: false, Durability: DurabilityEventual}
+	SyncWriteOptions     = &WriteOptions{Sync: true, Durability: DurabilityImmediate}
+	EventualWriteOptions = &WriteOptions{Sync: false, Durability: DurabilityEventual}
 )
 
 // KV defines the interface for key-value storage operations

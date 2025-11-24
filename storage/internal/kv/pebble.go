@@ -176,7 +176,7 @@ func (p *PebbleKV) CommitBatchWithOptions(ctx context.Context, batch shared.Batc
 	}
 
 	writeOpts := pebble.NoSync
-	if opts != nil && opts.Sync {
+	if opts != nil && (opts.Sync || opts.Durability == shared.DurabilityImmediate) {
 		writeOpts = pebble.Sync
 	} else {
 		atomic.AddInt64(&p.pendingWrites, int64(pb.batch.Count()))

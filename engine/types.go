@@ -14,7 +14,9 @@ type StorageEngine interface {
 	InsertRow(ctx context.Context, tenantID, tableID int64, row *types.Record, schemaDef *types.TableDefinition) (int64, error)
 	InsertRowBatch(ctx context.Context, tenantID, tableID int64, rows []*types.Record, schemaDef *types.TableDefinition) ([]int64, error)
 	UpdateRow(ctx context.Context, tenantID, tableID, rowID int64, updates map[string]*types.Value, schemaDef *types.TableDefinition) error
+	UpdateRowBatch(ctx context.Context, tenantID, tableID int64, updates []RowUpdate, schemaDef *types.TableDefinition) error
 	DeleteRow(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *types.TableDefinition) error
+	DeleteRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *types.TableDefinition) error
 
 	CreateIndex(ctx context.Context, tenantID, tableID int64, indexDef *types.IndexDefinition) error
 	DropIndex(ctx context.Context, tenantID, tableID, indexID int64) error
@@ -31,6 +33,11 @@ type StorageEngine interface {
 	NextIndexID(ctx context.Context, tenantID, tableID int64) (int64, error)
 
 	Close() error
+}
+
+type RowUpdate struct {
+	RowID   int64
+	Updates map[string]*types.Value
 }
 
 type ScanOptions struct {
@@ -64,7 +71,9 @@ type Transaction interface {
 	GetRow(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *types.TableDefinition) (*types.Record, error)
 	InsertRow(ctx context.Context, tenantID, tableID int64, row *types.Record, schemaDef *types.TableDefinition) (int64, error)
 	UpdateRow(ctx context.Context, tenantID, tableID, rowID int64, updates map[string]*types.Value, schemaDef *types.TableDefinition) error
+	UpdateRowBatch(ctx context.Context, tenantID, tableID int64, updates []RowUpdate, schemaDef *types.TableDefinition) error
 	DeleteRow(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *types.TableDefinition) error
+	DeleteRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *types.TableDefinition) error
 	Commit() error
 	Rollback() error
 

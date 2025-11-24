@@ -1337,6 +1337,24 @@ func (t *transaction) DeleteRow(ctx context.Context, tenantID, tableID, rowID in
 	return nil
 }
 
+func (t *transaction) UpdateRowBatch(ctx context.Context, tenantID, tableID int64, updates []RowUpdate, schemaDef *types.TableDefinition) error {
+	for _, update := range updates {
+		if err := t.UpdateRow(ctx, tenantID, tableID, update.RowID, update.Updates, schemaDef); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *transaction) DeleteRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *types.TableDefinition) error {
+	for _, rowID := range rowIDs {
+		if err := t.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (t *transaction) Isolation() storage.IsolationLevel {
 	return t.isolation
 }

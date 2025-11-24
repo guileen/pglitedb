@@ -172,6 +172,32 @@ func (tx *snapshotTransaction) DeleteRow(ctx context.Context, tenantID, tableID,
 	return nil
 }
 
+func (tx *snapshotTransaction) UpdateRowBatch(ctx context.Context, tenantID, tableID int64, updates []RowUpdate, schemaDef *types.TableDefinition) error {
+	if tx.closed {
+		return storage.ErrClosed
+	}
+
+	for _, update := range updates {
+		if err := tx.UpdateRow(ctx, tenantID, tableID, update.RowID, update.Updates, schemaDef); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (tx *snapshotTransaction) DeleteRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *types.TableDefinition) error {
+	if tx.closed {
+		return storage.ErrClosed
+	}
+
+	for _, rowID := range rowIDs {
+		if err := tx.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (tx *snapshotTransaction) Commit() error {
 	if tx.closed {
 		return storage.ErrClosed
