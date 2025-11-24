@@ -7,8 +7,8 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/guileen/pglitedb/executor"
-	"github.com/guileen/pglitedb/table"
+	"github.com/guileen/pglitedb/internal/executor"
+	"github.com/guileen/pglitedb/internal/table"
 )
 
 type RESTHandler struct {
@@ -113,11 +113,8 @@ func (h *RESTHandler) QueryRecords(w http.ResponseWriter, r *http.Request) {
 
 	rows := make([]map[string]interface{}, len(result.Rows))
 	for i, row := range result.Rows {
-		rowData := make(map[string]interface{})
-		for k, v := range row.Data {
-			rowData[k] = v.Data
-		}
-		rows[i] = rowData
+		// row is already a map[string]interface{}, no need to convert
+		rows[i] = row
 	}
 
 	response := &QueryResponse{
@@ -296,10 +293,7 @@ func (h *RESTHandler) GetRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	recordData := make(map[string]interface{})
-	for k, v := range result.Rows[0].Data {
-		recordData[k] = v.Data
-	}
+	recordData := result.Rows[0]
 
 	writeJSON(w, http.StatusOK, recordData)
 }

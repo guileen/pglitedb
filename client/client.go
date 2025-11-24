@@ -3,13 +3,15 @@ package client
 import (
 	"context"
 	"fmt"
+	"strings"
 
-	"github.com/guileen/pglitedb/codec"
-	"github.com/guileen/pglitedb/engine"
-	"github.com/guileen/pglitedb/executor"
-	"github.com/guileen/pglitedb/kv"
-	"github.com/guileen/pglitedb/manager"
-	"github.com/guileen/pglitedb/table"
+	"github.com/guileen/pglitedb/internal/codec"
+	"github.com/guileen/pglitedb/internal/engine"
+	"github.com/guileen/pglitedb/internal/executor"
+	"github.com/guileen/pglitedb/internal/kv"
+	"github.com/guileen/pglitedb/internal/manager"
+	"github.com/guileen/pglitedb/internal/table"
+	"github.com/guileen/pglitedb/types"
 )
 
 // Client provides a unified interface for interacting with the database
@@ -46,21 +48,98 @@ func NewClientWithExecutor(exec executor.QueryExecutor) *Client {
 	}
 }
 
+// convertInternalToExternalResult converts internal executor.QueryResult to external client.QueryResult
+func convertInternalToExternalResult(internalResult *types.QueryResult) *types.QueryResult {
+	if internalResult == nil {
+		return &types.QueryResult{
+			Rows:    []map[string]interface{}{},
+			Count:   0,
+			HasMore: false,
+		}
+	}
+
+	// If Rows is already populated, return as is
+	if len(internalResult.Rows) > 0 || internalResult.Records == nil {
+		return internalResult
+	}
+
+	// Convert Records to Rows if needed
+	records, ok := internalResult.Records.([]*table.Record)
+	if !ok {
+		return internalResult
+	}
+
+	rows := make([]map[string]interface{}, len(records))
+	for i, record := range records {
+		row := make(map[string]interface{})
+		for key, value := range record.Data {
+			if value != nil {
+				row[key] = value.Data
+			}
+		}
+		rows[i] = row
+	}
+
+	return &types.QueryResult{
+		Rows:    rows,
+		Count:   internalResult.Count,
+		HasMore: internalResult.HasMore,
+	}
+}
+
+// convertExternalToInternalOptions converts external client.QueryOptions to internal table.QueryOptions
+func convertExternalToInternalOptions(options *types.QueryOptions) *types.QueryOptions {
+	// Since we're using unified types, we can return the same object
+	// or create a copy if needed
+	if options == nil {
+		return &types.QueryOptions{}
+	}
+	
+	// Return the same object since types are unified
+	return options
+}
+
 // Query executes a query and returns the result
-func (c *Client) Query(ctx context.Context, query *executor.Query) (*executor.QueryResult, error) {
-	return c.executor.Execute(ctx, query)
+func (c *Client) Query(ctx context.Context, query interface{}) (*types.QueryResult, error) {
+	// Convert query interface to executor.Query
+	execQuery, ok := query.(*executor.Query)
+	if !ok {
+		return nil, fmt.Errorf("invalid query type: expected *executor.Query")
+	}
+
+	result, err := c.executor.Execute(ctx, execQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	return convertInternalToExternalResult(result), nil
 }
 
 // Explain generates an execution plan for a query without executing it
-func (c *Client) Explain(ctx context.Context, query *executor.Query) (*executor.QueryPlan, error) {
-	return c.executor.Explain(ctx, query)
+func (c *Client) Explain(ctx context.Context, query interface{}) (interface{}, error) {
+	// Convert query interface to executor.Query
+	execQuery, ok := query.(*executor.Query)
+	if !ok {
+		return nil, fmt.Errorf("invalid query type: expected *executor.Query")
+	}
+
+	plan, err := c.executor.Explain(ctx, execQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	return plan, nil
 }
 
 // Insert inserts a new record into the specified table
-func (c *Client) Insert(ctx context.Context, tenantID int64, tableName string, data map[string]interface{}) (*executor.QueryResult, error) {
+func (c *Client) Insert(ctx context.Context, tenantID int64, tableName string, data map[string]interface{}) (*types.QueryResult, error) {
+	// Convert data map to executor.Value map
 	values := make(map[string]*table.Value)
-	for k, v := range data {
-		values[k] = &table.Value{Data: v}
+	for key, value := range data {
+		values[key] = &table.Value{
+			Data: value,
+			Type: table.GetColumnTypeFromGoType(fmt.Sprintf("%T", value)),
+		}
 	}
 
 	query := &executor.Query{
@@ -72,33 +151,98 @@ func (c *Client) Insert(ctx context.Context, tenantID int64, tableName string, d
 		},
 	}
 
-	return c.executor.Execute(ctx, query)
+	result, err := c.executor.Execute(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	return convertInternalToExternalResult(result), nil
 }
 
 // Select retrieves records from the specified table
-func (c *Client) Select(ctx context.Context, tenantID int64, tableName string, options *table.QueryOptions) (*executor.QueryResult, error) {
+func (c *Client) Select(ctx context.Context, tenantID int64, tableName string, options *types.QueryOptions) (*types.QueryResult, error) {
+	internalOptions := convertExternalToInternalOptions(options)
+
+	// Convert where conditions to executor filters
+	var filters []executor.Filter
+	if internalOptions.Where != nil {
+		for column, value := range internalOptions.Where {
+			filters = append(filters, executor.Filter{
+				Column:   column,
+				Operator: executor.OpEqual,
+				Value:    value,
+			})
+		}
+	}
+
+	// Convert order by options
+	var orderBy []executor.OrderByClause
+	if internalOptions.OrderBy != nil {
+		for _, order := range internalOptions.OrderBy {
+			// Parse order string like "name DESC" or "age ASC"
+			desc := false
+			column := order
+			if len(order) > 5 && order[len(order)-4:] == "DESC" {
+				desc = true
+				column = order[:len(order)-5]
+			} else if len(order) > 4 && order[len(order)-3:] == "ASC" {
+				column = order[:len(order)-4]
+			}
+			orderBy = append(orderBy, executor.OrderByClause{
+				Column:     strings.TrimSpace(column),
+				Descending: desc,
+			})
+		}
+	}
+
 	query := &executor.Query{
 		Type:      executor.QueryTypeSelect,
 		TableName: tableName,
 		TenantID:  tenantID,
 		Select: &executor.SelectQuery{
-			Columns: options.Columns,
-			Where:   convertFilters(options.Where),
-			Limit:   intPtrToInt(options.Limit),
-			Offset:  intPtrToInt(options.Offset),
+			Columns: internalOptions.Columns,
+			Where:   filters,
+			OrderBy: orderBy,
+			Limit:   0,
+			Offset:  0,
 		},
 	}
 
-	return c.executor.Execute(ctx, query)
+	// Apply limit and offset if provided
+	if internalOptions.Limit != nil {
+		query.Select.Limit = *internalOptions.Limit
+	}
+	if internalOptions.Offset != nil {
+		query.Select.Offset = *internalOptions.Offset
+	}
+
+	result, err := c.executor.Execute(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	return convertInternalToExternalResult(result), nil
 }
 
 // Update updates records in the specified table
-func (c *Client) Update(ctx context.Context, tenantID int64, tableName string, where map[string]interface{}, data map[string]interface{}) (*executor.QueryResult, error) {
-	whereFilters := convertFilters(where)
-
+func (c *Client) Update(ctx context.Context, tenantID int64, tableName string, where map[string]interface{}, data map[string]interface{}) (*types.QueryResult, error) {
+	// Convert data map to executor.Value map
 	values := make(map[string]*table.Value)
-	for k, v := range data {
-		values[k] = &table.Value{Data: v}
+	for key, value := range data {
+		values[key] = &table.Value{
+			Data: value,
+			Type: table.GetColumnTypeFromGoType(fmt.Sprintf("%T", value)),
+		}
+	}
+
+	// Convert where conditions to executor filters
+	var filters []executor.Filter
+	for column, value := range where {
+		filters = append(filters, executor.Filter{
+			Column:   column,
+			Operator: executor.OpEqual,
+			Value:    value,
+		})
 	}
 
 	query := &executor.Query{
@@ -106,49 +250,44 @@ func (c *Client) Update(ctx context.Context, tenantID int64, tableName string, w
 		TableName: tableName,
 		TenantID:  tenantID,
 		Update: &executor.UpdateQuery{
-			Where:  whereFilters,
 			Values: values,
+			Where:  filters,
 		},
 	}
 
-	return c.executor.Execute(ctx, query)
+	result, err := c.executor.Execute(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	return convertInternalToExternalResult(result), nil
 }
 
 // Delete deletes records from the specified table
-func (c *Client) Delete(ctx context.Context, tenantID int64, tableName string, where map[string]interface{}) (*executor.QueryResult, error) {
-	whereFilters := convertFilters(where)
+func (c *Client) Delete(ctx context.Context, tenantID int64, tableName string, where map[string]interface{}) (*types.QueryResult, error) {
+	// Convert where conditions to executor filters
+	var filters []executor.Filter
+	for column, value := range where {
+		filters = append(filters, executor.Filter{
+			Column:   column,
+			Operator: executor.OpEqual,
+			Value:    value,
+		})
+	}
 
 	query := &executor.Query{
 		Type:      executor.QueryTypeDelete,
 		TableName: tableName,
 		TenantID:  tenantID,
 		Delete: &executor.DeleteQuery{
-			Where: whereFilters,
+			Where: filters,
 		},
 	}
 
-	return c.executor.Execute(ctx, query)
-}
-
-func convertFilters(filters map[string]interface{}) []executor.Filter {
-	if filters == nil {
-		return nil
+	result, err := c.executor.Execute(ctx, query)
+	if err != nil {
+		return nil, err
 	}
 
-	result := make([]executor.Filter, 0, len(filters))
-	for field, value := range filters {
-		result = append(result, executor.Filter{
-			Column:   field,
-			Operator: executor.OpEqual,
-			Value:    value,
-		})
-	}
-	return result
-}
-
-func intPtrToInt(ptr *int) int {
-	if ptr == nil {
-		return 0
-	}
-	return *ptr
+	return convertInternalToExternalResult(result), nil
 }

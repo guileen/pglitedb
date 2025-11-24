@@ -11,11 +11,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/guileen/pglitedb/api"
-	"github.com/guileen/pglitedb/codec"
-	"github.com/guileen/pglitedb/engine"
-	"github.com/guileen/pglitedb/executor"
-	"github.com/guileen/pglitedb/kv"
-	"github.com/guileen/pglitedb/manager"
+	"github.com/guileen/pglitedb/internal/codec"
+	"github.com/guileen/pglitedb/internal/engine"
+	"github.com/guileen/pglitedb/internal/executor"
+	"github.com/guileen/pglitedb/internal/kv"
+	"github.com/guileen/pglitedb/internal/manager"
 	"github.com/guileen/pglitedb/pgserver"
 )
 

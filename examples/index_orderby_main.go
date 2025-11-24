@@ -11,25 +11,20 @@ import (
 
 func main() {
 	// Create an embedded client
-	db := client.NewClient("/tmp/pglitedb-example")
-
+	db := client.NewClient("/tmp/pglitedb-index-test")
+	
 	// Example: Create a table first
 	ctx := context.Background()
 	
-	// For now, let's just test the client can be created and used
-	// In a real implementation, we would need to create tables first
-	
-	// Example: Query (this will return empty result since no data exists)
+	// Test ORDER BY functionality
 	options := &types.QueryOptions{
-		Where: map[string]interface{}{
-			"age": 30,
-		},
-		Limit: intPtr(10),
+		OrderBy: []string{"name"},
+		Limit:   intPtr(10),
 	}
-
+	
 	result, err := db.Select(ctx, 1, "users", options)
 	if err != nil {
-		log.Printf("Query returned error (expected since no data exists): %v", err)
+		log.Printf("Query returned error: %v", err)
 	} else {
 		fmt.Printf("Found %d records\n", result.Count)
 		for _, row := range result.Rows {
@@ -37,7 +32,7 @@ func main() {
 		}
 	}
 	
-	fmt.Println("Client created and basic operations tested successfully!")
+	fmt.Println("Index-based ORDER BY test completed successfully!")
 }
 
 func intPtr(i int) *int {

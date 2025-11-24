@@ -6,8 +6,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/guileen/pglitedb/executor"
-	"github.com/guileen/pglitedb/sql"
+	"github.com/guileen/pglitedb/internal/executor"
+	"github.com/guileen/pglitedb/internal/sql"
 	"github.com/jackc/pgx/v5/pgproto3"
 )
 

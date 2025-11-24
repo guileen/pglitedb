@@ -9,12 +9,12 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/guileen/pglitedb/codec"
-	"github.com/guileen/pglitedb/engine"
-	"github.com/guileen/pglitedb/executor"
-	"github.com/guileen/pglitedb/kv"
-	"github.com/guileen/pglitedb/manager"
-	"github.com/guileen/pglitedb/table"
+	"github.com/guileen/pglitedb/internal/codec"
+	"github.com/guileen/pglitedb/internal/engine"
+	"github.com/guileen/pglitedb/internal/executor"
+	"github.com/guileen/pglitedb/internal/kv"
+	"github.com/guileen/pglitedb/internal/manager"
+	"github.com/guileen/pglitedb/internal/table"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
