@@ -1,8 +1,11 @@
 package operators
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/guileen/pglitedb/engine"
+	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/types"
 )
 
@@ -240,10 +243,13 @@ type AggregateOperator struct {
 	groupByColumns []string
 	aggFuncs       []AggFunction
 
-	groups   map[string][]AggFunction
-	groupIdx int
-	groupKeys []string
-	finished bool
+	groups       map[string][]AggFunction
+	groupIdx     int
+	groupKeys    []string
+	finished     bool
+	maxMemory    int64
+	spillManager *engine.SpillManager
+	ctx          context.Context
 }
 
 func NewAggregate(input PhysicalOperator, groupBy []string, aggFuncs []AggFunction) *AggregateOperator {
@@ -252,6 +258,18 @@ func NewAggregate(input PhysicalOperator, groupBy []string, aggFuncs []AggFuncti
 		groupByColumns: groupBy,
 		aggFuncs:       aggFuncs,
 		groups:         make(map[string][]AggFunction),
+		maxMemory:      256 * 1024 * 1024,
+	}
+}
+
+func NewAggregateWithSpill(ctx context.Context, input PhysicalOperator, groupBy []string, aggFuncs []AggFunction, kv storage.KV, queryID string) *AggregateOperator {
+	return &AggregateOperator{
+		input:          input,
+		groupByColumns: groupBy,
+		aggFuncs:       aggFuncs,
+		groups:         make(map[string][]AggFunction),
+		maxMemory:      256 * 1024 * 1024,
+		ctx:            ctx,
 	}
 }
 
