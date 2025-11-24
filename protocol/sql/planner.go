@@ -95,6 +95,12 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 		if err := p.planSelect(stmt, plan); err != nil {
 			return nil, fmt.Errorf("failed to plan SELECT statement: %w", err)
 		}
+	case *sqlparser.Insert:
+		plan.Operation = "insert"
+	case *sqlparser.Update:
+		plan.Operation = "update"
+	case *sqlparser.Delete:
+		plan.Operation = "delete"
 	case *sqlparser.DDL:
 		plan.Operation = "ddl"
 	default:

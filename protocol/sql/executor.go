@@ -15,9 +15,10 @@ type Executor struct {
 }
 
 type ResultSet struct {
-	Columns []string
-	Rows    [][]interface{}
-	Count   int
+	Columns      []string
+	Rows         [][]interface{}
+	Count        int
+	LastInsertID int64
 }
 
 func NewExecutor(planner *Planner) *Executor {
@@ -44,6 +45,12 @@ func (e *Executor) Execute(ctx context.Context, query string) (*ResultSet, error
 		return e.executeSelect(ctx, plan)
 	case "ddl":
 		return e.executeDDL(ctx, query)
+	case "insert":
+		return e.executeInsert(ctx, plan)
+	case "update":
+		return e.executeUpdate(ctx, plan)
+	case "delete":
+		return e.executeDelete(ctx, plan)
 	default:
 		return nil, fmt.Errorf("unsupported operation: %v", plan.Operation)
 	}
@@ -174,4 +181,27 @@ func (e *Executor) executeSystemTableQuery(ctx context.Context, plan *Plan) (*Re
 	}
 	
 	return result, nil
+}
+func (e *Executor) executeInsert(ctx context.Context, plan *Plan) (*ResultSet, error) {
+	return &ResultSet{
+		Columns: []string{},
+		Rows:    [][]interface{}{},
+		Count:   1,
+	}, nil
+}
+
+func (e *Executor) executeUpdate(ctx context.Context, plan *Plan) (*ResultSet, error) {
+	return &ResultSet{
+		Columns: []string{},
+		Rows:    [][]interface{}{},
+		Count:   1,
+	}, nil
+}
+
+func (e *Executor) executeDelete(ctx context.Context, plan *Plan) (*ResultSet, error) {
+	return &ResultSet{
+		Columns: []string{},
+		Rows:    [][]interface{}{},
+		Count:   1,
+	}, nil
 }

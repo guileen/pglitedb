@@ -30,9 +30,11 @@ type PostgreSQLServer struct {
 
 // PreparedStatement represents a parsed SQL statement
 type PreparedStatement struct {
-	Name          string
-	Query         string
-	ParameterOIDs []uint32
+	Name            string
+	Query           string
+	PreprocessedSQL string
+	ParameterOIDs   []uint32
+	ReturningColumns []string
 }
 
 // Portal represents a bound statement with parameters
@@ -260,10 +262,21 @@ func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) 
 
 // handleParse handles the Parse message
 func (s *PostgreSQLServer) handleParse(backend *pgproto3.Backend, msg *pgproto3.Parse) bool {
+	mysqlParser, ok := s.parser.(*sql.MySQLParser)
+	if !ok {
+		s.sendErrorAndReady(backend, "XX000", "Internal error: parser type mismatch")
+		return false
+	}
+	
+	returningCols := mysqlParser.ExtractReturningColumns(msg.Query)
+	preprocessedSQL := mysqlParser.PreprocessPostgreSQLDDL(msg.Query)
+	
 	stmt := &PreparedStatement{
-		Name:          msg.Name,
-		Query:         msg.Query,
-		ParameterOIDs: msg.ParameterOIDs,
+		Name:             msg.Name,
+		Query:            msg.Query,
+		PreprocessedSQL:  preprocessedSQL,
+		ParameterOIDs:    msg.ParameterOIDs,
+		ReturningColumns: returningCols,
 	}
 	
 	stmtName := msg.Name
@@ -407,20 +420,22 @@ func (s *PostgreSQLServer) handleExecute(backend *pgproto3.Backend, msg *pgproto
 		return false
 	}
 
-	query := s.replacePostgreSQLPlaceholders(portal.Statement.Query, portal.Params)
+	query := s.replacePostgreSQLPlaceholders(portal.Statement.PreprocessedSQL, portal.Params)
 	
 	ctx := context.Background()
-	parsed, err := s.parser.Parse(query)
-	if err != nil {
-		s.sendErrorAndReady(backend, "42601", 
-			fmt.Sprintf("Syntax error: failed to parse SQL query: %v (transformed query: %s)", err, query))
-		return false
-	}
-	
-	result, err := s.planner.Execute(ctx, parsed.Query)
+	result, err := s.planner.Execute(ctx, query)
 	if err != nil {
 		s.sendErrorAndReady(backend, "42000", 
 			fmt.Sprintf("Query execution failed: %v", err))
+		return false
+	}
+	
+	if len(portal.Statement.ReturningColumns) > 0 {
+		returningResult := s.buildReturningResult(result, portal.Statement.ReturningColumns)
+		s.sendReturningResult(backend, returningResult)
+		if err := backend.Flush(); err != nil {
+			return true
+		}
 		return false
 	}
 	
@@ -593,4 +608,65 @@ func (s *PostgreSQLServer) parseTextParameter(data []byte, oid uint32) interface
 	}
 	
 	return text
+}
+
+func (s *PostgreSQLServer) buildReturningResult(result *sql.ResultSet, returningCols []string) *sql.ResultSet {
+	if result.LastInsertID == 0 {
+		return &sql.ResultSet{
+			Columns: returningCols,
+			Rows:    [][]interface{}{},
+			Count:   0,
+		}
+	}
+	
+	returningResult := &sql.ResultSet{
+		Columns:      returningCols,
+		Rows:         make([][]interface{}, 1),
+		Count:        1,
+		LastInsertID: result.LastInsertID,
+	}
+	
+	row := make([]interface{}, len(returningCols))
+	for i, col := range returningCols {
+		if col == "id" || col == "*" {
+			row[i] = result.LastInsertID
+		} else {
+			row[i] = nil
+		}
+	}
+	returningResult.Rows[0] = row
+	
+	return returningResult
+}
+
+func (s *PostgreSQLServer) sendReturningResult(backend *pgproto3.Backend, result *sql.ResultSet) {
+	fields := make([]pgproto3.FieldDescription, len(result.Columns))
+	for i, col := range result.Columns {
+		fields[i] = pgproto3.FieldDescription{
+			Name:                 []byte(col),
+			TableOID:             0,
+			TableAttributeNumber: 0,
+			DataTypeOID:          23,
+			DataTypeSize:         4,
+			TypeModifier:         -1,
+			Format:               0,
+		}
+	}
+	backend.Send(&pgproto3.RowDescription{Fields: fields})
+	
+	for _, row := range result.Rows {
+		dataRow := &pgproto3.DataRow{Values: make([][]byte, len(row))}
+		for i, val := range row {
+			if val == nil {
+				dataRow.Values[i] = nil
+			} else {
+				dataRow.Values[i] = []byte(fmt.Sprintf("%v", val))
+			}
+		}
+		backend.Send(dataRow)
+	}
+	
+	backend.Send(&pgproto3.CommandComplete{
+		CommandTag: []byte(fmt.Sprintf("INSERT 0 %d", result.Count)),
+	})
 }

@@ -28,13 +28,14 @@ type QueryResult struct {
 	HasMore bool            `json:"has_more,omitempty"`
 	
 	// Extended fields for internal use
-	Records  interface{}   `json:"-"` // Will be []*table.Record in implementation
-	Duration time.Duration `json:"-"` 
-	Query    string        `json:"-"`
-	Params   []interface{} `json:"-"`
-	Debug    interface{}   `json:"-"`
-	Limit    *int          `json:"-"`
-	Offset   *int          `json:"-"`
+	Records      interface{}   `json:"-"` // Will be []*table.Record in implementation
+	Duration     time.Duration `json:"-"` 
+	Query        string        `json:"-"`
+	Params       []interface{} `json:"-"`
+	Debug        interface{}   `json:"-"`
+	Limit        *int          `json:"-"`
+	Offset       *int          `json:"-"`
+	LastInsertID int64         `json:"-"`
 }
 
 type ColumnInfo struct {

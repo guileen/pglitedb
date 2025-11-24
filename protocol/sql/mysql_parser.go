@@ -3,6 +3,7 @@ package sql
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/xwb1989/sqlparser"
 )
@@ -17,26 +18,29 @@ func NewMySQLParser() *MySQLParser {
 
 // Parse takes a raw SQL query string and returns a parsed representation
 func (p *MySQLParser) Parse(query string) (*ParsedQuery, error) {
-	preprocessedQuery := p.preprocessPostgreSQLDDL(query)
+	returningColumns := p.ExtractReturningColumns(query)
+	preprocessedQuery := p.PreprocessPostgreSQLDDL(query)
 	
 	stmt, err := sqlparser.Parse(preprocessedQuery)
 	if err != nil {
 		if ddlStmt, ddlErr := p.tryParseDDL(preprocessedQuery); ddlErr == nil {
+			ddlStmt.ReturningColumns = returningColumns
 			return ddlStmt, nil
 		}
 		return nil, fmt.Errorf("failed to parse SQL query: %w", err)
 	}
 
 	parsed := &ParsedQuery{
-		Statement: stmt,
-		Query:     query,
-		Type:      p.GetStatementType(stmt),
+		Statement:        stmt,
+		Query:            preprocessedQuery,
+		Type:             p.GetStatementType(stmt),
+		ReturningColumns: returningColumns,
 	}
 
 	return parsed, nil
 }
 
-func (p *MySQLParser) preprocessPostgreSQLDDL(query string) string {
+func (p *MySQLParser) PreprocessPostgreSQLDDL(query string) string {
 	reSerial := regexp.MustCompile(`(?i)\bBIGSERIAL\b`)
 	query = reSerial.ReplaceAllString(query, "BIGINT")
 	
@@ -45,6 +49,9 @@ func (p *MySQLParser) preprocessPostgreSQLDDL(query string) string {
 	
 	reSerial3 := regexp.MustCompile(`(?i)\bSERIAL\b`)
 	query = reSerial3.ReplaceAllString(query, "INTEGER")
+	
+	reBool := regexp.MustCompile(`(?i)\bBOOLEAN\b`)
+	query = reBool.ReplaceAllString(query, "TINYINT")
 	
 	reDecimal := regexp.MustCompile(`(?i)\bDECIMAL\s*\(\s*\d+\s*,\s*\d+\s*\)`)
 	query = reDecimal.ReplaceAllString(query, "DECIMAL")
@@ -58,7 +65,29 @@ func (p *MySQLParser) preprocessPostgreSQLDDL(query string) string {
 	reCurrentTimestamp := regexp.MustCompile(`(?i)DEFAULT\s+CURRENT_TIMESTAMP\b`)
 	query = reCurrentTimestamp.ReplaceAllString(query, "DEFAULT CURRENT_TIMESTAMP()")
 	
+	reReturning := regexp.MustCompile(`(?i)\s*RETURNING\s+[^;]+`)
+	query = reReturning.ReplaceAllString(query, "")
+	
 	return query
+}
+
+func (p *MySQLParser) ExtractReturningColumns(query string) []string {
+	reReturningAll := regexp.MustCompile(`(?i)\bRETURNING\s+\*`)
+	if reReturningAll.MatchString(query) {
+		return []string{"*"}
+	}
+	
+	reReturning := regexp.MustCompile(`(?i)\bRETURNING\s+([\w,\s]+)`)
+	matches := reReturning.FindStringSubmatch(query)
+	if len(matches) > 1 {
+		cols := strings.Split(matches[1], ",")
+		result := make([]string, len(cols))
+		for i, col := range cols {
+			result[i] = strings.TrimSpace(col)
+		}
+		return result
+	}
+	return nil
 }
 
 func (p *MySQLParser) tryParseDDL(query string) (*ParsedQuery, error) {

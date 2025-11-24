@@ -17,9 +17,10 @@ const (
 
 // ParsedQuery represents a parsed SQL query
 type ParsedQuery struct {
-	Type      StatementType
-	Statement sqlparser.Statement
-	Query     string
+	Type             StatementType
+	Statement        sqlparser.Statement
+	Query            string
+	ReturningColumns []string
 }
 
 // Parser is the interface for parsing SQL queries
