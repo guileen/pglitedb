@@ -48,6 +48,34 @@ func (e *pebbleEngine) GetRow(ctx context.Context, tenantID, tableID, rowID int6
 	return record, nil
 }
 
+func (e *pebbleEngine) GetRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *types.TableDefinition) (map[int64]*types.Record, error) {
+	if len(rowIDs) == 0 {
+		return make(map[int64]*types.Record), nil
+	}
+
+	result := make(map[int64]*types.Record, len(rowIDs))
+	
+	for _, rowID := range rowIDs {
+		key := e.codec.EncodeTableKey(tenantID, tableID, rowID)
+		value, err := e.kv.Get(ctx, key)
+		if err != nil {
+			if storage.IsNotFound(err) {
+				continue
+			}
+			return nil, fmt.Errorf("get row %d: %w", rowID, err)
+		}
+
+		record, err := e.codec.DecodeRow(value, schemaDef)
+		if err != nil {
+			return nil, fmt.Errorf("decode row %d: %w", rowID, err)
+		}
+
+		result[rowID] = record
+	}
+
+	return result, nil
+}
+
 func (e *pebbleEngine) InsertRow(ctx context.Context, tenantID, tableID int64, row *types.Record, schemaDef *types.TableDefinition) (int64, error) {
 	rowID, err := e.NextRowID(ctx, tenantID, tableID)
 	if err != nil {
@@ -67,10 +95,54 @@ func (e *pebbleEngine) InsertRow(ctx context.Context, tenantID, tableID int64, r
 	return rowID, nil
 }
 
+func (e *pebbleEngine) InsertRowBatch(ctx context.Context, tenantID, tableID int64, rows []*types.Record, schemaDef *types.TableDefinition) ([]int64, error) {
+	if len(rows) == 0 {
+		return []int64{}, nil
+	}
+
+	rowIDs := make([]int64, len(rows))
+	for i := range rows {
+		rowID, err := e.NextRowID(ctx, tenantID, tableID)
+		if err != nil {
+			return nil, fmt.Errorf("generate row id: %w", err)
+		}
+		rowIDs[i] = rowID
+	}
+
+	batch := e.kv.NewBatch()
+	defer batch.Close()
+
+	for i, row := range rows {
+		key := e.codec.EncodeTableKey(tenantID, tableID, rowIDs[i])
+		value, err := e.codec.EncodeRow(row, schemaDef)
+		if err != nil {
+			return nil, fmt.Errorf("encode row %d: %w", i, err)
+		}
+
+		if err := batch.Set(key, value); err != nil {
+			return nil, fmt.Errorf("batch set row %d: %w", i, err)
+		}
+
+		if err := e.batchUpdateIndexes(batch, tenantID, tableID, rowIDs[i], row, schemaDef); err != nil {
+			return nil, fmt.Errorf("batch update indexes for row %d: %w", i, err)
+		}
+	}
+
+	if err := e.kv.Commit(ctx, batch); err != nil {
+		return nil, fmt.Errorf("commit batch: %w", err)
+	}
+
+	return rowIDs, nil
+}
+
 func (e *pebbleEngine) UpdateRow(ctx context.Context, tenantID, tableID, rowID int64, updates map[string]*types.Value, schemaDef *types.TableDefinition) error {
 	oldRow, err := e.GetRow(ctx, tenantID, tableID, rowID, schemaDef)
 	if err != nil {
 		return fmt.Errorf("get old row: %w", err)
+	}
+
+	if err := e.deleteIndexes(ctx, tenantID, tableID, rowID, oldRow, schemaDef); err != nil {
+		return fmt.Errorf("delete old indexes: %w", err)
 	}
 
 	for k, v := range updates {
@@ -347,7 +419,6 @@ func (e *pebbleEngine) updateIndexes(ctx context.Context, tenantID, tableID, row
 	for i, indexDef := range schemaDef.Indexes {
 		indexID := int64(i + 1)
 
-		// Collect index values for all columns in this index
 		indexValues := make([]interface{}, 0, len(indexDef.Columns))
 		allValuesPresent := true
 
@@ -355,22 +426,18 @@ func (e *pebbleEngine) updateIndexes(ctx context.Context, tenantID, tableID, row
 			if val, ok := row.Data[colName]; ok && val != nil {
 				indexValues = append(indexValues, val.Data)
 			} else {
-				// If any indexed column is null, we don't index this row
 				allValuesPresent = false
 				break
 			}
 		}
 
-		// Only create index entry if all values are present
 		if allValuesPresent && len(indexValues) > 0 {
 			var indexKey []byte
 			var err error
 
 			if len(indexValues) == 1 {
-				// Single column index
 				indexKey, err = e.codec.EncodeIndexKey(tenantID, tableID, indexID, indexValues[0], rowID)
 			} else {
-				// Composite index
 				indexKey, err = e.codec.EncodeCompositeIndexKey(tenantID, tableID, indexID, indexValues, rowID)
 			}
 
@@ -380,6 +447,49 @@ func (e *pebbleEngine) updateIndexes(ctx context.Context, tenantID, tableID, row
 
 			if err := e.kv.Set(ctx, indexKey, []byte{}); err != nil {
 				return fmt.Errorf("set index: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (e *pebbleEngine) batchUpdateIndexes(batch storage.Batch, tenantID, tableID, rowID int64, row *types.Record, schemaDef *types.TableDefinition) error {
+	if schemaDef.Indexes == nil {
+		return nil
+	}
+
+	for i, indexDef := range schemaDef.Indexes {
+		indexID := int64(i + 1)
+
+		indexValues := make([]interface{}, 0, len(indexDef.Columns))
+		allValuesPresent := true
+
+		for _, colName := range indexDef.Columns {
+			if val, ok := row.Data[colName]; ok && val != nil {
+				indexValues = append(indexValues, val.Data)
+			} else {
+				allValuesPresent = false
+				break
+			}
+		}
+
+		if allValuesPresent && len(indexValues) > 0 {
+			var indexKey []byte
+			var err error
+
+			if len(indexValues) == 1 {
+				indexKey, err = e.codec.EncodeIndexKey(tenantID, tableID, indexID, indexValues[0], rowID)
+			} else {
+				indexKey, err = e.codec.EncodeCompositeIndexKey(tenantID, tableID, indexID, indexValues, rowID)
+			}
+
+			if err != nil {
+				return fmt.Errorf("encode index key: %w", err)
+			}
+
+			if err := batch.Set(indexKey, []byte{}); err != nil {
+				return fmt.Errorf("batch set index: %w", err)
 			}
 		}
 	}
@@ -448,6 +558,11 @@ type indexIterator struct {
 	engine      *pebbleEngine
 	tenantID    int64
 	tableID     int64
+	
+	batchSize   int
+	rowIDBuffer []int64
+	rowCache    map[int64]*types.Record
+	cacheIdx    int
 }
 
 func (ii *indexIterator) Next() bool {
@@ -455,46 +570,73 @@ func (ii *indexIterator) Next() bool {
 		return false
 	}
 
-	var hasNext bool
 	if !ii.started {
-		hasNext = ii.iter.First()
 		ii.started = true
-
+		ii.batchSize = 100
+		ii.rowIDBuffer = make([]int64, 0, ii.batchSize)
+		
 		if ii.opts != nil && ii.opts.Offset > 0 {
-			for i := 0; i < ii.opts.Offset && hasNext; i++ {
-				hasNext = ii.iter.Next()
+			for i := 0; i < ii.opts.Offset && ii.iter.First() && ii.iter.Valid(); i++ {
+				ii.iter.Next()
 			}
 		}
-	} else {
-		hasNext = ii.iter.Next()
 	}
 
-	if !hasNext {
-		return false
+	if len(ii.rowIDBuffer) == 0 || ii.cacheIdx >= len(ii.rowIDBuffer) {
+		ii.rowIDBuffer = ii.rowIDBuffer[:0]
+		ii.cacheIdx = 0
+
+		hasNext := false
+		if ii.count == 0 && ii.opts != nil && ii.opts.Offset > 0 {
+			hasNext = ii.iter.Valid()
+		} else if ii.count == 0 {
+			hasNext = ii.iter.First()
+		} else {
+			hasNext = ii.iter.Valid()
+		}
+
+		for len(ii.rowIDBuffer) < ii.batchSize && hasNext {
+			_, _, _, _, rowID, err := ii.codec.DecodeIndexKey(ii.iter.Key())
+			if err != nil {
+				ii.err = fmt.Errorf("decode index key: %w", err)
+				return false
+			}
+			ii.rowIDBuffer = append(ii.rowIDBuffer, rowID)
+			hasNext = ii.iter.Next()
+		}
+
+		if len(ii.rowIDBuffer) == 0 {
+			return false
+		}
+
+		rowCache, err := ii.engine.GetRowBatch(context.Background(), ii.tenantID, ii.tableID, ii.rowIDBuffer, ii.schemaDef)
+		if err != nil {
+			ii.err = fmt.Errorf("fetch row batch: %w", err)
+			return false
+		}
+		ii.rowCache = rowCache
 	}
 
-	// Extract rowID from the index key
-	_, _, _, _, rowID, err := ii.codec.DecodeIndexKey(ii.iter.Key())
-	if err != nil {
-		ii.err = fmt.Errorf("decode index key: %w", err)
-		return false
+	if ii.cacheIdx < len(ii.rowIDBuffer) {
+		rowID := ii.rowIDBuffer[ii.cacheIdx]
+		ii.cacheIdx++
+
+		row, ok := ii.rowCache[rowID]
+		if !ok {
+			return ii.Next()
+		}
+
+		row.Data["_rowid"] = &types.Value{
+			Type: types.ColumnTypeNumber,
+			Data: rowID,
+		}
+
+		ii.current = row
+		ii.count++
+		return true
 	}
 
-	// Fetch the actual row data
-	row, err := ii.engine.GetRow(context.Background(), ii.tenantID, ii.tableID, rowID, ii.schemaDef)
-	if err != nil {
-		ii.err = fmt.Errorf("fetch row data: %w", err)
-		return false
-	}
-
-	row.Data["_rowid"] = &types.Value{
-		Type: types.ColumnTypeNumber,
-		Data: rowID,
-	}
-
-	ii.current = row
-	ii.count++
-	return true
+	return false
 }
 
 func (ii *indexIterator) Row() *types.Record {

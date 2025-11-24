@@ -13,6 +13,16 @@ const (
 	ColumnTypeUUID      ColumnType = "uuid"
 	ColumnTypeText      ColumnType = "text"
 	ColumnTypeBinary    ColumnType = "binary"
+	
+	ColumnTypeSmallInt  ColumnType = "smallint"
+	ColumnTypeInteger   ColumnType = "integer"
+	ColumnTypeBigInt    ColumnType = "bigint"
+	ColumnTypeReal      ColumnType = "real"
+	ColumnTypeDouble    ColumnType = "double"
+	ColumnTypeNumeric   ColumnType = "numeric"
+	ColumnTypeVarchar   ColumnType = "varchar"
+	ColumnTypeChar      ColumnType = "char"
+	ColumnTypeJSONB     ColumnType = "jsonb"
 )
 
 // IsValidColumnType checks if a column type is valid
@@ -20,7 +30,10 @@ func IsValidColumnType(typ ColumnType) bool {
 	switch typ {
 	case ColumnTypeString, ColumnTypeNumber, ColumnTypeBoolean,
 		ColumnTypeDate, ColumnTypeTimestamp, ColumnTypeJSON,
-		ColumnTypeUUID, ColumnTypeText, ColumnTypeBinary:
+		ColumnTypeUUID, ColumnTypeText, ColumnTypeBinary,
+		ColumnTypeSmallInt, ColumnTypeInteger, ColumnTypeBigInt,
+		ColumnTypeReal, ColumnTypeDouble, ColumnTypeNumeric,
+		ColumnTypeVarchar, ColumnTypeChar, ColumnTypeJSONB:
 		return true
 	default:
 		return false
@@ -32,8 +45,16 @@ func GetColumnTypeFromGoType(typ string) ColumnType {
 	switch typ {
 	case "string":
 		return ColumnTypeString
-	case "int", "int32", "int64", "float32", "float64":
-		return ColumnTypeNumber
+	case "int16":
+		return ColumnTypeSmallInt
+	case "int32":
+		return ColumnTypeInteger
+	case "int", "int64":
+		return ColumnTypeBigInt
+	case "float32":
+		return ColumnTypeReal
+	case "float64":
+		return ColumnTypeDouble
 	case "bool":
 		return ColumnTypeBoolean
 	case "time.Time":

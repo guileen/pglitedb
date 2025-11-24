@@ -40,6 +40,7 @@ type KV interface {
 	Delete(ctx context.Context, key []byte) error
 	DeleteWithOptions(ctx context.Context, key []byte, opts *WriteOptions) error
 	NewBatch() Batch
+	Commit(ctx context.Context, batch Batch) error
 	CommitBatch(ctx context.Context, batch Batch) error
 	CommitBatchWithOptions(ctx context.Context, batch Batch, opts *WriteOptions) error
 	NewIterator(opts *IteratorOptions) Iterator
@@ -49,7 +50,6 @@ type KV interface {
 	Flush() error
 	Close() error
 	
-	// Conflict detection
 	CheckForConflicts(txn Transaction, key []byte) error
 }
 
@@ -59,6 +59,7 @@ type Batch interface {
 	Delete(key []byte) error
 	Count() int
 	Reset()
+	Close() error
 }
 
 // IteratorOptions defines options for iterator operations

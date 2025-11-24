@@ -154,6 +154,10 @@ func (p *PebbleKV) NewBatch() shared.Batch {
 	}
 }
 
+func (p *PebbleKV) Commit(ctx context.Context, batch shared.Batch) error {
+	return p.CommitBatch(ctx, batch)
+}
+
 func (p *PebbleKV) CommitBatch(ctx context.Context, batch shared.Batch) error {
 	return p.CommitBatchWithOptions(ctx, batch, shared.DefaultWriteOptions)
 }
@@ -379,6 +383,10 @@ func (b *PebbleBatch) Count() int {
 
 func (b *PebbleBatch) Reset() {
 	b.batch.Reset()
+}
+
+func (b *PebbleBatch) Close() error {
+	return b.batch.Close()
 }
 
 type PebbleIterator struct {
