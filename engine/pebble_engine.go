@@ -192,7 +192,7 @@ func (e *pebbleEngine) UpdateRow(ctx context.Context, tenantID, tableID, rowID i
 		return fmt.Errorf("update indexes in batch: %w", err)
 	}
 
-	if err := e.kv.CommitBatchWithOptions(ctx, batch, storage.SyncWriteOptions); err != nil {
+	if err := e.kv.CommitBatch(ctx, batch); err != nil {
 		return fmt.Errorf("commit batch: %w", err)
 	}
 
@@ -217,7 +217,7 @@ func (e *pebbleEngine) DeleteRow(ctx context.Context, tenantID, tableID, rowID i
 		return fmt.Errorf("delete indexes in batch: %w", err)
 	}
 
-	if err := e.kv.CommitBatchWithOptions(ctx, batch, storage.SyncWriteOptions); err != nil {
+	if err := e.kv.CommitBatch(ctx, batch); err != nil {
 		return fmt.Errorf("commit batch: %w", err)
 	}
 
