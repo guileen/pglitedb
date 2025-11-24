@@ -38,6 +38,7 @@ type Manager interface {
 	DataManager
 	QueryManager
 	IndexManager
+	QuerySystemTable(ctx context.Context, fullTableName string, filter map[string]interface{}) (*types.QueryResult, error)
 }
 
 type AlterTableChanges struct {

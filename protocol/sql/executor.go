@@ -3,6 +3,7 @@ package sql
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/guileen/pglitedb/catalog"
 	"github.com/guileen/pglitedb/types"
@@ -67,6 +68,10 @@ func (e *Executor) executeSelect(ctx context.Context, plan *Plan) (*ResultSet, e
 		return result, nil
 	}
 
+	if isSystemTable(plan.Table) {
+		return e.executeSystemTableQuery(ctx, plan)
+	}
+
 	tenantID := int64(1)
 
 	orderByStrings := make([]string, len(plan.OrderBy))
@@ -98,18 +103,8 @@ func (e *Executor) executeSelect(ctx context.Context, plan *Plan) (*ResultSet, e
 
 	result := &ResultSet{
 		Columns: plan.Fields,
-		Rows:    make([][]interface{}, len(queryResult.Rows)),
+		Rows:    queryResult.Rows,
 		Count:   int(queryResult.Count),
-	}
-
-	for i, row := range queryResult.Rows {
-		rowData := make([]interface{}, len(plan.Fields))
-		for j, col := range plan.Fields {
-			if val, ok := row[col]; ok {
-				rowData[j] = val
-			}
-		}
-		result.Rows[i] = rowData
 	}
 
 	return result, nil
@@ -136,4 +131,47 @@ func (e *Executor) ValidateQuery(query string) error {
 
 func (e *Executor) Explain(query string) (*Plan, error) {
 	return e.planner.CreatePlan(query)
+}
+
+func isSystemTable(tableName string) bool {
+	return strings.HasPrefix(tableName, "information_schema.")
+}
+
+func (e *Executor) executeSystemTableQuery(ctx context.Context, plan *Plan) (*ResultSet, error) {
+	if e.catalog == nil {
+		return nil, fmt.Errorf("catalog not initialized")
+	}
+	
+	filter := make(map[string]interface{})
+	for _, cond := range plan.Conditions {
+		if cond.Operator == "=" {
+			filter[cond.Field] = cond.Value
+		}
+	}
+	
+	queryResult, err := e.catalog.QuerySystemTable(ctx, plan.Table, filter)
+	if err != nil {
+		return nil, fmt.Errorf("system table query failed: %w", err)
+	}
+	
+	if len(queryResult.Columns) == 0 {
+		return &ResultSet{
+			Columns: []string{},
+			Rows:    [][]interface{}{},
+			Count:   0,
+		}, nil
+	}
+	
+	columnNames := make([]string, len(queryResult.Columns))
+	for i, col := range queryResult.Columns {
+		columnNames[i] = col.Name
+	}
+	
+	result := &ResultSet{
+		Columns: columnNames,
+		Rows:    queryResult.Rows,
+		Count:   len(queryResult.Rows),
+	}
+	
+	return result, nil
 }

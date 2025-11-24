@@ -104,6 +104,18 @@ func (s *PostgreSQLServer) handleConnection(conn net.Conn) {
 			return
 		}
 
+		// Send ParameterStatus messages
+		backend.Send(&pgproto3.ParameterStatus{Name: "server_version", Value: "14.0 (PGLiteDB)"})
+		backend.Send(&pgproto3.ParameterStatus{Name: "client_encoding", Value: "UTF8"})
+		backend.Send(&pgproto3.ParameterStatus{Name: "DateStyle", Value: "ISO, MDY"})
+		backend.Send(&pgproto3.ParameterStatus{Name: "TimeZone", Value: "UTC"})
+		backend.Send(&pgproto3.ParameterStatus{Name: "integer_datetimes", Value: "on"})
+		backend.Send(&pgproto3.ParameterStatus{Name: "standard_conforming_strings", Value: "on"})
+		backend.Send(&pgproto3.ParameterStatus{Name: "server_encoding", Value: "UTF8"})
+		
+		// Send BackendKeyData
+		backend.Send(&pgproto3.BackendKeyData{ProcessID: 12345, SecretKey: 67890})
+		
 		// Send ready for query
 		backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
 		if err := backend.Flush(); err != nil {

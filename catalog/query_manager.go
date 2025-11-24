@@ -81,6 +81,7 @@ func (m *queryManager) Query(ctx context.Context, tenantID int64, tableName stri
 	}
 
 	result := &types.QueryResult{
+		Rows:     make([][]interface{}, 0),
 		Records:  records,
 		Count:    int64(len(records)),
 		Duration: time.Since(startTime),

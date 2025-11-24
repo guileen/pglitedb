@@ -22,9 +22,10 @@ type QueryOptions struct {
 // Used by both internal components and external clients
 type QueryResult struct {
 	// Basic fields for external clients
-	Rows    []map[string]interface{} `json:"rows"`
-	Count   int64                    `json:"count,omitempty"`
-	HasMore bool                     `json:"has_more,omitempty"`
+	Rows    [][]interface{} `json:"rows"`
+	Columns []ColumnInfo    `json:"columns"`
+	Count   int64           `json:"count,omitempty"`
+	HasMore bool            `json:"has_more,omitempty"`
 	
 	// Extended fields for internal use
 	Records  interface{}   `json:"-"` // Will be []*table.Record in implementation
@@ -34,4 +35,9 @@ type QueryResult struct {
 	Debug    interface{}   `json:"-"`
 	Limit    *int          `json:"-"`
 	Offset   *int          `json:"-"`
+}
+
+type ColumnInfo struct {
+	Name string
+	Type ColumnType
 }
