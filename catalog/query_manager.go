@@ -43,10 +43,12 @@ func (m *queryManager) Query(ctx context.Context, tenantID int64, tableName stri
 	}
 
 	var iter engine.RowIterator
-	if opts != nil && len(opts.OrderBy) > 0 && len(opts.OrderBy) == 1 {
-		indexID := m.findIndexForColumn(schema, opts.OrderBy[0])
-		if indexID > 0 {
-			iter, err = m.engine.ScanIndex(ctx, tenantID, tableID, indexID, schema, scanOpts)
+	if opts != nil && len(opts.OrderBy) > 0 {
+		optimizer := NewQueryOptimizer(nil)
+		candidate, err := optimizer.SelectBestIndex(opts, schema)
+		
+		if err == nil && candidate != nil {
+			iter, err = m.engine.ScanIndex(ctx, tenantID, tableID, candidate.IndexID, schema, scanOpts)
 		} else {
 			iter, err = m.engine.ScanRows(ctx, tenantID, tableID, schema, scanOpts)
 		}

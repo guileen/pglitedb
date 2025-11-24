@@ -67,6 +67,7 @@ func (m *dataManager) InsertBatch(ctx context.Context, tenantID int64, tableName
 	}
 
 	records := make([]*types.Record, 0, len(rows))
+	now := time.Now()
 
 	for _, data := range rows {
 		record, err := m.validateAndConvert(data, schema)
@@ -75,17 +76,20 @@ func (m *dataManager) InsertBatch(ctx context.Context, tenantID int64, tableName
 		}
 
 		record.Table = tableName
-		record.CreatedAt = time.Now()
-		record.UpdatedAt = time.Now()
+		record.CreatedAt = now
+		record.UpdatedAt = now
 		record.Version = 1
 
-		rowID, err := m.engine.InsertRow(ctx, tenantID, tableID, record, schema)
-		if err != nil {
-			return nil, fmt.Errorf("insert row: %w", err)
-		}
-
-		record.ID = strconv.FormatInt(rowID, 10)
 		records = append(records, record)
+	}
+
+	rowIDs, err := m.engine.InsertRowBatch(ctx, tenantID, tableID, records, schema)
+	if err != nil {
+		return nil, fmt.Errorf("insert batch: %w", err)
+	}
+
+	for i, rowID := range rowIDs {
+		records[i].ID = strconv.FormatInt(rowID, 10)
 	}
 
 	return records, nil
@@ -298,7 +302,7 @@ func (m *dataManager) convertValue(val interface{}, colType types.ColumnType) (*
 			return nil, fmt.Errorf("expected []byte or string, got %T", val)
 		}
 
-	case types.ColumnTypeJSON:
+	case types.ColumnTypeJSON, types.ColumnTypeJSONB:
 		if val == nil {
 			return &types.Value{Data: nil, Type: colType}, nil
 		}
@@ -307,8 +311,138 @@ func (m *dataManager) convertValue(val interface{}, colType types.ColumnType) (*
 		}
 		return &types.Value{Data: val, Type: colType}, nil
 
+	case types.ColumnTypeSmallInt:
+		switch v := val.(type) {
+		case int16:
+			return &types.Value{Data: v, Type: colType}, nil
+		case int:
+			if v < -32768 || v > 32767 {
+				return nil, fmt.Errorf("value %d out of range for smallint", v)
+			}
+			return &types.Value{Data: int16(v), Type: colType}, nil
+		case int64:
+			if v < -32768 || v > 32767 {
+				return nil, fmt.Errorf("value %d out of range for smallint", v)
+			}
+			return &types.Value{Data: int16(v), Type: colType}, nil
+		case string:
+			if i, err := strconv.ParseInt(v, 10, 16); err == nil {
+				return &types.Value{Data: int16(i), Type: colType}, nil
+			}
+			return nil, fmt.Errorf("cannot parse string '%s' as smallint", v)
+		default:
+			return nil, fmt.Errorf("expected int16/int/int64/string, got %T", val)
+		}
+
+	case types.ColumnTypeInteger:
+		switch v := val.(type) {
+		case int32:
+			return &types.Value{Data: v, Type: colType}, nil
+		case int:
+			if int64(v) < -2147483648 || int64(v) > 2147483647 {
+				return nil, fmt.Errorf("value %d out of range for integer", v)
+			}
+			return &types.Value{Data: int32(v), Type: colType}, nil
+		case int64:
+			if v < -2147483648 || v > 2147483647 {
+				return nil, fmt.Errorf("value %d out of range for integer", v)
+			}
+			return &types.Value{Data: int32(v), Type: colType}, nil
+		case string:
+			if i, err := strconv.ParseInt(v, 10, 32); err == nil {
+				return &types.Value{Data: int32(i), Type: colType}, nil
+			}
+			return nil, fmt.Errorf("cannot parse string '%s' as integer", v)
+		default:
+			return nil, fmt.Errorf("expected int32/int/int64/string, got %T", val)
+		}
+
+	case types.ColumnTypeBigInt:
+		switch v := val.(type) {
+		case int64:
+			return &types.Value{Data: v, Type: colType}, nil
+		case int:
+			return &types.Value{Data: int64(v), Type: colType}, nil
+		case int32:
+			return &types.Value{Data: int64(v), Type: colType}, nil
+		case string:
+			if i, err := strconv.ParseInt(v, 10, 64); err == nil {
+				return &types.Value{Data: i, Type: colType}, nil
+			}
+			return nil, fmt.Errorf("cannot parse string '%s' as bigint", v)
+		default:
+			return nil, fmt.Errorf("expected int64/int/int32/string, got %T", val)
+		}
+
+	case types.ColumnTypeReal:
+		switch v := val.(type) {
+		case float32:
+			return &types.Value{Data: v, Type: colType}, nil
+		case float64:
+			return &types.Value{Data: float32(v), Type: colType}, nil
+		case int, int32, int64:
+			return &types.Value{Data: float32(toInt64(v)), Type: colType}, nil
+		case string:
+			if f, err := strconv.ParseFloat(v, 32); err == nil {
+				return &types.Value{Data: float32(f), Type: colType}, nil
+			}
+			return nil, fmt.Errorf("cannot parse string '%s' as real", v)
+		default:
+			return nil, fmt.Errorf("expected float32/float64/numeric/string, got %T", val)
+		}
+
+	case types.ColumnTypeDouble:
+		switch v := val.(type) {
+		case float64:
+			return &types.Value{Data: v, Type: colType}, nil
+		case float32:
+			return &types.Value{Data: float64(v), Type: colType}, nil
+		case int, int32, int64:
+			return &types.Value{Data: float64(toInt64(v)), Type: colType}, nil
+		case string:
+			if f, err := strconv.ParseFloat(v, 64); err == nil {
+				return &types.Value{Data: f, Type: colType}, nil
+			}
+			return nil, fmt.Errorf("cannot parse string '%s' as double", v)
+		default:
+			return nil, fmt.Errorf("expected float64/float32/numeric/string, got %T", val)
+		}
+
+	case types.ColumnTypeNumeric:
+		switch v := val.(type) {
+		case string:
+			return &types.Value{Data: v, Type: colType}, nil
+		case float64:
+			return &types.Value{Data: strconv.FormatFloat(v, 'f', -1, 64), Type: colType}, nil
+		case float32:
+			return &types.Value{Data: strconv.FormatFloat(float64(v), 'f', -1, 32), Type: colType}, nil
+		case int, int32, int64:
+			return &types.Value{Data: strconv.FormatInt(toInt64(v), 10), Type: colType}, nil
+		default:
+			return nil, fmt.Errorf("expected numeric/string, got %T", val)
+		}
+
+	case types.ColumnTypeVarchar, types.ColumnTypeChar:
+		if s, ok := val.(string); ok {
+			return &types.Value{Data: s, Type: colType}, nil
+		}
+		return nil, fmt.Errorf("expected string, got %T", val)
+
 	default:
 		return nil, fmt.Errorf("unsupported column type: %s", colType)
+	}
+}
+
+func toInt64(v interface{}) int64 {
+	switch val := v.(type) {
+	case int:
+		return int64(val)
+	case int32:
+		return int64(val)
+	case int64:
+		return val
+	default:
+		return 0
 	}
 }
 
