@@ -18,9 +18,10 @@ type tableManager struct {
 
 func NewTableManager(eng engine.StorageEngine) Manager {
 	cache := internal.NewSchemaCache()
+	sm := newSchemaManager(eng, nil, cache)
 	return &tableManager{
-		SchemaManager: newSchemaManager(eng, nil, cache),
-		DataManager:   newDataManager(eng, cache),
+		SchemaManager: sm,
+		DataManager:   newDataManager(eng, cache, sm),
 		QueryManager:  newQueryManager(eng, cache),
 		IndexManager:  newIndexManager(eng, nil, cache),
 		engine:        eng,
@@ -30,9 +31,10 @@ func NewTableManager(eng engine.StorageEngine) Manager {
 
 func NewTableManagerWithKV(eng engine.StorageEngine, kv storage.KV) Manager {
 	cache := internal.NewSchemaCache()
+	sm := newSchemaManager(eng, kv, cache)
 	return &tableManager{
-		SchemaManager: newSchemaManager(eng, kv, cache),
-		DataManager:   newDataManager(eng, cache),
+		SchemaManager: sm,
+		DataManager:   newDataManager(eng, cache, sm),
 		QueryManager:  newQueryManager(eng, cache),
 		IndexManager:  newIndexManager(eng, kv, cache),
 		engine:        eng,

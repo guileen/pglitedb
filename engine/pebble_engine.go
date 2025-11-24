@@ -487,6 +487,11 @@ func (ii *indexIterator) Next() bool {
 		return false
 	}
 
+	row.Data["_rowid"] = &types.Value{
+		Type: types.ColumnTypeNumber,
+		Data: rowID,
+	}
+
 	ii.current = row
 	ii.count++
 	return true
@@ -541,11 +546,22 @@ func (ri *rowIterator) Next() bool {
 		return false
 	}
 
+	_, _, rowID, err := ri.codec.DecodeTableKey(ri.iter.Key())
+	if err != nil {
+		ri.err = fmt.Errorf("decode table key: %w", err)
+		return false
+	}
+
 	value := ri.iter.Value()
 	record, err := ri.codec.DecodeRow(value, ri.schemaDef)
 	if err != nil {
 		ri.err = fmt.Errorf("decode row: %w", err)
 		return false
+	}
+
+	record.Data["_rowid"] = &types.Value{
+		Type: types.ColumnTypeNumber,
+		Data: rowID,
 	}
 
 	ri.current = record

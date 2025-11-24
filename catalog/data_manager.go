@@ -14,19 +14,28 @@ import (
 )
 
 type dataManager struct {
-	engine engine.StorageEngine
-	cache  *internal.SchemaCache
+	engine        engine.StorageEngine
+	cache         *internal.SchemaCache
+	schemaManager SchemaManager
 }
 
-func newDataManager(eng engine.StorageEngine, cache *internal.SchemaCache) DataManager {
+func newDataManager(eng engine.StorageEngine, cache *internal.SchemaCache, sm SchemaManager) DataManager {
 	return &dataManager{
-		engine: eng,
-		cache:  cache,
+		engine:        eng,
+		cache:         cache,
+		schemaManager: sm,
 	}
 }
 
 func (m *dataManager) Insert(ctx context.Context, tenantID int64, tableName string, data map[string]interface{}) (*types.Record, error) {
 	schema, tableID, err := m.getTableSchema(tenantID, tableName)
+	if err == types.ErrTableNotFound {
+		schema = m.inferSchemaFromData(tableName, data)
+		if err := m.schemaManager.CreateTable(ctx, tenantID, schema); err != nil {
+			return nil, fmt.Errorf("auto-create table: %w", err)
+		}
+		schema, tableID, err = m.getTableSchema(tenantID, tableName)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -310,4 +319,54 @@ func (m *dataManager) getColumnType(schema *types.TableDefinition, colName strin
 		}
 	}
 	return "", types.ErrColumnNotFound
+}
+
+func (m *dataManager) inferSchemaFromData(tableName string, data map[string]interface{}) *types.TableDefinition {
+	columns := make([]types.ColumnDefinition, 0, len(data))
+	indexes := []types.IndexDefinition{}
+	
+	for key, value := range data {
+		colType := m.inferColumnType(value)
+		columns = append(columns, types.ColumnDefinition{
+			Name:     key,
+			Type:     colType,
+			Nullable: true,
+		})
+		
+		if colType == types.ColumnTypeNumber {
+			indexes = append(indexes, types.IndexDefinition{
+				Columns: []string{key},
+			})
+		}
+	}
+	
+	return &types.TableDefinition{
+		ID:      uuid.New().String(),
+		Name:    tableName,
+		Version: 1,
+		Columns: columns,
+		Indexes: indexes,
+	}
+}
+
+func (m *dataManager) inferColumnType(data interface{}) types.ColumnType {
+	if data == nil {
+		return types.ColumnTypeString
+	}
+	switch data.(type) {
+	case string:
+		return types.ColumnTypeString
+	case int, int32, int64:
+		return types.ColumnTypeNumber
+	case float32, float64:
+		return types.ColumnTypeNumber
+	case bool:
+		return types.ColumnTypeBoolean
+	case time.Time:
+		return types.ColumnTypeTimestamp
+	case []byte:
+		return types.ColumnTypeBinary
+	default:
+		return types.ColumnTypeJSON
+	}
 }

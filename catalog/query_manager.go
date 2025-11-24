@@ -29,27 +29,28 @@ func (m *queryManager) Query(ctx context.Context, tenantID int64, tableName stri
 	}
 	startTime := time.Now()
 
+	scanOpts := &engine.ScanOptions{}
+	if opts != nil {
+		if opts.Limit != nil {
+			scanOpts.Limit = *opts.Limit
+		}
+		if opts.Offset != nil {
+			scanOpts.Offset = *opts.Offset
+		}
+		if opts.Columns != nil {
+			scanOpts.Projection = opts.Columns
+		}
+	}
+
 	var iter engine.RowIterator
 	if opts != nil && len(opts.OrderBy) > 0 && len(opts.OrderBy) == 1 {
 		indexID := m.findIndexForColumn(schema, opts.OrderBy[0])
 		if indexID > 0 {
-			iter, err = m.engine.ScanIndex(ctx, tenantID, tableID, indexID, schema, nil)
+			iter, err = m.engine.ScanIndex(ctx, tenantID, tableID, indexID, schema, scanOpts)
 		} else {
-			iter, err = m.engine.ScanRows(ctx, tenantID, tableID, schema, nil)
+			iter, err = m.engine.ScanRows(ctx, tenantID, tableID, schema, scanOpts)
 		}
 	} else {
-		scanOpts := &engine.ScanOptions{}
-		if opts != nil {
-			if opts.Limit != nil {
-				scanOpts.Limit = *opts.Limit
-			}
-			if opts.Offset != nil {
-				scanOpts.Offset = *opts.Offset
-			}
-			if opts.Columns != nil {
-				scanOpts.Projection = opts.Columns
-			}
-		}
 		iter, err = m.engine.ScanRows(ctx, tenantID, tableID, schema, scanOpts)
 	}
 
@@ -67,9 +68,6 @@ func (m *queryManager) Query(ctx context.Context, tenantID int64, tableName stri
 			}
 		}
 		records = append(records, record)
-		if opts != nil && opts.Limit != nil && len(records) >= *opts.Limit {
-			break
-		}
 	}
 
 	if err := iter.Error(); err != nil {
@@ -153,17 +151,74 @@ func (m *queryManager) matchFilter(record *types.Record, filter map[string]inter
 			if s, ok := recordVal.Data.(string); !ok || s != expected {
 				return false
 			}
-		case int, int32, int64:
-			var expectedInt int64
-			switch v := expected.(type) {
-			case int:
-				expectedInt = int64(v)
-			case int32:
-				expectedInt = int64(v)
+		case int:
+			expectedInt := int64(expected)
+			switch v := recordVal.Data.(type) {
 			case int64:
-				expectedInt = v
+				if v != expectedInt {
+					return false
+				}
+			case int:
+				if int64(v) != expectedInt {
+					return false
+				}
+			case float64:
+				if int64(v) != expectedInt {
+					return false
+				}
+			default:
+				return false
 			}
-			if i, ok := recordVal.Data.(int64); !ok || i != expectedInt {
+		case int32:
+			expectedInt := int64(expected)
+			switch v := recordVal.Data.(type) {
+			case int64:
+				if v != expectedInt {
+					return false
+				}
+			case int:
+				if int64(v) != expectedInt {
+					return false
+				}
+			case float64:
+				if int64(v) != expectedInt {
+					return false
+				}
+			default:
+				return false
+			}
+		case int64:
+			switch v := recordVal.Data.(type) {
+			case int64:
+				if v != expected {
+					return false
+				}
+			case int:
+				if int64(v) != expected {
+					return false
+				}
+			case float64:
+				if int64(v) != expected {
+					return false
+				}
+			default:
+				return false
+			}
+		case float64:
+			switch v := recordVal.Data.(type) {
+			case float64:
+				if v != expected {
+					return false
+				}
+			case int64:
+				if float64(v) != expected {
+					return false
+				}
+			case int:
+				if float64(v) != expected {
+					return false
+				}
+			default:
 				return false
 			}
 		case bool:

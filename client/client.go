@@ -226,7 +226,7 @@ func (c *Client) Select(ctx context.Context, tenantID int64, tableName string, o
 }
 
 // Update updates records in the specified table
-func (c *Client) Update(ctx context.Context, tenantID int64, tableName string, where map[string]interface{}, data map[string]interface{}) (*types.QueryResult, error) {
+func (c *Client) Update(ctx context.Context, tenantID int64, tableName string, data map[string]interface{}, where map[string]interface{}) (*types.QueryResult, error) {
 	// Convert data map to executor.Value map
 	values := make(map[string]*types.Value)
 	for key, value := range data {

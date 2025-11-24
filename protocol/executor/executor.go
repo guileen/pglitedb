@@ -92,11 +92,86 @@ func (e *queryExecutor) executeInsert(ctx context.Context, query *Query) (*Query
 }
 
 func (e *queryExecutor) executeUpdate(ctx context.Context, query *Query) (*QueryResult, error) {
-	return nil, fmt.Errorf("UPDATE not yet fully implemented - needs rowID tracking")
+	filters := e.convertFilters(query.Update.Where)
+	qOpts := &types.QueryOptions{
+		Where: filters,
+	}
+	
+	result, err := e.manager.Query(ctx, query.TenantID, query.TableName, qOpts)
+	if err != nil {
+		return nil, fmt.Errorf("query for update failed: %w", err)
+	}
+	
+	records, ok := result.Records.([]*types.Record)
+	if !ok {
+		return nil, fmt.Errorf("invalid records type")
+	}
+	
+	updatedCount := int64(0)
+	for _, record := range records {
+		rowIDValue, ok := record.Data["_rowid"]
+		if !ok {
+			continue
+		}
+		rowID, ok := rowIDValue.Data.(int64)
+		if !ok {
+			continue
+		}
+		
+		updateData := make(map[string]interface{})
+		for k, v := range query.Update.Values {
+			updateData[k] = v.Data
+		}
+		
+		_, err := e.manager.Update(ctx, query.TenantID, query.TableName, rowID, updateData)
+		if err != nil {
+			return nil, fmt.Errorf("update row %d: %w", rowID, err)
+		}
+		updatedCount++
+	}
+	
+	return &QueryResult{
+		Count: updatedCount,
+	}, nil
 }
 
 func (e *queryExecutor) executeDelete(ctx context.Context, query *Query) (*QueryResult, error) {
-	return nil, fmt.Errorf("DELETE not yet fully implemented - needs rowID tracking")
+	filters := e.convertFilters(query.Delete.Where)
+	qOpts := &types.QueryOptions{
+		Where: filters,
+	}
+	
+	result, err := e.manager.Query(ctx, query.TenantID, query.TableName, qOpts)
+	if err != nil {
+		return nil, fmt.Errorf("query for delete failed: %w", err)
+	}
+	
+	records, ok := result.Records.([]*types.Record)
+	if !ok {
+		return nil, fmt.Errorf("invalid records type")
+	}
+	
+	deletedCount := int64(0)
+	for _, record := range records {
+		rowIDValue, ok := record.Data["_rowid"]
+		if !ok {
+			continue
+		}
+		rowID, ok := rowIDValue.Data.(int64)
+		if !ok {
+			continue
+		}
+		
+		err := e.manager.Delete(ctx, query.TenantID, query.TableName, rowID)
+		if err != nil {
+			return nil, fmt.Errorf("delete row %d: %w", rowID, err)
+		}
+		deletedCount++
+	}
+	
+	return &QueryResult{
+		Count: deletedCount,
+	}, nil
 }
 
 // convertRecordsToRows converts []*types.Record to []map[string]interface{}
