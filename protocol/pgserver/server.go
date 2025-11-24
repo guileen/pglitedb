@@ -30,16 +30,17 @@ type PostgreSQLServer struct {
 
 // PreparedStatement represents a parsed SQL statement
 type PreparedStatement struct {
-	Name    string
-	Query   string
-	SQLStmt *sql.ParsedQuery
+	Name          string
+	Query         string
+	ParameterOIDs []uint32
 }
 
 // Portal represents a bound statement with parameters
 type Portal struct {
-	Name      string
-	Statement *PreparedStatement
-	Params    []string
+	Name         string
+	Statement    *PreparedStatement
+	Params       []interface{}
+	ParamFormats []int16
 }
 
 func NewPostgreSQLServer(executor executor.QueryExecutor) *PostgreSQLServer {
@@ -137,48 +138,40 @@ func (s *PostgreSQLServer) handleConnection(conn net.Conn) {
 
 		switch msg := msg.(type) {
 		case *pgproto3.Query:
-			if err := s.handleQuery(backend, msg.String); err != nil {
-				log.Printf("Failed to handle query: %v", err)
+			if fatal := s.handleQuery(backend, msg.String); fatal {
 				return
 			}
 		case *pgproto3.Parse:
-			if err := s.handleParse(backend, msg); err != nil {
-				log.Printf("Failed to handle parse: %v", err)
+			if fatal := s.handleParse(backend, msg); fatal {
 				return
 			}
 		case *pgproto3.Bind:
-			if err := s.handleBind(backend, msg); err != nil {
-				log.Printf("Failed to handle bind: %v", err)
+			if fatal := s.handleBind(backend, msg); fatal {
 				return
 			}
 		case *pgproto3.Describe:
-			if err := s.handleDescribe(backend, msg); err != nil {
-				log.Printf("Failed to handle describe: %v", err)
+			if fatal := s.handleDescribe(backend, msg); fatal {
 				return
 			}
 		case *pgproto3.Execute:
-			if err := s.handleExecute(backend, msg); err != nil {
-				log.Printf("Failed to handle execute: %v", err)
+			if fatal := s.handleExecute(backend, msg); fatal {
 				return
 			}
 		case *pgproto3.Close:
-			if err := s.handleClose(backend, msg); err != nil {
-				log.Printf("Failed to handle close: %v", err)
+			if fatal := s.handleClose(backend, msg); fatal {
 				return
 			}
 		case *pgproto3.Sync:
-			if err := s.handleSync(backend); err != nil {
-				log.Printf("Failed to handle sync: %v", err)
+			if fatal := s.handleSync(backend); fatal {
 				return
 			}
 		case *pgproto3.Terminate:
 			return
 		default:
 			log.Printf("Unsupported message type: %T", msg)
-			// Don't return here, just send an error response and continue
 			backend.Send(&pgproto3.ErrorResponse{
 				Severity: "ERROR",
-				Code:     "0A000", // Feature not supported
+				Code:     "0A000",
 				Message:  fmt.Sprintf("Unsupported message type: %T", msg),
 			})
 			if err := backend.Flush(); err != nil {
@@ -205,22 +198,21 @@ func (s *PostgreSQLServer) Close() error {
 }
 
 // handleQuery handles the Query message (simple query protocol)
-func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) error {
+func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) bool {
 	ctx := context.Background()
 	
-	// Parse the query
 	parsed, err := s.parser.Parse(query)
 	if err != nil {
-		return s.sendErrorAndReady(backend, "42601", fmt.Sprintf("Syntax error: failed to parse SQL query: %v", err))
+		s.sendErrorAndReady(backend, "42601", fmt.Sprintf("Syntax error: failed to parse SQL query: %v", err))
+		return false
 	}
 	
-	// Execute the query using the planner/executor
 	result, err := s.planner.Execute(ctx, parsed.Query)
 	if err != nil {
-		return s.sendErrorAndReady(backend, "42000", fmt.Sprintf("Query execution failed: %v", err))
+		s.sendErrorAndReady(backend, "42000", fmt.Sprintf("Query execution failed: %v", err))
+		return false
 	}
 	
-	// Send row description if there are columns
 	if len(result.Columns) > 0 {
 		fields := make([]pgproto3.FieldDescription, len(result.Columns))
 		for i, col := range result.Columns {
@@ -228,7 +220,7 @@ func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) 
 				Name:                 []byte(col),
 				TableOID:             0,
 				TableAttributeNumber: 0,
-				DataTypeOID:          25, // TEXT type
+				DataTypeOID:          25,
 				DataTypeSize:         -1,
 				TypeModifier:         -1,
 				Format:               0,
@@ -237,7 +229,6 @@ func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) 
 		backend.Send(&pgproto3.RowDescription{Fields: fields})
 	}
 	
-	// Send data rows
 	for _, row := range result.Rows {
 		dataRow := &pgproto3.DataRow{Values: make([][]byte, len(row))}
 		for i, val := range row {
@@ -250,7 +241,6 @@ func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) 
 		backend.Send(dataRow)
 	}
 	
-	// Send command complete
 	var commandTag string
 	if len(result.Rows) > 0 {
 		commandTag = fmt.Sprintf("SELECT %d", result.Count)
@@ -261,95 +251,113 @@ func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) 
 		CommandTag: []byte(commandTag),
 	})
 	
-	// Send ready for query
 	backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
-	return backend.Flush()
+	if err := backend.Flush(); err != nil {
+		return true
+	}
+	return false
 }
 
 // handleParse handles the Parse message
-func (s *PostgreSQLServer) handleParse(backend *pgproto3.Backend, msg *pgproto3.Parse) error {
-	// Parse the SQL statement
-	sqlStmt, err := s.parser.Parse(msg.Query)
-	if err != nil {
-		return s.sendErrorAndReady(backend, "42601", fmt.Sprintf("Syntax error: %v", err))
-	}
-
-	// Store the prepared statement
+func (s *PostgreSQLServer) handleParse(backend *pgproto3.Backend, msg *pgproto3.Parse) bool {
 	stmt := &PreparedStatement{
-		Name:    msg.Name,
-		Query:   msg.Query,
-		SQLStmt: sqlStmt,
+		Name:          msg.Name,
+		Query:         msg.Query,
+		ParameterOIDs: msg.ParameterOIDs,
 	}
 	
-	if msg.Name == "" {
-		// unnamed statement
-		s.preparedStatements[""] = stmt
-	} else {
-		s.preparedStatements[msg.Name] = stmt
+	stmtName := msg.Name
+	if stmtName == "" {
+		stmtName = ""
 	}
+	s.preparedStatements[stmtName] = stmt
 
 	backend.Send(&pgproto3.ParseComplete{})
-	return backend.Flush()
+	if err := backend.Flush(); err != nil {
+		return true
+	}
+	return false
 }
 
 // handleBind handles the Bind message
-func (s *PostgreSQLServer) handleBind(backend *pgproto3.Backend, msg *pgproto3.Bind) error {
-	// Find the prepared statement
-	stmt, exists := s.preparedStatements[msg.PreparedStatement]
+func (s *PostgreSQLServer) handleBind(backend *pgproto3.Backend, msg *pgproto3.Bind) bool {
+	stmtName := msg.PreparedStatement
+	if stmtName == "" {
+		stmtName = ""
+	}
+	stmt, exists := s.preparedStatements[stmtName]
 	if !exists {
-		return s.sendErrorAndReady(backend, "26000", "Prepared statement not found")
+		s.sendErrorAndReady(backend, "26000", 
+			fmt.Sprintf("Prepared statement not found: '%s' (available: %d statements)", 
+				stmtName, len(s.preparedStatements)))
+		return false
 	}
 
-	// Create a portal
-	portal := &Portal{
-		Name:      msg.DestinationPortal,
-		Statement: stmt,
-		Params:    make([]string, len(msg.Parameters)),
-	}
-	
-	// Convert parameters to strings
-	for i, param := range msg.Parameters {
-		if param == nil {
-			portal.Params[i] = "NULL"
+	params := make([]interface{}, len(msg.Parameters))
+	for i, paramBytes := range msg.Parameters {
+		if paramBytes == nil {
+			params[i] = nil
+			continue
+		}
+
+		paramFormat := int16(0)
+		if i < len(msg.ParameterFormatCodes) {
+			paramFormat = msg.ParameterFormatCodes[i]
+		}
+
+		paramOID := uint32(0)
+		if i < len(stmt.ParameterOIDs) {
+			paramOID = stmt.ParameterOIDs[i]
+		}
+
+		if paramFormat == 0 {
+			params[i] = s.parseTextParameter(paramBytes, paramOID)
 		} else {
-			portal.Params[i] = string(param)
+			params[i] = paramBytes
 		}
 	}
 
-	// Store the portal
-	if msg.DestinationPortal == "" {
-		// unnamed portal
-		s.portals[""] = portal
-	} else {
-		s.portals[msg.DestinationPortal] = portal
+	portal := &Portal{
+		Name:         msg.DestinationPortal,
+		Statement:    stmt,
+		Params:       params,
+		ParamFormats: msg.ParameterFormatCodes,
 	}
 
+	portalName := msg.DestinationPortal
+	if portalName == "" {
+		portalName = ""
+	}
+	s.portals[portalName] = portal
+
 	backend.Send(&pgproto3.BindComplete{})
-	return backend.Flush()
+	if err := backend.Flush(); err != nil {
+		return true
+	}
+	return false
 }
 
 // handleDescribe handles the Describe message
-func (s *PostgreSQLServer) handleDescribe(backend *pgproto3.Backend, msg *pgproto3.Describe) error {
+func (s *PostgreSQLServer) handleDescribe(backend *pgproto3.Backend, msg *pgproto3.Describe) bool {
 	switch msg.ObjectType {
-	case 'S': // Prepared statement
+	case 'S':
 		_, exists := s.preparedStatements[msg.Name]
 		if !exists {
-			return s.sendErrorAndReady(backend, "26000", "Prepared statement not found")
+			s.sendErrorAndReady(backend, "26000", "Prepared statement not found")
+			return false
 		}
 		
-		// Send parameter description
 		backend.Send(&pgproto3.ParameterDescription{
-			ParameterOIDs: make([]uint32, 0), // No parameters for now
+			ParameterOIDs: make([]uint32, 0),
 		})
 		
-		// Send row description (simplified)
 		backend.Send(&pgproto3.RowDescription{
 			Fields: []pgproto3.FieldDescription{
 				{
 					Name:                 []byte("result"),
 					TableOID:             0,
 					TableAttributeNumber: 0,
-					DataTypeOID:          25, // TEXT
+					DataTypeOID:          25,
 					DataTypeSize:         -1,
 					TypeModifier:         -1,
 					Format:               0,
@@ -357,20 +365,20 @@ func (s *PostgreSQLServer) handleDescribe(backend *pgproto3.Backend, msg *pgprot
 			},
 		})
 		
-	case 'P': // Portal
+	case 'P':
 		_, exists := s.portals[msg.Name]
 		if !exists {
-			return s.sendErrorAndReady(backend, "26000", "Portal not found")
+			s.sendErrorAndReady(backend, "26000", "Portal not found")
+			return false
 		}
 		
-		// Send row description (simplified)
 		backend.Send(&pgproto3.RowDescription{
 			Fields: []pgproto3.FieldDescription{
 				{
 					Name:                 []byte("result"),
 					TableOID:             0,
 					TableAttributeNumber: 0,
-					DataTypeOID:          25, // TEXT
+					DataTypeOID:          25,
 					DataTypeSize:         -1,
 					TypeModifier:         -1,
 					Format:               0,
@@ -379,34 +387,43 @@ func (s *PostgreSQLServer) handleDescribe(backend *pgproto3.Backend, msg *pgprot
 		})
 	}
 	
-	return backend.Flush()
+	if err := backend.Flush(); err != nil {
+		return true
+	}
+	return false
 }
 
 // handleExecute handles the Execute message
-func (s *PostgreSQLServer) handleExecute(backend *pgproto3.Backend, msg *pgproto3.Execute) error {
-	// Find the portal
-	portal, exists := s.portals[msg.Portal]
+func (s *PostgreSQLServer) handleExecute(backend *pgproto3.Backend, msg *pgproto3.Execute) bool {
+	portalName := msg.Portal
+	if portalName == "" {
+		portalName = ""
+	}
+	portal, exists := s.portals[portalName]
 	if !exists {
-		return s.sendErrorAndReady(backend, "26000", "Portal not found")
+		s.sendErrorAndReady(backend, "26000", 
+			fmt.Sprintf("Portal not found: '%s' (available: %d portals)", 
+				portalName, len(s.portals)))
+		return false
 	}
 
-	// Replace placeholders with actual parameters
-	query := s.replacePlaceholders(portal.Statement.Query, portal.Params)
+	query := s.replacePostgreSQLPlaceholders(portal.Statement.Query, portal.Params)
 	
-	// Parse the modified query
 	ctx := context.Background()
 	parsed, err := s.parser.Parse(query)
 	if err != nil {
-		return s.sendErrorAndReady(backend, "42601", fmt.Sprintf("Syntax error: failed to parse SQL query: %v", err))
+		s.sendErrorAndReady(backend, "42601", 
+			fmt.Sprintf("Syntax error: failed to parse SQL query: %v (transformed query: %s)", err, query))
+		return false
 	}
 	
-	// Execute the query
 	result, err := s.planner.Execute(ctx, parsed.Query)
 	if err != nil {
-		return s.sendErrorAndReady(backend, "42000", fmt.Sprintf("Query execution failed: %v", err))
+		s.sendErrorAndReady(backend, "42000", 
+			fmt.Sprintf("Query execution failed: %v", err))
+		return false
 	}
 	
-	// Send row description if there are columns
 	if len(result.Columns) > 0 {
 		fields := make([]pgproto3.FieldDescription, len(result.Columns))
 		for i, col := range result.Columns {
@@ -414,7 +431,7 @@ func (s *PostgreSQLServer) handleExecute(backend *pgproto3.Backend, msg *pgproto
 				Name:                 []byte(col),
 				TableOID:             0,
 				TableAttributeNumber: 0,
-				DataTypeOID:          25, // TEXT type
+				DataTypeOID:          25,
 				DataTypeSize:         -1,
 				TypeModifier:         -1,
 				Format:               0,
@@ -423,7 +440,6 @@ func (s *PostgreSQLServer) handleExecute(backend *pgproto3.Backend, msg *pgproto
 		backend.Send(&pgproto3.RowDescription{Fields: fields})
 	}
 	
-	// Send data rows
 	for _, row := range result.Rows {
 		dataRow := &pgproto3.DataRow{Values: make([][]byte, len(row))}
 		for i, val := range row {
@@ -436,7 +452,6 @@ func (s *PostgreSQLServer) handleExecute(backend *pgproto3.Backend, msg *pgproto
 		backend.Send(dataRow)
 	}
 	
-	// Send command complete
 	var commandTag string
 	if len(result.Rows) > 0 {
 		commandTag = fmt.Sprintf("SELECT %d", result.Count)
@@ -447,58 +462,135 @@ func (s *PostgreSQLServer) handleExecute(backend *pgproto3.Backend, msg *pgproto
 		CommandTag: []byte(commandTag),
 	})
 	
-	return backend.Flush()
+	if err := backend.Flush(); err != nil {
+		return true
+	}
+	return false
 }
 
 // handleClose handles the Close message
-func (s *PostgreSQLServer) handleClose(backend *pgproto3.Backend, msg *pgproto3.Close) error {
+func (s *PostgreSQLServer) handleClose(backend *pgproto3.Backend, msg *pgproto3.Close) bool {
 	switch msg.ObjectType {
-	case 'S': // Prepared statement
+	case 'S':
 		delete(s.preparedStatements, msg.Name)
-	case 'P': // Portal
+	case 'P':
 		delete(s.portals, msg.Name)
 	}
 	
 	backend.Send(&pgproto3.CloseComplete{})
-	return backend.Flush()
+	if err := backend.Flush(); err != nil {
+		return true
+	}
+	return false
 }
 
-// handleSync handles the Sync message
-func (s *PostgreSQLServer) handleSync(backend *pgproto3.Backend) error {
+func (s *PostgreSQLServer) handleSync(backend *pgproto3.Backend) bool {
 	backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
-	return backend.Flush()
+	if err := backend.Flush(); err != nil {
+		return true
+	}
+	return false
 }
 
-// sendErrorAndReady sends an error response followed by ReadyForQuery
-func (s *PostgreSQLServer) sendErrorAndReady(backend *pgproto3.Backend, code, message string) error {
+func (s *PostgreSQLServer) sendErrorAndReady(backend *pgproto3.Backend, code, message string) {
 	backend.Send(&pgproto3.ErrorResponse{
 		Severity: "ERROR",
 		Code:     code,
 		Message:  message,
 	})
 	backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
-	return backend.Flush()
+	backend.Flush()
 }
 
 // replacePlaceholders replaces $1, $2, ... with actual parameter values
-func (s *PostgreSQLServer) replacePlaceholders(query string, params []string) string {
-	// Use regex to replace $n with the corresponding parameter
+func (s *PostgreSQLServer) replacePlaceholders(query string, params []interface{}) string {
 	re := regexp.MustCompile(`\$(\d+)`)
 	result := re.ReplaceAllStringFunc(query, func(match string) string {
-		// Extract the parameter number
 		numStr := strings.TrimPrefix(match, "$")
 		num, err := strconv.Atoi(numStr)
 		if err != nil || num < 1 || num > len(params) {
-			return match // Return original if invalid
+			return match
 		}
-		// Replace with the actual parameter value
+		
 		param := params[num-1]
-		if param == "NULL" {
+		
+		switch v := param.(type) {
+		case nil:
 			return "NULL"
+		case bool:
+			if v {
+				return "1"
+			}
+			return "0"
+		case int, int8, int16, int32, int64:
+			return fmt.Sprintf("%d", v)
+		case uint, uint8, uint16, uint32, uint64:
+			return fmt.Sprintf("%d", v)
+		case float32, float64:
+			return fmt.Sprintf("%f", v)
+		case string:
+			escaped := strings.ReplaceAll(v, "'", "''")
+			escaped = strings.ReplaceAll(escaped, "\\", "\\\\")
+			return fmt.Sprintf("'%s'", escaped)
+		case []byte:
+			escaped := strings.ReplaceAll(string(v), "'", "''")
+			escaped = strings.ReplaceAll(escaped, "\\", "\\\\")
+			return fmt.Sprintf("'%s'", escaped)
+		default:
+			str := fmt.Sprintf("%v", v)
+			escaped := strings.ReplaceAll(str, "'", "''")
+			escaped = strings.ReplaceAll(escaped, "\\", "\\\\")
+			return fmt.Sprintf("'%s'", escaped)
 		}
-		// Simple escaping: wrap in single quotes and escape internal quotes
-		escaped := strings.ReplaceAll(param, "'", "''")
-		return fmt.Sprintf("'%s'", escaped)
 	})
 	return result
+}
+
+func (s *PostgreSQLServer) replacePostgreSQLPlaceholders(query string, params []interface{}) string {
+	return s.replacePlaceholders(query, params)
+}
+
+func (s *PostgreSQLServer) parseTextParameter(data []byte, oid uint32) interface{} {
+	text := string(data)
+	
+	switch oid {
+	case 16:
+		return text == "t" || text == "true" || text == "1"
+	case 20:
+		if val, err := strconv.ParseInt(text, 10, 64); err == nil {
+			return val
+		}
+	case 21:
+		if val, err := strconv.ParseInt(text, 10, 16); err == nil {
+			return int16(val)
+		}
+	case 23:
+		if val, err := strconv.ParseInt(text, 10, 32); err == nil {
+			return int32(val)
+		}
+	case 700:
+		if val, err := strconv.ParseFloat(text, 32); err == nil {
+			return float32(val)
+		}
+	case 701:
+		if val, err := strconv.ParseFloat(text, 64); err == nil {
+			return val
+		}
+	case 1043, 25:
+		return text
+	}
+	
+	if oid == 0 {
+		if text == "t" || text == "true" || text == "f" || text == "false" {
+			return text == "t" || text == "true"
+		}
+		if val, err := strconv.ParseInt(text, 10, 64); err == nil {
+			return val
+		}
+		if val, err := strconv.ParseFloat(text, 64); err == nil {
+			return val
+		}
+	}
+	
+	return text
 }
