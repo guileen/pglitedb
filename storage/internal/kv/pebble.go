@@ -20,7 +20,8 @@ type PebbleKV struct {
 	flushTicker   *time.Ticker
 	flushDone     chan struct{}
 	
-	// Transaction tracking for conflict detection
+	globalTS          atomic.Int64
+	keyTimestamps     sync.Map
 	activeTransactions map[uint64]*PebbleTransaction
 	transactionMu      sync.RWMutex
 	nextTxnID          uint64
@@ -227,7 +228,6 @@ func (p *PebbleKV) NewTransaction(ctx context.Context) (shared.Transaction, erro
 		return nil, shared.ErrClosed
 	}
 
-	// Generate a new transaction ID
 	p.transactionMu.Lock()
 	txnID := p.nextTxnID
 	p.nextTxnID++
@@ -236,18 +236,33 @@ func (p *PebbleKV) NewTransaction(ctx context.Context) (shared.Transaction, erro
 	txn := &PebbleTransaction{
 		db:        p.db,
 		batch:     p.db.NewBatch(),
-		isolation: shared.ReadCommitted, // Default isolation level
+		isolation: shared.ReadCommitted,
 		txnID:     txnID,
 		kv:        p,
 		writeKeys: make(map[string]bool),
+		startTS:   p.globalTS.Load(),
 	}
 
-	// Register the transaction
 	p.transactionMu.Lock()
 	p.activeTransactions[txnID] = txn
 	p.transactionMu.Unlock()
 
 	return txn, nil
+}
+
+func (p *PebbleKV) allocateTimestamp() int64 {
+	return p.globalTS.Add(1)
+}
+
+func (p *PebbleKV) getKeyTimestamp(key []byte) int64 {
+	if ts, ok := p.keyTimestamps.Load(string(key)); ok {
+		return ts.(int64)
+	}
+	return 0
+}
+
+func (p *PebbleKV) setKeyTimestamp(key []byte, ts int64) {
+	p.keyTimestamps.Store(string(key), ts)
 }
 
 func (p *PebbleKV) Stats() shared.KVStats {
@@ -508,8 +523,12 @@ type PebbleTransaction struct {
 	readKeys   map[string][]byte
 	isolation  shared.IsolationLevel
 	txnID      uint64
-	kv         *PebbleKV // Reference to the parent KV store
-	writeKeys  map[string]bool // Track keys written in this transaction
+	kv         *PebbleKV
+	writeKeys  map[string]bool
+	
+	startTS    int64
+	commitTS   int64
+	readSet    map[string]int64
 }
 
 func (t *PebbleTransaction) Get(key []byte) ([]byte, error) {
@@ -520,14 +539,12 @@ func (t *PebbleTransaction) Get(key []byte) ([]byte, error) {
 		return nil, shared.ErrClosed
 	}
 
-	// First check if the key was written in this transaction
 	value, closer, err := t.batch.Get(key)
 	if err == nil {
 		defer closer.Close()
 		result := make([]byte, len(value))
 		copy(result, value)
 		
-		// Track read keys for isolation level enforcement
 		if t.readKeys == nil {
 			t.readKeys = make(map[string][]byte)
 		}
@@ -536,11 +553,8 @@ func (t *PebbleTransaction) Get(key []byte) ([]byte, error) {
 		return result, nil
 	}
 
-	// Handle different isolation levels
 	switch t.isolation {
 	case shared.ReadUncommitted:
-		// Can read uncommitted data (data written in other transactions)
-		// This is a simplified implementation
 		value, closer, err = t.db.Get(key)
 		if err != nil {
 			if err == pebble.ErrNotFound {
@@ -561,11 +575,9 @@ func (t *PebbleTransaction) Get(key []byte) ([]byte, error) {
 		return result, nil
 		
 	case shared.ReadCommitted:
-		// Fall through to committed data read
 		fallthrough
 		
 	default:
-		// For Read Committed and higher isolation levels, read committed data
 		value, closer, err = t.db.Get(key)
 		if err != nil {
 			if err == pebble.ErrNotFound {
@@ -582,6 +594,13 @@ func (t *PebbleTransaction) Get(key []byte) ([]byte, error) {
 			t.readKeys = make(map[string][]byte)
 		}
 		t.readKeys[string(key)] = result
+
+		if t.isolation == shared.Serializable {
+			if t.readSet == nil {
+				t.readSet = make(map[string]int64)
+			}
+			t.readSet[string(key)] = t.kv.getKeyTimestamp(key)
+		}
 
 		return result, nil
 	}
@@ -640,9 +659,28 @@ func (t *PebbleTransaction) Commit() error {
 		return shared.ErrClosed
 	}
 
+	if t.isolation == shared.Serializable {
+		for key, readTS := range t.readSet {
+			currentTS := t.kv.getKeyTimestamp([]byte(key))
+			if currentTS > readTS {
+				t.closed = true
+				t.kv.transactionMu.Lock()
+				delete(t.kv.activeTransactions, t.txnID)
+				t.kv.transactionMu.Unlock()
+				t.batch.Close()
+				return shared.ErrConflict
+			}
+		}
+	}
+
+	t.commitTS = t.kv.allocateTimestamp()
+
+	for key := range t.writeKeys {
+		t.kv.setKeyTimestamp([]byte(key), t.commitTS)
+	}
+
 	t.closed = true
 	
-	// Unregister the transaction
 	t.kv.transactionMu.Lock()
 	delete(t.kv.activeTransactions, t.txnID)
 	t.kv.transactionMu.Unlock()
