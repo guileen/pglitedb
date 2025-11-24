@@ -27,6 +27,11 @@ func (e *pebbleEngine) UpdateRowBatch(ctx context.Context, tenantID, tableID int
 	batch := e.kv.NewBatch()
 	defer batch.Close()
 
+	if err := e.deleteIndexesBulk(batch, tenantID, tableID, oldRows, schemaDef); err != nil {
+		return fmt.Errorf("delete old indexes: %w", err)
+	}
+
+	updatedRows := make(map[int64]*types.Record, len(updates))
 	for _, update := range updates {
 		oldRow, ok := oldRows[update.RowID]
 		if !ok {
@@ -36,10 +41,7 @@ func (e *pebbleEngine) UpdateRowBatch(ctx context.Context, tenantID, tableID int
 		for colName, newValue := range update.Updates {
 			oldRow.Data[colName] = newValue
 		}
-
-		if err := e.deleteIndexesInBatch(batch, tenantID, tableID, update.RowID, oldRows[update.RowID], schemaDef); err != nil {
-			return fmt.Errorf("delete old indexes for row %d: %w", update.RowID, err)
-		}
+		updatedRows[update.RowID] = oldRow
 
 		value, err := e.codec.EncodeRow(oldRow, schemaDef)
 		if err != nil {
@@ -50,10 +52,10 @@ func (e *pebbleEngine) UpdateRowBatch(ctx context.Context, tenantID, tableID int
 		if err := batch.Set(key, value); err != nil {
 			return fmt.Errorf("batch set row %d: %w", update.RowID, err)
 		}
+	}
 
-		if err := e.batchUpdateIndexes(batch, tenantID, tableID, update.RowID, oldRow, schemaDef); err != nil {
-			return fmt.Errorf("update indexes for row %d: %w", update.RowID, err)
-		}
+	if err := e.batchUpdateIndexesBulk(batch, tenantID, tableID, updatedRows, schemaDef); err != nil {
+		return fmt.Errorf("update indexes: %w", err)
 	}
 
 	if err := e.kv.CommitBatchWithOptions(ctx, batch, &shared.WriteOptions{
@@ -78,21 +80,20 @@ func (e *pebbleEngine) DeleteRowBatch(ctx context.Context, tenantID, tableID int
 	batch := e.kv.NewBatch()
 	defer batch.Close()
 
+	if err := e.deleteIndexesBulk(batch, tenantID, tableID, oldRows, schemaDef); err != nil {
+		return fmt.Errorf("delete indexes: %w", err)
+	}
+
 	sort.Slice(rowIDs, func(i, j int) bool { return rowIDs[i] < rowIDs[j] })
 
 	for _, rowID := range rowIDs {
-		oldRow, ok := oldRows[rowID]
-		if !ok {
+		if _, ok := oldRows[rowID]; !ok {
 			continue
 		}
 
 		key := e.codec.EncodeTableKey(tenantID, tableID, rowID)
 		if err := batch.Delete(key); err != nil {
 			return fmt.Errorf("batch delete row %d: %w", rowID, err)
-		}
-
-		if err := e.deleteIndexesInBatch(batch, tenantID, tableID, rowID, oldRow, schemaDef); err != nil {
-			return fmt.Errorf("delete indexes for row %d: %w", rowID, err)
 		}
 	}
 

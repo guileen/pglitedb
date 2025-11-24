@@ -825,6 +825,51 @@ func (e *pebbleEngine) batchUpdateIndexes(batch storage.Batch, tenantID, tableID
 	return nil
 }
 
+func (e *pebbleEngine) batchUpdateIndexesBulk(batch storage.Batch, tenantID, tableID int64, rows map[int64]*types.Record, schemaDef *types.TableDefinition) error {
+	if schemaDef.Indexes == nil || len(rows) == 0 {
+		return nil
+	}
+
+	for i, indexDef := range schemaDef.Indexes {
+		indexID := int64(i + 1)
+
+		for rowID, row := range rows {
+			indexValues := make([]interface{}, 0, len(indexDef.Columns))
+			allValuesPresent := true
+
+			for _, colName := range indexDef.Columns {
+				if val, ok := row.Data[colName]; ok && val != nil {
+					indexValues = append(indexValues, val.Data)
+				} else {
+					allValuesPresent = false
+					break
+				}
+			}
+
+			if allValuesPresent && len(indexValues) > 0 {
+				var indexKey []byte
+				var err error
+
+				if len(indexValues) == 1 {
+					indexKey, err = e.codec.EncodeIndexKey(tenantID, tableID, indexID, indexValues[0], rowID)
+				} else {
+					indexKey, err = e.codec.EncodeCompositeIndexKey(tenantID, tableID, indexID, indexValues, rowID)
+				}
+
+				if err != nil {
+					return fmt.Errorf("encode index key: %w", err)
+				}
+
+				if err := batch.Set(indexKey, []byte{}); err != nil {
+					return fmt.Errorf("batch set index: %w", err)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 func (e *pebbleEngine) deleteIndexes(ctx context.Context, tenantID, tableID, rowID int64, row *types.Record, schemaDef *types.TableDefinition) error {
 	if schemaDef.Indexes == nil {
 		return nil
@@ -909,6 +954,51 @@ func (e *pebbleEngine) deleteIndexesInBatch(batch storage.Batch, tenantID, table
 
 			if err := batch.Delete(indexKey); err != nil {
 				return fmt.Errorf("batch delete index: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (e *pebbleEngine) deleteIndexesBulk(batch storage.Batch, tenantID, tableID int64, rows map[int64]*types.Record, schemaDef *types.TableDefinition) error {
+	if schemaDef.Indexes == nil || len(rows) == 0 {
+		return nil
+	}
+
+	for i, indexDef := range schemaDef.Indexes {
+		indexID := int64(i + 1)
+
+		for rowID, row := range rows {
+			indexValues := make([]interface{}, 0, len(indexDef.Columns))
+			allValuesPresent := true
+
+			for _, colName := range indexDef.Columns {
+				if val, ok := row.Data[colName]; ok && val != nil {
+					indexValues = append(indexValues, val.Data)
+				} else {
+					allValuesPresent = false
+					break
+				}
+			}
+
+			if allValuesPresent && len(indexValues) > 0 {
+				var indexKey []byte
+				var err error
+
+				if len(indexValues) == 1 {
+					indexKey, err = e.codec.EncodeIndexKey(tenantID, tableID, indexID, indexValues[0], rowID)
+				} else {
+					indexKey, err = e.codec.EncodeCompositeIndexKey(tenantID, tableID, indexID, indexValues, rowID)
+				}
+
+				if err != nil {
+					return fmt.Errorf("encode index key: %w", err)
+				}
+
+				if err := batch.Delete(indexKey); err != nil {
+					return fmt.Errorf("batch delete index: %w", err)
+				}
 			}
 		}
 	}
