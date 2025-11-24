@@ -167,8 +167,11 @@ func (e *pebbleEngine) UpdateRow(ctx context.Context, tenantID, tableID, rowID i
 		return fmt.Errorf("get old row: %w", err)
 	}
 
-	if err := e.deleteIndexes(ctx, tenantID, tableID, rowID, oldRow, schemaDef); err != nil {
-		return fmt.Errorf("delete old indexes: %w", err)
+	batch := e.kv.NewBatch()
+	defer batch.Close()
+
+	if err := e.deleteIndexesInBatch(batch, tenantID, tableID, rowID, oldRow, schemaDef); err != nil {
+		return fmt.Errorf("delete old indexes in batch: %w", err)
 	}
 
 	for k, v := range updates {
@@ -181,12 +184,16 @@ func (e *pebbleEngine) UpdateRow(ctx context.Context, tenantID, tableID, rowID i
 		return fmt.Errorf("encode row: %w", err)
 	}
 
-	if err := e.kv.Set(ctx, key, value); err != nil {
-		return fmt.Errorf("update row: %w", err)
+	if err := batch.Set(key, value); err != nil {
+		return fmt.Errorf("batch set row: %w", err)
 	}
 
-	if err := e.updateIndexes(ctx, tenantID, tableID, rowID, oldRow, schemaDef, false); err != nil {
-		return fmt.Errorf("update indexes: %w", err)
+	if err := e.batchUpdateIndexes(batch, tenantID, tableID, rowID, oldRow, schemaDef); err != nil {
+		return fmt.Errorf("update indexes in batch: %w", err)
+	}
+
+	if err := e.kv.CommitBatchWithOptions(ctx, batch, storage.SyncWriteOptions); err != nil {
+		return fmt.Errorf("commit batch: %w", err)
 	}
 
 	return nil
@@ -198,13 +205,20 @@ func (e *pebbleEngine) DeleteRow(ctx context.Context, tenantID, tableID, rowID i
 		return fmt.Errorf("get row: %w", err)
 	}
 
+	batch := e.kv.NewBatch()
+	defer batch.Close()
+
 	key := e.codec.EncodeTableKey(tenantID, tableID, rowID)
-	if err := e.kv.Delete(ctx, key); err != nil {
-		return fmt.Errorf("delete row: %w", err)
+	if err := batch.Delete(key); err != nil {
+		return fmt.Errorf("batch delete row: %w", err)
 	}
 
-	if err := e.deleteIndexes(ctx, tenantID, tableID, rowID, oldRow, schemaDef); err != nil {
-		return fmt.Errorf("delete indexes: %w", err)
+	if err := e.deleteIndexesInBatch(batch, tenantID, tableID, rowID, oldRow, schemaDef); err != nil {
+		return fmt.Errorf("delete indexes in batch: %w", err)
+	}
+
+	if err := e.kv.CommitBatchWithOptions(ctx, batch, storage.SyncWriteOptions); err != nil {
+		return fmt.Errorf("commit batch: %w", err)
 	}
 
 	return nil
@@ -862,6 +876,49 @@ func (e *pebbleEngine) deleteIndexes(ctx context.Context, tenantID, tableID, row
 
 			if err := e.kv.Delete(ctx, indexKey); err != nil {
 				return fmt.Errorf("delete index: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (e *pebbleEngine) deleteIndexesInBatch(batch storage.Batch, tenantID, tableID, rowID int64, row *types.Record, schemaDef *types.TableDefinition) error {
+	if schemaDef.Indexes == nil {
+		return nil
+	}
+
+	for i, indexDef := range schemaDef.Indexes {
+		indexID := int64(i + 1)
+
+		indexValues := make([]interface{}, 0, len(indexDef.Columns))
+		allValuesPresent := true
+
+		for _, colName := range indexDef.Columns {
+			if val, ok := row.Data[colName]; ok && val != nil {
+				indexValues = append(indexValues, val.Data)
+			} else {
+				allValuesPresent = false
+				break
+			}
+		}
+
+		if allValuesPresent && len(indexValues) > 0 {
+			var indexKey []byte
+			var err error
+
+			if len(indexValues) == 1 {
+				indexKey, err = e.codec.EncodeIndexKey(tenantID, tableID, indexID, indexValues[0], rowID)
+			} else {
+				indexKey, err = e.codec.EncodeCompositeIndexKey(tenantID, tableID, indexID, indexValues, rowID)
+			}
+
+			if err != nil {
+				return fmt.Errorf("encode index key: %w", err)
+			}
+
+			if err := batch.Delete(indexKey); err != nil {
+				return fmt.Errorf("batch delete index: %w", err)
 			}
 		}
 	}
