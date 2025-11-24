@@ -38,10 +38,10 @@ type PebbleConfig struct {
 func DefaultPebbleConfig(path string) *PebbleConfig {
 	return &PebbleConfig{
 		Path:                  path,
-		CacheSize:             64 * 1024 * 1024,
-		MemTableSize:          4 * 1024 * 1024,
+		CacheSize:             256 * 1024 * 1024,
+		MemTableSize:          64 * 1024 * 1024,
 		MaxOpenFiles:          1000,
-		CompactionConcurrency: 1,
+		CompactionConcurrency: 3,
 		FlushInterval:         1 * time.Second,
 	}
 }
@@ -50,10 +50,10 @@ func NewPebbleKV(config *PebbleConfig) (*PebbleKV, error) {
 	opts := &pebble.Options{
 		Cache:          pebble.NewCache(config.CacheSize),
 		MaxOpenFiles:   config.MaxOpenFiles,
-		MemTableSize:   uint64(config.MemTableSize),
-		L0CompactionThreshold: 2,
+		MemTableSize:   64 * 1024 * 1024,
+		L0CompactionThreshold: 4,
 		L0StopWritesThreshold: 12,
-		MaxConcurrentCompactions: func() int { return config.CompactionConcurrency },
+		MaxConcurrentCompactions: func() int { return 3 },
 	}
 	defer opts.Cache.Unref()
 
