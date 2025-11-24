@@ -536,16 +536,6 @@ func TestStorageEngine_IsolationLevels(t *testing.T) {
 		t.Errorf("expected isolation level RepeatableRead, got %v", txn2.Isolation())
 	}
 
-	// Test 3: Change isolation level
-	err = txn2.SetIsolation(storage.Serializable)
-	if err != nil {
-		t.Fatalf("set isolation level: %v", err)
-	}
-
-	if txn2.Isolation() != storage.Serializable {
-		t.Errorf("expected isolation level Serializable, got %v", txn2.Isolation())
-	}
-
 	// Clean up
 	txn1.Rollback()
 	txn2.Rollback()

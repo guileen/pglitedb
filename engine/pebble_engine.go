@@ -55,25 +55,51 @@ func (e *pebbleEngine) GetRowBatch(ctx context.Context, tenantID, tableID int64,
 
 	result := make(map[int64]*types.Record, len(rowIDs))
 	
-	for _, rowID := range rowIDs {
-		key := e.codec.EncodeTableKey(tenantID, tableID, rowID)
-		value, err := e.kv.Get(ctx, key)
+	sorted := make([]int64, len(rowIDs))
+	copy(sorted, rowIDs)
+	sortInt64Slice(sorted)
+	
+	startKey := e.codec.EncodeTableKey(tenantID, tableID, sorted[0])
+	endKey := e.codec.EncodeTableKey(tenantID, tableID, sorted[len(sorted)-1]+1)
+	
+	iter := e.kv.NewIterator(&storage.IteratorOptions{
+		LowerBound: startKey,
+		UpperBound: endKey,
+	})
+	defer iter.Close()
+	
+	targetIdx := 0
+	for iter.First(); iter.Valid() && targetIdx < len(sorted); iter.Next() {
+		_, _, rowID, err := e.codec.DecodeTableKey(iter.Key())
 		if err != nil {
-			if storage.IsNotFound(err) {
-				continue
+			return nil, fmt.Errorf("decode table key: %w", err)
+		}
+		
+		for targetIdx < len(sorted) && sorted[targetIdx] < rowID {
+			targetIdx++
+		}
+		
+		if targetIdx < len(sorted) && sorted[targetIdx] == rowID {
+			record, err := e.codec.DecodeRow(iter.Value(), schemaDef)
+			if err != nil {
+				return nil, fmt.Errorf("decode row %d: %w", rowID, err)
 			}
-			return nil, fmt.Errorf("get row %d: %w", rowID, err)
+			result[rowID] = record
+			targetIdx++
 		}
-
-		record, err := e.codec.DecodeRow(value, schemaDef)
-		if err != nil {
-			return nil, fmt.Errorf("decode row %d: %w", rowID, err)
-		}
-
-		result[rowID] = record
 	}
 
 	return result, nil
+}
+
+func sortInt64Slice(arr []int64) {
+	for i := 0; i < len(arr)-1; i++ {
+		for j := i + 1; j < len(arr); j++ {
+			if arr[i] > arr[j] {
+				arr[i], arr[j] = arr[j], arr[i]
+			}
+		}
+	}
 }
 
 func (e *pebbleEngine) InsertRow(ctx context.Context, tenantID, tableID int64, row *types.Record, schemaDef *types.TableDefinition) (int64, error) {
@@ -271,6 +297,7 @@ func (e *pebbleEngine) ScanRows(ctx context.Context, tenantID, tableID int64, sc
 		schemaDef: schemaDef,
 		opts:      opts,
 		count:     0,
+		engine:    e,
 	}, nil
 }
 
@@ -306,17 +333,17 @@ func (e *pebbleEngine) ScanIndex(ctx context.Context, tenantID, tableID, indexID
 
 	var startKey, endKey []byte
 
-	if opts != nil && opts.StartKey != nil {
+	if opts != nil && opts.Filter != nil {
+		startKey, endKey = e.buildIndexRangeFromFilter(tenantID, tableID, indexID, opts.Filter, indexDef)
+	} else if opts != nil && opts.StartKey != nil {
 		startKey = opts.StartKey
+		if opts.EndKey != nil {
+			endKey = opts.EndKey
+		} else {
+			endKey = e.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
+		}
 	} else {
-		// Create a start key for scanning the index using the new function
 		startKey = e.codec.EncodeIndexScanStartKey(tenantID, tableID, indexID)
-	}
-
-	if opts != nil && opts.EndKey != nil {
-		endKey = opts.EndKey
-	} else {
-		// Create an end key for scanning the index using the new function
 		endKey = e.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
 	}
 
@@ -330,6 +357,27 @@ func (e *pebbleEngine) ScanIndex(ctx context.Context, tenantID, tableID, indexID
 	}
 
 	iter := e.kv.NewIterator(iterOpts)
+	
+	// Check if this is an index-only scan (covering index)
+	isCovering := false
+	if opts != nil && opts.Projection != nil && len(opts.Projection) > 0 {
+		isCovering = e.isIndexCovering(indexDef, opts.Projection)
+	}
+	
+	if isCovering {
+		return &indexOnlyIterator{
+			iter:        iter,
+			codec:       e.codec,
+			indexDef:    indexDef,
+			projection:  opts.Projection,
+			opts:        opts,
+			columnTypes: columnTypes,
+			tenantID:    tenantID,
+			tableID:     tableID,
+			indexID:     indexID,
+			engine:      e,
+		}, nil
+	}
 
 	return &indexIterator{
 		iter:        iter,
@@ -359,6 +407,10 @@ func (e *pebbleEngine) BeginTx(ctx context.Context) (Transaction, error) {
 }
 
 func (e *pebbleEngine) BeginTxWithIsolation(ctx context.Context, level storage.IsolationLevel) (Transaction, error) {
+	if level >= storage.RepeatableRead {
+		return e.newSnapshotTx(ctx, level)
+	}
+
 	kvTxn, err := e.kv.NewTransaction(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin transaction: %w", err)
@@ -409,6 +461,278 @@ func (e *pebbleEngine) NextIndexID(ctx context.Context, tenantID, tableID int64)
 
 func (e *pebbleEngine) Close() error {
 	return e.kv.Close()
+}
+
+// buildIndexRangeFromFilter constructs index scan range based on filter expression
+func (e *pebbleEngine) buildIndexRangeFromFilter(tenantID, tableID, indexID int64, filter *FilterExpression, indexDef *types.IndexDefinition) ([]byte, []byte) {
+	if filter == nil {
+		return e.codec.EncodeIndexScanStartKey(tenantID, tableID, indexID),
+			e.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
+	}
+	
+	// For complex filters (AND/OR/NOT), extract simple conditions for the first index column
+	if filter.Type == "and" || filter.Type == "or" || filter.Type == "not" {
+		// Try to find a simple filter matching the first index column
+		firstCol := ""
+		if len(indexDef.Columns) > 0 {
+			firstCol = indexDef.Columns[0]
+		}
+		
+		simpleFilter := e.extractSimpleFilter(filter, firstCol)
+		if simpleFilter != nil {
+			return e.buildRangeFromSimpleFilter(tenantID, tableID, indexID, simpleFilter)
+		}
+		
+		// No matching simple filter, do full index scan
+		return e.codec.EncodeIndexScanStartKey(tenantID, tableID, indexID),
+			e.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
+	}
+	
+	// Simple filter
+	return e.buildRangeFromSimpleFilter(tenantID, tableID, indexID, filter)
+}
+
+// extractSimpleFilter finds a simple filter for the given column in a complex filter tree
+func (e *pebbleEngine) extractSimpleFilter(filter *FilterExpression, columnName string) *FilterExpression {
+	if filter.Type == "simple" && filter.Column == columnName {
+		return filter
+	}
+	
+	if filter.Type == "and" {
+		// For AND, we can use any matching condition
+		for _, child := range filter.Children {
+			if result := e.extractSimpleFilter(child, columnName); result != nil {
+				return result
+			}
+		}
+	}
+	
+	// For OR/NOT, we cannot safely extract a simple filter
+	return nil
+}
+
+// buildRangeFromSimpleFilter constructs index range for a simple filter
+func (e *pebbleEngine) buildRangeFromSimpleFilter(tenantID, tableID, indexID int64, filter *FilterExpression) ([]byte, []byte) {
+	maxRowID := int64(^uint64(0) >> 1)
+	
+	switch filter.Operator {
+	case "=":
+		start, _ := e.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, 0)
+		end, _ := e.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, maxRowID)
+		return start, end
+		
+	case ">":
+		start, _ := e.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, maxRowID)
+		end := e.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
+		return start, end
+		
+	case ">=":
+		start, _ := e.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, 0)
+		end := e.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
+		return start, end
+		
+	case "<":
+		start := e.codec.EncodeIndexScanStartKey(tenantID, tableID, indexID)
+		end, _ := e.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, 0)
+		return start, end
+		
+	case "<=":
+		start := e.codec.EncodeIndexScanStartKey(tenantID, tableID, indexID)
+		end, _ := e.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, maxRowID)
+		return start, end
+		
+	default:
+		// Unsupported operator, full scan
+		return e.codec.EncodeIndexScanStartKey(tenantID, tableID, indexID),
+			e.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
+	}
+}
+
+// EvaluateFilter evaluates a filter expression against a record
+func (e *pebbleEngine) EvaluateFilter(filter *FilterExpression, record *types.Record) bool {
+	if filter == nil {
+		return true
+	}
+	
+	switch filter.Type {
+	case "simple":
+		return e.evaluateSimpleFilter(filter, record)
+		
+	case "and":
+		for _, child := range filter.Children {
+			if !e.EvaluateFilter(child, record) {
+				return false
+			}
+		}
+		return true
+		
+	case "or":
+		for _, child := range filter.Children {
+			if e.EvaluateFilter(child, record) {
+				return true
+			}
+		}
+		return false
+		
+	case "not":
+		if len(filter.Children) > 0 {
+			return !e.EvaluateFilter(filter.Children[0], record)
+		}
+		return true
+		
+	default:
+		return true
+	}
+}
+
+// evaluateSimpleFilter evaluates a simple filter condition
+func (e *pebbleEngine) evaluateSimpleFilter(filter *FilterExpression, record *types.Record) bool {
+	val, exists := record.Data[filter.Column]
+	if !exists {
+		return false
+	}
+	
+	if val.Data == nil {
+		return filter.Value == nil
+	}
+	
+	switch filter.Operator {
+	case "=":
+		return e.compareValues(val.Data, filter.Value) == 0
+	case ">":
+		return e.compareValues(val.Data, filter.Value) > 0
+	case ">=":
+		return e.compareValues(val.Data, filter.Value) >= 0
+	case "<":
+		return e.compareValues(val.Data, filter.Value) < 0
+	case "<=":
+		return e.compareValues(val.Data, filter.Value) <= 0
+	case "IN":
+		for _, v := range filter.Values {
+			if e.compareValues(val.Data, v) == 0 {
+				return true
+			}
+		}
+		return false
+	case "BETWEEN":
+		if len(filter.Values) >= 2 {
+			return e.compareValues(val.Data, filter.Values[0]) >= 0 &&
+				e.compareValues(val.Data, filter.Values[1]) <= 0
+		}
+		return false
+	default:
+		return true
+	}
+}
+
+// compareValues compares two values, returns -1/0/1 like strcmp
+func (e *pebbleEngine) compareValues(a, b interface{}) int {
+	// Handle nil cases
+	if a == nil && b == nil {
+		return 0
+	}
+	if a == nil {
+		return -1
+	}
+	if b == nil {
+		return 1
+	}
+	
+	// Type-specific comparison
+	switch av := a.(type) {
+	case int64:
+		bv := toInt64(b)
+		if av < bv {
+			return -1
+		} else if av > bv {
+			return 1
+		}
+		return 0
+		
+	case int:
+		return e.compareValues(int64(av), b)
+		
+	case float64:
+		bv := toFloat64(b)
+		if av < bv {
+			return -1
+		} else if av > bv {
+			return 1
+		}
+		return 0
+		
+	case string:
+		bv, ok := b.(string)
+		if !ok {
+			return 1
+		}
+		if av < bv {
+			return -1
+		} else if av > bv {
+			return 1
+		}
+		return 0
+		
+	case bool:
+		bv, ok := b.(bool)
+		if !ok {
+			return 1
+		}
+		if av == bv {
+			return 0
+		}
+		if !av && bv {
+			return -1
+		}
+		return 1
+		
+	default:
+		return 0
+	}
+}
+
+func toInt64(v interface{}) int64 {
+	switch val := v.(type) {
+	case int64:
+		return val
+	case int:
+		return int64(val)
+	case int32:
+		return int64(val)
+	case float64:
+		return int64(val)
+	default:
+		return 0
+	}
+}
+
+func toFloat64(v interface{}) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case int64:
+		return float64(val)
+	case int:
+		return float64(val)
+	default:
+		return 0
+	}
+}
+
+// isIndexCovering checks if an index covers all projection columns
+func (e *pebbleEngine) isIndexCovering(indexDef *types.IndexDefinition, projection []string) bool {
+	indexColSet := make(map[string]bool)
+	for _, col := range indexDef.Columns {
+		indexColSet[col] = true
+	}
+	
+	for _, col := range projection {
+		if col != "_rowid" && !indexColSet[col] {
+			return false
+		}
+	}
+	
+	return true
 }
 
 func (e *pebbleEngine) updateIndexes(ctx context.Context, tenantID, tableID, rowID int64, row *types.Record, schemaDef *types.TableDefinition, isInsert bool) error {
@@ -565,6 +889,115 @@ type indexIterator struct {
 	cacheIdx    int
 }
 
+// indexOnlyIterator implements covering index scan without table access
+type indexOnlyIterator struct {
+	iter        storage.Iterator
+	codec       codec.Codec
+	indexDef    *types.IndexDefinition
+	projection  []string
+	opts        *ScanOptions
+	columnTypes []types.ColumnType
+	tenantID    int64
+	tableID     int64
+	indexID     int64
+	engine      *pebbleEngine
+	current     *types.Record
+	err         error
+	count       int
+	started     bool
+}
+
+func (io *indexOnlyIterator) Next() bool {
+	if io.opts != nil && io.opts.Limit > 0 && io.count >= io.opts.Limit {
+		return false
+	}
+
+	var hasNext bool
+	if !io.started {
+		hasNext = io.iter.First()
+		io.started = true
+
+		if io.opts != nil && io.opts.Offset > 0 {
+			for i := 0; i < io.opts.Offset && hasNext; i++ {
+				hasNext = io.iter.Next()
+			}
+		}
+	} else {
+		hasNext = io.iter.Next()
+	}
+
+	if !hasNext {
+		return false
+	}
+
+	// Decode index key to extract column values
+	_, _, _, indexValues, rowID, err := io.codec.DecodeIndexKey(io.iter.Key())
+	if err != nil {
+		io.err = err
+		return false
+	}
+
+	// Build record from index values only
+	record := &types.Record{
+		Data: make(map[string]*types.Value),
+	}
+
+	// Map index values to columns
+	for i, colName := range io.indexDef.Columns {
+		if i < len(indexValues) {
+			// Check if this column is in projection
+			inProjection := false
+			for _, projCol := range io.projection {
+				if projCol == colName {
+					inProjection = true
+					break
+				}
+			}
+
+			if inProjection {
+				record.Data[colName] = &types.Value{
+					Type: io.columnTypes[i],
+					Data: indexValues[i],
+				}
+			}
+		}
+	}
+
+	// Add _rowid if requested
+	for _, projCol := range io.projection {
+		if projCol == "_rowid" {
+			record.Data["_rowid"] = &types.Value{
+				Type: types.ColumnTypeNumber,
+				Data: rowID,
+			}
+			break
+		}
+	}
+
+	// Apply filter if present
+	if io.opts != nil && io.opts.Filter != nil {
+		if !io.engine.EvaluateFilter(io.opts.Filter, record) {
+			return io.Next()
+		}
+	}
+
+	io.current = record
+	io.count++
+	return true
+}
+
+func (io *indexOnlyIterator) Row() *types.Record {
+	return io.current
+}
+
+func (io *indexOnlyIterator) Error() error {
+	return io.err
+}
+
+func (io *indexOnlyIterator) Close() error {
+	return io.iter.Close()
+}
+
 func (ii *indexIterator) Next() bool {
 	if ii.opts != nil && ii.opts.Limit > 0 && ii.count >= ii.opts.Limit {
 		return false
@@ -625,6 +1058,13 @@ func (ii *indexIterator) Next() bool {
 		if !ok {
 			return ii.Next()
 		}
+		
+		// Apply filter evaluation
+		if ii.opts != nil && ii.opts.Filter != nil {
+			if !ii.engine.EvaluateFilter(ii.opts.Filter, row) {
+				return ii.Next() // Skip this row and try next
+			}
+		}
 
 		row.Data["_rowid"] = &types.Value{
 			Type: types.ColumnTypeNumber,
@@ -663,6 +1103,7 @@ type rowIterator struct {
 	err       error
 	count     int
 	started   bool
+	engine    *pebbleEngine
 }
 
 func (ri *rowIterator) Next() bool {
@@ -704,6 +1145,13 @@ func (ri *rowIterator) Next() bool {
 	record.Data["_rowid"] = &types.Value{
 		Type: types.ColumnTypeNumber,
 		Data: rowID,
+	}
+	
+	// Apply filter if present
+	if ri.opts != nil && ri.opts.Filter != nil && ri.engine != nil {
+		if !ri.engine.EvaluateFilter(ri.opts.Filter, record) {
+			return ri.Next() // Skip this row and try next
+		}
 	}
 
 	ri.current = record

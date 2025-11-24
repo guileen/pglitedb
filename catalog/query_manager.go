@@ -40,6 +40,10 @@ func (m *queryManager) Query(ctx context.Context, tenantID int64, tableName stri
 		if opts.Columns != nil {
 			scanOpts.Projection = opts.Columns
 		}
+		
+		if opts.Where != nil && len(opts.Where) > 0 {
+			scanOpts.Filter = m.buildFilterExpression(opts.Where)
+		}
 	}
 
 	var iter engine.RowIterator
@@ -242,4 +246,39 @@ func (m *queryManager) findIndexForColumn(schema *types.TableDefinition, columnN
 		}
 	}
 	return 0
+}
+
+// buildFilterExpression converts a simple map filter to a complex FilterExpression
+func (m *queryManager) buildFilterExpression(where map[string]interface{}) *engine.FilterExpression {
+	if len(where) == 0 {
+		return nil
+	}
+	
+	if len(where) == 1 {
+		// Single condition
+		for col, val := range where {
+			return &engine.FilterExpression{
+				Type:     "simple",
+				Column:   col,
+				Operator: "=",
+				Value:    val,
+			}
+		}
+	}
+	
+	// Multiple conditions - combine with AND
+	children := make([]*engine.FilterExpression, 0, len(where))
+	for col, val := range where {
+		children = append(children, &engine.FilterExpression{
+			Type:     "simple",
+			Column:   col,
+			Operator: "=",
+			Value:    val,
+		})
+	}
+	
+	return &engine.FilterExpression{
+		Type:     "and",
+		Children: children,
+	}
 }
