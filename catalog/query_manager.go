@@ -80,8 +80,32 @@ func (m *queryManager) Query(ctx context.Context, tenantID int64, tableName stri
 		return nil, fmt.Errorf("iterator error: %w", err)
 	}
 
+	// Build column info from schema
+	columns := make([]types.ColumnInfo, len(schema.Columns))
+	for i, col := range schema.Columns {
+		columns[i] = types.ColumnInfo{
+			Name: col.Name,
+			Type: col.Type,
+		}
+	}
+
+	// Convert records to rows
+	rows := make([][]interface{}, len(records))
+	for i, record := range records {
+		row := make([]interface{}, len(schema.Columns))
+		for j, col := range schema.Columns {
+			if value, ok := record.Data[col.Name]; ok && value != nil {
+				row[j] = value.Data
+			} else {
+				row[j] = nil
+			}
+		}
+		rows[i] = row
+	}
+
 	result := &types.QueryResult{
-		Rows:     make([][]interface{}, 0),
+		Rows:     rows,
+		Columns:  columns,
 		Records:  records,
 		Count:    int64(len(records)),
 		Duration: time.Since(startTime),

@@ -12,6 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// getColumnValue helper function to extract column value from row
+func getColumnValue(row []interface{}, columns []types.ColumnInfo, columnName string) interface{} {
+	for i, col := range columns {
+		if col.Name == columnName && i < len(row) {
+			return row[i]
+		}
+	}
+	return nil
+}
+
 func TestClientIntegration(t *testing.T) {
 	dbPath := fmt.Sprintf("/tmp/pglitedb-integration-test-%d", time.Now().UnixNano())
 	db := client.NewClient(dbPath)
@@ -39,8 +49,8 @@ func TestClientIntegration(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), queryResult.Count)
-		assert.Equal(t, "Alice", queryResult.Rows[0]["name"])
-		assert.Equal(t, int64(30), queryResult.Rows[0]["age"])
+		assert.Equal(t, "Alice", getColumnValue(queryResult.Rows[0], queryResult.Columns, "name"))
+		assert.Equal(t, int64(30), getColumnValue(queryResult.Rows[0], queryResult.Columns, "age"))
 	})
 
 	t.Run("Update", func(t *testing.T) {
@@ -60,7 +70,7 @@ func TestClientIntegration(t *testing.T) {
 			Where: map[string]interface{}{"name": "Alice"},
 		})
 		require.NoError(t, err)
-		assert.Equal(t, int64(31), queryResult.Rows[0]["age"])
+		assert.Equal(t, int64(31), getColumnValue(queryResult.Rows[0], queryResult.Columns, "age"))
 	})
 
 	t.Run("Delete", func(t *testing.T) {
@@ -103,9 +113,9 @@ func TestClientIntegration(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Equal(t, int64(3), queryResult.Count)
-		assert.Equal(t, "Bob", queryResult.Rows[0]["name"])
-		assert.Equal(t, "Diana", queryResult.Rows[1]["name"])
-		assert.Equal(t, "Charlie", queryResult.Rows[2]["name"])
+		assert.Equal(t, "Bob", getColumnValue(queryResult.Rows[0], queryResult.Columns, "name"))
+		assert.Equal(t, "Diana", getColumnValue(queryResult.Rows[1], queryResult.Columns, "name"))
+		assert.Equal(t, "Charlie", getColumnValue(queryResult.Rows[2], queryResult.Columns, "name"))
 	})
 
 	t.Run("Query with Limit and Offset", func(t *testing.T) {
@@ -123,8 +133,8 @@ func TestClientIntegration(t *testing.T) {
 			return
 		}
 		assert.Equal(t, int64(2), queryResult.Count)
-		assert.Equal(t, "Diana", queryResult.Rows[0]["name"])
-		assert.Equal(t, "Charlie", queryResult.Rows[1]["name"])
+		assert.Equal(t, "Diana", getColumnValue(queryResult.Rows[0], queryResult.Columns, "name"))
+		assert.Equal(t, "Charlie", getColumnValue(queryResult.Rows[1], queryResult.Columns, "name"))
 	})
 
 	t.Run("Multi-tenant Isolation", func(t *testing.T) {
@@ -154,11 +164,11 @@ func TestClientIntegration(t *testing.T) {
 		result1, err := db.Select(ctx, tenant1, "accounts", &types.QueryOptions{})
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), result1.Count)
-		assert.Equal(t, "Tenant1User", result1.Rows[0]["name"])
+		assert.Equal(t, "Tenant1User", getColumnValue(result1.Rows[0], result1.Columns, "name"))
 
 		result2, err := db.Select(ctx, tenant2, "accounts", &types.QueryOptions{})
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), result2.Count)
-		assert.Equal(t, "Tenant2User", result2.Rows[0]["name"])
+		assert.Equal(t, "Tenant2User", getColumnValue(result2.Rows[0], result2.Columns, "name"))
 	})
 }

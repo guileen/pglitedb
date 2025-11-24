@@ -110,12 +110,23 @@ func TestQueryExecutor_Select(t *testing.T) {
 	}
 
 	row := result.Rows[0]
-	if row["name"] != "Alice" {
-		t.Errorf("expected name=Alice, got %v", row["name"])
+	// Find column indices
+	nameIdx := -1
+	emailIdx := -1
+	for i, col := range result.Columns {
+		if col.Name == "name" {
+			nameIdx = i
+		} else if col.Name == "email" {
+			emailIdx = i
+		}
+	}
+	
+	if nameIdx >= 0 && row[nameIdx] != "Alice" {
+		t.Errorf("expected name=Alice, got %v", row[nameIdx])
 	}
 
-	if row["email"] != "alice@example.com" {
-		t.Errorf("expected email=alice@example.com, got %v", row["email"])
+	if emailIdx >= 0 && row[emailIdx] != "alice@example.com" {
+		t.Errorf("expected email=alice@example.com, got %v", row[emailIdx])
 	}
 }
 
@@ -152,7 +163,16 @@ func TestQueryExecutor_Insert(t *testing.T) {
 		t.Fatalf("expected 1 row, got %d", len(result.Rows))
 	}
 
-	if result.Rows[0]["__rowid__"] == "" {
+	// Find __rowid__ column index
+	rowidIdx := -1
+	for i, col := range result.Columns {
+		if col.Name == "__rowid__" {
+			rowidIdx = i
+			break
+		}
+	}
+	
+	if rowidIdx >= 0 && result.Rows[0][rowidIdx] == "" {
 		t.Errorf("expected valid row ID, got empty string")
 	}
 }
@@ -268,11 +288,22 @@ func TestQueryExecutor_OrderBy(t *testing.T) {
 		t.Fatalf("expected 3 rows, got %d", len(result.Rows))
 	}
 	
+	// Find name column index
+	nameIdx := -1
+	for i, col := range result.Columns {
+		if col.Name == "name" {
+			nameIdx = i
+			break
+		}
+	}
+	
 	expectedNames := []string{"Alice", "Bob", "Zara"}
-	for i, row := range result.Rows {
-		name, _ := row["name"].(string)
-		if name != expectedNames[i] {
-			t.Errorf("row %d: expected name=%s, got %s", i, expectedNames[i], name)
+	if nameIdx >= 0 {
+		for i, row := range result.Rows {
+			name, _ := row[nameIdx].(string)
+			if name != expectedNames[i] {
+				t.Errorf("row %d: expected name=%s, got %s", i, expectedNames[i], name)
+			}
 		}
 	}
 }

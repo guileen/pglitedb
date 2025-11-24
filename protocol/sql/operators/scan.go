@@ -47,8 +47,13 @@ func (op *TableScanOperator) Next() (*types.Record, error) {
 		Data: make(map[string]*types.Value),
 	}
 
-	for k, v := range result.Rows[0] {
-		record.Data[k] = &types.Value{Data: v}
+	// result.Rows is now [][]interface{}, need to use result.Columns
+	firstRow := result.Rows[0]
+	for i, v := range firstRow {
+		if i < len(result.Columns) {
+			colName := result.Columns[i].Name
+			record.Data[colName] = &types.Value{Data: v}
+		}
 	}
 
 	return record, nil

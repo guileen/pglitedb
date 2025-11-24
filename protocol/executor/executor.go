@@ -174,23 +174,35 @@ func (e *queryExecutor) executeDelete(ctx context.Context, query *Query) (*Query
 	}, nil
 }
 
-// convertRecordsToRows converts []*types.Record to []map[string]interface{}
-func convertRecordsToRows(records interface{}) []map[string]interface{} {
+// convertRecordsToRows converts []*types.Record to [][]interface{}
+func convertRecordsToRows(records interface{}) [][]interface{} {
 	if records == nil {
-		return []map[string]interface{}{}
+		return [][]interface{}{}
 	}
 	
 	tableRecords, ok := records.([]*types.Record)
 	if !ok {
-		return []map[string]interface{}{}
+		return [][]interface{}{}
 	}
 	
-	rows := make([]map[string]interface{}, len(tableRecords))
+	if len(tableRecords) == 0 {
+		return [][]interface{}{}
+	}
+	
+	// Extract column names from first record to maintain consistent column order
+	var columnNames []string
+	for key := range tableRecords[0].Data {
+		columnNames = append(columnNames, key)
+	}
+	
+	rows := make([][]interface{}, len(tableRecords))
 	for i, record := range tableRecords {
-		row := make(map[string]interface{})
-		for key, value := range record.Data {
-			if value != nil {
-				row[key] = value.Data
+		row := make([]interface{}, len(columnNames))
+		for j, colName := range columnNames {
+			if value, ok := record.Data[colName]; ok && value != nil {
+				row[j] = value.Data
+			} else {
+				row[j] = nil
 			}
 		}
 		rows[i] = row

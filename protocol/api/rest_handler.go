@@ -111,10 +111,16 @@ func (h *RESTHandler) QueryRecords(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Convert [][]interface{} to []map[string]interface{} for JSON response
 	rows := make([]map[string]interface{}, len(result.Rows))
 	for i, row := range result.Rows {
-		// row is already a map[string]interface{}, no need to convert
-		rows[i] = row
+		rowMap := make(map[string]interface{})
+		for j, val := range row {
+			if j < len(result.Columns) {
+				rowMap[result.Columns[j].Name] = val
+			}
+		}
+		rows[i] = rowMap
 	}
 
 	response := &QueryResponse{

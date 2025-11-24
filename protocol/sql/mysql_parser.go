@@ -3,7 +3,6 @@ package sql
 import (
 	"fmt"
 	"regexp"
-	"strings"
 
 	"github.com/xwb1989/sqlparser"
 )

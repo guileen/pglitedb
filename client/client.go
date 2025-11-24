@@ -53,39 +53,15 @@ func NewClientWithExecutor(exec executor.QueryExecutor) *Client {
 func convertInternalToExternalResult(internalResult *types.QueryResult) *types.QueryResult {
 	if internalResult == nil {
 		return &types.QueryResult{
-			Rows:    []map[string]interface{}{},
+			Rows:    [][]interface{}{},
+			Columns: []types.ColumnInfo{},
 			Count:   0,
 			HasMore: false,
 		}
 	}
 
-	// If Rows is already populated, return as is
-	if len(internalResult.Rows) > 0 || internalResult.Records == nil {
-		return internalResult
-	}
-
-	// Convert Records to Rows if needed
-	records, ok := internalResult.Records.([]*types.Record)
-	if !ok {
-		return internalResult
-	}
-
-	rows := make([]map[string]interface{}, len(records))
-	for i, record := range records {
-		row := make(map[string]interface{})
-		for key, value := range record.Data {
-			if value != nil {
-				row[key] = value.Data
-			}
-		}
-		rows[i] = row
-	}
-
-	return &types.QueryResult{
-		Rows:    rows,
-		Count:   internalResult.Count,
-		HasMore: internalResult.HasMore,
-	}
+	// Result already has Rows and Columns populated
+	return internalResult
 }
 
 // convertExternalToInternalOptions converts external client.QueryOptions to internal types.QueryOptions
