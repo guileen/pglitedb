@@ -484,20 +484,10 @@ func (e *pebbleEngine) buildIndexRangeFromFilter(tenantID, tableID, indexID int6
 			e.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
 	}
 	
-	// For complex filters (AND/OR/NOT), extract simple conditions for the first index column
+	// For complex filters (AND/OR/NOT), do full index scan and filter in iterator
+	// TODO: Support multi-column index range optimization for AND filters
 	if filter.Type == "and" || filter.Type == "or" || filter.Type == "not" {
-		// Try to find a simple filter matching the first index column
-		firstCol := ""
-		if len(indexDef.Columns) > 0 {
-			firstCol = indexDef.Columns[0]
-		}
-		
-		simpleFilter := e.extractSimpleFilter(filter, firstCol)
-		if simpleFilter != nil {
-			return e.buildRangeFromSimpleFilter(tenantID, tableID, indexID, simpleFilter)
-		}
-		
-		// No matching simple filter, do full index scan
+		// Do full index scan, filtering happens in indexOnlyIterator.Next()
 		return e.codec.EncodeIndexScanStartKey(tenantID, tableID, indexID),
 			e.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
 	}
