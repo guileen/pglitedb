@@ -87,9 +87,70 @@ func TestIndexOnlyScan(t *testing.T) {
 	}
 
 	t.Run("Covering index scan - category, price, name", func(t *testing.T) {
-		// Skip this test as it requires full DecodeIndexKey implementation
-		// which extracts index values from the key
-		t.Skip("Requires full DecodeIndexKey implementation to extract index column values")
+		// Index (category, price, name) covers projection (category, price)
+		opts := &ScanOptions{
+			Projection: []string{"category", "price", "name"},
+		}
+
+		iter, err := eng.ScanIndex(ctx, tenantID, tableID, 1, schema, opts)
+		if err != nil {
+			t.Fatalf("ScanIndex failed: %v", err)
+		}
+		defer iter.Close()
+
+		// Should use indexOnlyIterator
+		if _, ok := iter.(*indexOnlyIterator); !ok {
+			t.Error("Should use indexOnlyIterator for covering index")
+		}
+
+		// Verify all rows are returned with correct values
+		expectedRows := []struct {
+			category string
+			price    int64
+			name     string
+		}{
+			{"Electronics", 25, "Mouse"},
+			{"Electronics", 1200, "Laptop"},
+			{"Furniture", 150, "Chair"},
+			{"Furniture", 300, "Desk"},
+		}
+
+		count := 0
+		for iter.Next() {
+			row := iter.Row()
+
+			if count >= len(expectedRows) {
+				t.Errorf("More rows than expected")
+				break
+			}
+
+			expected := expectedRows[count]
+			
+			category, ok := row.Data["category"]
+			if !ok || category.Data != expected.category {
+				t.Errorf("Row %d: expected category %s, got %v", count, expected.category, category)
+			}
+
+			price, ok := row.Data["price"]
+			if !ok || price.Data != expected.price {
+				t.Errorf("Row %d: expected price %d, got %v", count, expected.price, price)
+			}
+
+			name, ok := row.Data["name"]
+			if !ok || name.Data != expected.name {
+				t.Errorf("Row %d: expected name %s, got %v", count, expected.name, name)
+			}
+
+			count++
+		}
+
+		if count != len(expectedRows) {
+			t.Errorf("Expected %d rows, got %d", len(expectedRows), count)
+		}
+
+		if err := iter.Error(); err != nil {
+			t.Errorf("Iterator error: %v", err)
+		}
 	})
 
 	t.Run("Non-covering index scan - need table access", func(t *testing.T) {
@@ -127,6 +188,60 @@ func TestIndexOnlyScan(t *testing.T) {
 	})
 
 	t.Run("Covering index with filter", func(t *testing.T) {
-		t.Skip("Requires full DecodeIndexKey implementation")
+		// Test covering index with complex filter
+		opts := &ScanOptions{
+			Projection: []string{"category", "price"},
+			Filter: &FilterExpression{
+				Type:     "and",
+				Children: []*FilterExpression{
+					{
+						Type:     "simple",
+						Column:   "category",
+						Operator: "=",
+						Value:    "Electronics",
+					},
+					{
+						Type:     "simple",
+						Column:   "price",
+						Operator: ">",
+						Value:    int64(100),
+					},
+				},
+			},
+		}
+
+		iter, err := eng.ScanIndex(ctx, tenantID, tableID, 1, schema, opts)
+		if err != nil {
+			t.Fatalf("ScanIndex failed: %v", err)
+		}
+		defer iter.Close()
+
+		// Should use indexOnlyIterator
+		if _, ok := iter.(*indexOnlyIterator); !ok {
+			t.Error("Should use indexOnlyIterator for covering index")
+		}
+
+		count := 0
+		for iter.Next() {
+			row := iter.Row()
+			
+			category := row.Data["category"].Data.(string)
+			price := row.Data["price"].Data.(int64)
+
+			if category != "Electronics" {
+				t.Errorf("Expected category Electronics, got %s", category)
+			}
+
+			if price <= 100 {
+				t.Errorf("Expected price > 100, got %d", price)
+			}
+
+			count++
+		}
+
+		// Only Laptop (Electronics, 1200) should match
+		if count != 1 {
+			t.Errorf("Expected 1 row, got %d", count)
+		}
 	})
 }

@@ -912,78 +912,78 @@ func (io *indexOnlyIterator) Next() bool {
 		return false
 	}
 
-	var hasNext bool
-	if !io.started {
-		hasNext = io.iter.First()
-		io.started = true
+	// Use loop instead of recursion to avoid stack overflow and correctly advance iterator
+	for {
+		var hasNext bool
+		if !io.started {
+			hasNext = io.iter.First()
+			io.started = true
 
-		if io.opts != nil && io.opts.Offset > 0 {
-			for i := 0; i < io.opts.Offset && hasNext; i++ {
-				hasNext = io.iter.Next()
-			}
-		}
-	} else {
-		hasNext = io.iter.Next()
-	}
-
-	if !hasNext {
-		return false
-	}
-
-	// Decode index key to extract column values
-	_, _, _, indexValues, rowID, err := io.codec.DecodeIndexKey(io.iter.Key())
-	if err != nil {
-		io.err = err
-		return false
-	}
-
-	// Build record from index values only
-	record := &types.Record{
-		Data: make(map[string]*types.Value),
-	}
-
-	// Map index values to columns
-	for i, colName := range io.indexDef.Columns {
-		if i < len(indexValues) {
-			// Check if this column is in projection
-			inProjection := false
-			for _, projCol := range io.projection {
-				if projCol == colName {
-					inProjection = true
-					break
+			if io.opts != nil && io.opts.Offset > 0 {
+				for i := 0; i < io.opts.Offset && hasNext; i++ {
+					hasNext = io.iter.Next()
 				}
 			}
+		} else {
+			hasNext = io.iter.Next()
+		}
 
-			if inProjection {
+		if !hasNext {
+			return false
+		}
+
+		// Decode index key to extract column values using schema-aware decoder
+		_, _, _, indexValues, rowID, err := io.codec.DecodeIndexKeyWithSchema(io.iter.Key(), io.columnTypes)
+		if err != nil {
+			io.err = err
+			return false
+		}
+
+		// Build record from index values only
+		record := &types.Record{
+			Data: make(map[string]*types.Value),
+		}
+
+		// Map ALL index values to columns (needed for filter evaluation)
+		// We'll filter to projection columns when returning the final result
+		for i, colName := range io.indexDef.Columns {
+			if i < len(indexValues) {
 				record.Data[colName] = &types.Value{
 					Type: io.columnTypes[i],
 					Data: indexValues[i],
 				}
 			}
 		}
-	}
 
-	// Add _rowid if requested
-	for _, projCol := range io.projection {
-		if projCol == "_rowid" {
-			record.Data["_rowid"] = &types.Value{
-				Type: types.ColumnTypeNumber,
-				Data: rowID,
+		// Add _rowid if needed
+		record.Data["_rowid"] = &types.Value{
+			Type: types.ColumnTypeNumber,
+			Data: rowID,
+		}
+
+		// Apply filter if present
+		if io.opts != nil && io.opts.Filter != nil {
+			if !io.engine.EvaluateFilter(io.opts.Filter, record) {
+				// Filter doesn't match, continue to next row
+				continue
 			}
-			break
 		}
-	}
 
-	// Apply filter if present
-	if io.opts != nil && io.opts.Filter != nil {
-		if !io.engine.EvaluateFilter(io.opts.Filter, record) {
-			return io.Next()
+		// Now filter to only projection columns
+		if io.projection != nil && len(io.projection) > 0 {
+			filteredData := make(map[string]*types.Value)
+			for _, projCol := range io.projection {
+				if val, ok := record.Data[projCol]; ok {
+					filteredData[projCol] = val
+				}
+			}
+			record.Data = filteredData
 		}
-	}
 
-	io.current = record
-	io.count++
-	return true
+		io.current = record
+		io.count++
+		return true
+	}
 }
 
 func (io *indexOnlyIterator) Row() *types.Record {
@@ -1003,80 +1003,91 @@ func (ii *indexIterator) Next() bool {
 		return false
 	}
 
-	if !ii.started {
-		ii.started = true
-		ii.batchSize = 100
-		ii.rowIDBuffer = make([]int64, 0, ii.batchSize)
-		
-		if ii.opts != nil && ii.opts.Offset > 0 {
-			for i := 0; i < ii.opts.Offset && ii.iter.First() && ii.iter.Valid(); i++ {
-				ii.iter.Next()
+	// Use loop instead of recursion to handle filter rejection
+	for {
+		// Need to fetch new batch
+		if len(ii.rowIDBuffer) == 0 || ii.cacheIdx >= len(ii.rowIDBuffer) {
+			ii.rowIDBuffer = ii.rowIDBuffer[:0]
+			ii.cacheIdx = 0
+
+			var hasNext bool
+			if !ii.started {
+				// First call: initialize and position iterator
+				ii.started = true
+				ii.batchSize = 100
+				ii.rowCache = make(map[int64]*types.Record)
+				
+				hasNext = ii.iter.First()
+				
+				// Skip offset rows
+				if ii.opts != nil && ii.opts.Offset > 0 && hasNext {
+					for i := 0; i < ii.opts.Offset; i++ {
+						if !ii.iter.Next() {
+							return false
+						}
+					}
+					hasNext = ii.iter.Valid()
+				}
+			} else {
+				// Subsequent batches: iterator already positioned by previous batch's loop
+				hasNext = ii.iter.Valid()
 			}
-		}
-	}
 
-	if len(ii.rowIDBuffer) == 0 || ii.cacheIdx >= len(ii.rowIDBuffer) {
-		ii.rowIDBuffer = ii.rowIDBuffer[:0]
-		ii.cacheIdx = 0
+			// Collect rowIDs for batch fetch
+			for len(ii.rowIDBuffer) < ii.batchSize && hasNext {
+				_, _, _, _, rowID, err := ii.codec.DecodeIndexKey(ii.iter.Key())
+				if err != nil {
+					ii.err = fmt.Errorf("decode index key: %w", err)
+					return false
+				}
+				ii.rowIDBuffer = append(ii.rowIDBuffer, rowID)
+				hasNext = ii.iter.Next()
+			}
 
-		hasNext := false
-		if ii.count == 0 && ii.opts != nil && ii.opts.Offset > 0 {
-			hasNext = ii.iter.Valid()
-		} else if ii.count == 0 {
-			hasNext = ii.iter.First()
-		} else {
-			hasNext = ii.iter.Valid()
-		}
-
-		for len(ii.rowIDBuffer) < ii.batchSize && hasNext {
-			_, _, _, _, rowID, err := ii.codec.DecodeIndexKey(ii.iter.Key())
-			if err != nil {
-				ii.err = fmt.Errorf("decode index key: %w", err)
+			if len(ii.rowIDBuffer) == 0 {
 				return false
 			}
-			ii.rowIDBuffer = append(ii.rowIDBuffer, rowID)
-			hasNext = ii.iter.Next()
-		}
 
-		if len(ii.rowIDBuffer) == 0 {
-			return false
-		}
-
-		rowCache, err := ii.engine.GetRowBatch(context.Background(), ii.tenantID, ii.tableID, ii.rowIDBuffer, ii.schemaDef)
-		if err != nil {
-			ii.err = fmt.Errorf("fetch row batch: %w", err)
-			return false
-		}
-		ii.rowCache = rowCache
-	}
-
-	if ii.cacheIdx < len(ii.rowIDBuffer) {
-		rowID := ii.rowIDBuffer[ii.cacheIdx]
-		ii.cacheIdx++
-
-		row, ok := ii.rowCache[rowID]
-		if !ok {
-			return ii.Next()
-		}
-		
-		// Apply filter evaluation
-		if ii.opts != nil && ii.opts.Filter != nil {
-			if !ii.engine.EvaluateFilter(ii.opts.Filter, row) {
-				return ii.Next() // Skip this row and try next
+			// Fetch batch
+			rowCache, err := ii.engine.GetRowBatch(context.Background(), ii.tenantID, ii.tableID, ii.rowIDBuffer, ii.schemaDef)
+			if err != nil {
+				ii.err = fmt.Errorf("fetch row batch: %w", err)
+				return false
 			}
+			ii.rowCache = rowCache
 		}
 
-		row.Data["_rowid"] = &types.Value{
-			Type: types.ColumnTypeNumber,
-			Data: rowID,
+		// Process current batch
+		if ii.cacheIdx < len(ii.rowIDBuffer) {
+			rowID := ii.rowIDBuffer[ii.cacheIdx]
+			ii.cacheIdx++
+
+			row, ok := ii.rowCache[rowID]
+			if !ok {
+				// Row not found in cache, continue to next
+				continue
+			}
+			
+			// Apply filter evaluation
+			if ii.opts != nil && ii.opts.Filter != nil {
+				if !ii.engine.EvaluateFilter(ii.opts.Filter, row) {
+					// Filter doesn't match, continue to next row
+					continue
+				}
+			}
+
+			row.Data["_rowid"] = &types.Value{
+				Type: types.ColumnTypeNumber,
+				Data: rowID,
+			}
+
+			ii.current = row
+			ii.count++
+			return true
 		}
 
-		ii.current = row
-		ii.count++
-		return true
+		// Batch exhausted, loop will fetch next batch
 	}
-
-	return false
 }
 
 func (ii *indexIterator) Row() *types.Record {

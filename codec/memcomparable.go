@@ -161,9 +161,9 @@ func (c *memcodec) DecodeIndexKeyWithSchema(key []byte, indexColumnTypes []types
 		offset = valueEnd
 	}
 
-	// The remaining bytes should be the rowID
-	if offset+8 <= len(key) {
-		rowID, _ = readMemComparableInt64(key[offset:])
+	// The remaining bytes should be the rowID (last 8 bytes)
+	if len(key)-offset >= 8 {
+		rowID, _ = readMemComparableInt64(key[len(key)-8:])
 	} else {
 		err = fmt.Errorf("missing rowID in index key")
 		return
