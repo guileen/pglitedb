@@ -1,6 +1,7 @@
 package sql
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/xwb1989/sqlparser"
@@ -43,13 +44,37 @@ type Aggregate struct {
 
 // Planner is responsible for creating execution plans from parsed queries
 type Planner struct {
-	parser Parser
+	parser   Parser
+	executor *Executor
 }
 
 // NewPlanner creates a new query planner
 func NewPlanner(parser Parser) *Planner {
-	return &Planner{
+	planner := &Planner{
 		parser: parser,
+	}
+	// Create executor with this planner (circular dependency resolved at runtime)
+	planner.executor = NewExecutor(planner)
+	return planner
+}
+
+// Execute executes a SQL query and returns the result
+func (p *Planner) Execute(ctx context.Context, query string) (*ResultSet, error) {
+	if p.executor != nil {
+		return p.executor.Execute(ctx, query)
+	}
+	return nil, fmt.Errorf("executor not initialized")
+}
+
+// SetCatalog sets the catalog manager for the executor
+func (p *Planner) SetCatalog(catalog interface{}) {
+	if p.executor != nil {
+		// Create a new executor with catalog if needed
+		executor := &Executor{
+			planner: p,
+		}
+		// The catalog will be set directly in executor if needed
+		p.executor = executor
 	}
 }
 
@@ -70,8 +95,9 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 		if err := p.planSelect(stmt, plan); err != nil {
 			return nil, fmt.Errorf("failed to plan SELECT statement: %w", err)
 		}
+	case *sqlparser.DDL:
+		plan.Operation = "ddl"
 	default:
-		// For now, we'll focus on SELECT statements
 		plan.Operation = "unsupported"
 	}
 

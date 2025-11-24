@@ -1,4 +1,4 @@
-.PHONY: all build test coverage clean run run-pg run-http install dev fmt vet benchmark integration-test help
+.PHONY: all build test coverage clean run run-pg run-http install dev fmt vet benchmark integration-test help test-all test-unit test-client
 
 # 变量定义
 BINARY_NAME=pglitedb-server
@@ -32,10 +32,12 @@ help:
 	@echo "测试相关:"
 	@echo "  make test           - 运行所有单元测试"
 	@echo "  make test-verbose   - 运行测试（详细模式）"
+	@echo "  make test-unit      - 运行单元测试"
+	@echo "  make test-client    - 运行客户端兼容性测试（GORM、TypeScript）"
+	@echo "  make test-all       - 运行所有测试（单元、集成、客户端）"
 	@echo "  make coverage       - 生成测试覆盖率报告"
 	@echo "  make integration-test - 运行集成测试"
 	@echo "  make benchmark      - 运行性能测试"
-	@echo "  make test-all       - 运行所有测试"
 	@echo ""
 	@echo "运行相关:"
 	@echo "  make run            - 运行 HTTP 服务器"
@@ -67,6 +69,7 @@ clean:
 	@rm -rf $(BUILD_DIR)
 	@rm -f coverage.out coverage.html
 	@rm -rf /tmp/pglitedb*
+	@rm -rf test_logs
 	@echo "Clean complete"
 
 ## deps: 下载并整理依赖
@@ -95,6 +98,11 @@ test:
 	@echo "Running tests..."
 	$(GO) test ./... -short
 
+## test-unit: 运行单元测试
+test-unit:
+	@echo "Running unit tests..."
+	$(GO) test -v ./...
+
 ## test-verbose: 运行测试（详细模式）
 test-verbose:
 	@echo "Running tests (verbose)..."
@@ -121,9 +129,31 @@ benchmark:
 	@cd examples/benchmark && $(GO) mod tidy && $(GO) run benchmark.go
 	@echo "Benchmark tests complete"
 
-## test-all: 运行所有测试（单元测试、集成测试、性能测试）
-test-all: test integration-test benchmark
-	@echo "All tests complete"
+## test-client: 运行客户端兼容性测试（需要启动服务器）
+test-client:
+	@echo "Running client compatibility tests..."
+	@echo "Starting PostgreSQL server on port 5433..."
+	@PG_PORT=5433 $(GO) run cmd/server/main.go pg > /tmp/pglitedb-test-server.log 2>&1 & \
+	SERVER_PID=$$!; \
+	echo "Server PID: $$SERVER_PID"; \
+	sleep 3; \
+	echo "Running GORM test..."; \
+	cd examples/gorm_test && go run main.go; \
+	GORM_EXIT=$$?; \
+	echo "Running TypeScript test..."; \
+	cd ../typescript_test && pnpm test; \
+	TS_EXIT=$$?; \
+	echo "Stopping server..."; \
+	kill $$SERVER_PID 2>/dev/null || true; \
+	if [ $$GORM_EXIT -ne 0 ] || [ $$TS_EXIT -ne 0 ]; then \
+		echo "Client tests failed"; \
+		exit 1; \
+	fi
+
+## test-all: 运行所有测试（单元测试、集成测试、客户端测试）
+test-all:
+	@echo "Running all tests..."
+	@bash scripts/run_all_tests.sh
 
 ## run: 运行 HTTP REST API 服务器
 run: run-http

@@ -1,9 +1,13 @@
 package pgserver
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
+	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/guileen/pglitedb/protocol/executor"
@@ -190,48 +194,61 @@ func (s *PostgreSQLServer) Close() error {
 
 // handleQuery handles the Query message (simple query protocol)
 func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) error {
-	// Parse and execute the query
-	// This is a simplified implementation
-	// In a real implementation, we would:
-	// 1. Parse the SQL query
-	// 2. Create an execution plan
-	// 3. Execute the plan
-	// 4. Return results in PostgreSQL format
-
-	// For now, we'll just send a simple response
-	backend.Send(&pgproto3.RowDescription{
-		Fields: []pgproto3.FieldDescription{
-			{
-				Name:                 []byte("result"),
+	ctx := context.Background()
+	
+	// Parse the query
+	parsed, err := s.parser.Parse(query)
+	if err != nil {
+		return s.sendErrorAndReady(backend, "42601", fmt.Sprintf("Syntax error: failed to parse SQL query: %v", err))
+	}
+	
+	// Execute the query using the planner/executor
+	result, err := s.planner.Execute(ctx, parsed.Query)
+	if err != nil {
+		return s.sendErrorAndReady(backend, "42000", fmt.Sprintf("Query execution failed: %v", err))
+	}
+	
+	// Send row description if there are columns
+	if len(result.Columns) > 0 {
+		fields := make([]pgproto3.FieldDescription, len(result.Columns))
+		for i, col := range result.Columns {
+			fields[i] = pgproto3.FieldDescription{
+				Name:                 []byte(col),
 				TableOID:             0,
 				TableAttributeNumber: 0,
-				DataTypeOID:          705, // UNKNOWN
+				DataTypeOID:          25, // TEXT type
 				DataTypeSize:         -1,
 				TypeModifier:         -1,
 				Format:               0,
-			},
-		},
-	})
-	if err := backend.Flush(); err != nil {
-		return err
+			}
+		}
+		backend.Send(&pgproto3.RowDescription{Fields: fields})
 	}
-
-	// Send a dummy row
-	backend.Send(&pgproto3.DataRow{
-		Values: [][]byte{[]byte("Query executed: " + query)},
-	})
-	if err := backend.Flush(); err != nil {
-		return err
+	
+	// Send data rows
+	for _, row := range result.Rows {
+		dataRow := &pgproto3.DataRow{Values: make([][]byte, len(row))}
+		for i, val := range row {
+			if val == nil {
+				dataRow.Values[i] = nil
+			} else {
+				dataRow.Values[i] = []byte(fmt.Sprintf("%v", val))
+			}
+		}
+		backend.Send(dataRow)
 	}
-
+	
 	// Send command complete
-	backend.Send(&pgproto3.CommandComplete{
-		CommandTag: []byte("SELECT 1"),
-	})
-	if err := backend.Flush(); err != nil {
-		return err
+	var commandTag string
+	if len(result.Rows) > 0 {
+		commandTag = fmt.Sprintf("SELECT %d", result.Count)
+	} else {
+		commandTag = "SELECT 0"
 	}
-
+	backend.Send(&pgproto3.CommandComplete{
+		CommandTag: []byte(commandTag),
+	})
+	
 	// Send ready for query
 	backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
 	return backend.Flush()
@@ -242,13 +259,7 @@ func (s *PostgreSQLServer) handleParse(backend *pgproto3.Backend, msg *pgproto3.
 	// Parse the SQL statement
 	sqlStmt, err := s.parser.Parse(msg.Query)
 	if err != nil {
-		backend.Send(&pgproto3.ErrorResponse{
-			Severity: "ERROR",
-			Code:     "42601", // Syntax error
-			Message:  fmt.Sprintf("Syntax error: %v", err),
-		})
-		backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
-		return backend.Flush()
+		return s.sendErrorAndReady(backend, "42601", fmt.Sprintf("Syntax error: %v", err))
 	}
 
 	// Store the prepared statement
@@ -274,13 +285,7 @@ func (s *PostgreSQLServer) handleBind(backend *pgproto3.Backend, msg *pgproto3.B
 	// Find the prepared statement
 	stmt, exists := s.preparedStatements[msg.PreparedStatement]
 	if !exists {
-		backend.Send(&pgproto3.ErrorResponse{
-			Severity: "ERROR",
-			Code:     "26000", // Invalid SQL statement name
-			Message:  "Prepared statement not found",
-		})
-		backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
-		return backend.Flush()
+		return s.sendErrorAndReady(backend, "26000", "Prepared statement not found")
 	}
 
 	// Create a portal
@@ -290,9 +295,13 @@ func (s *PostgreSQLServer) handleBind(backend *pgproto3.Backend, msg *pgproto3.B
 		Params:    make([]string, len(msg.Parameters)),
 	}
 	
-	// Convert parameters to strings (simplified)
+	// Convert parameters to strings
 	for i, param := range msg.Parameters {
-		portal.Params[i] = string(param)
+		if param == nil {
+			portal.Params[i] = "NULL"
+		} else {
+			portal.Params[i] = string(param)
+		}
 	}
 
 	// Store the portal
@@ -313,13 +322,7 @@ func (s *PostgreSQLServer) handleDescribe(backend *pgproto3.Backend, msg *pgprot
 	case 'S': // Prepared statement
 		_, exists := s.preparedStatements[msg.Name]
 		if !exists {
-			backend.Send(&pgproto3.ErrorResponse{
-				Severity: "ERROR",
-				Code:     "26000", // Invalid SQL statement name
-				Message:  "Prepared statement not found",
-			})
-			backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
-			return backend.Flush()
+			return s.sendErrorAndReady(backend, "26000", "Prepared statement not found")
 		}
 		
 		// Send parameter description
@@ -334,7 +337,7 @@ func (s *PostgreSQLServer) handleDescribe(backend *pgproto3.Backend, msg *pgprot
 					Name:                 []byte("result"),
 					TableOID:             0,
 					TableAttributeNumber: 0,
-					DataTypeOID:          705, // UNKNOWN
+					DataTypeOID:          25, // TEXT
 					DataTypeSize:         -1,
 					TypeModifier:         -1,
 					Format:               0,
@@ -345,13 +348,7 @@ func (s *PostgreSQLServer) handleDescribe(backend *pgproto3.Backend, msg *pgprot
 	case 'P': // Portal
 		_, exists := s.portals[msg.Name]
 		if !exists {
-			backend.Send(&pgproto3.ErrorResponse{
-				Severity: "ERROR",
-				Code:     "26000", // Invalid cursor name
-				Message:  "Portal not found",
-			})
-			backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
-			return backend.Flush()
+			return s.sendErrorAndReady(backend, "26000", "Portal not found")
 		}
 		
 		// Send row description (simplified)
@@ -361,7 +358,7 @@ func (s *PostgreSQLServer) handleDescribe(backend *pgproto3.Backend, msg *pgprot
 					Name:                 []byte("result"),
 					TableOID:             0,
 					TableAttributeNumber: 0,
-					DataTypeOID:          705, // UNKNOWN
+					DataTypeOID:          25, // TEXT
 					DataTypeSize:         -1,
 					TypeModifier:         -1,
 					Format:               0,
@@ -378,41 +375,64 @@ func (s *PostgreSQLServer) handleExecute(backend *pgproto3.Backend, msg *pgproto
 	// Find the portal
 	portal, exists := s.portals[msg.Portal]
 	if !exists {
-		backend.Send(&pgproto3.ErrorResponse{
-			Severity: "ERROR",
-			Code:     "26000", // Invalid cursor name
-			Message:  "Portal not found",
-		})
-		backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
-		return backend.Flush()
+		return s.sendErrorAndReady(backend, "26000", "Portal not found")
 	}
 
-	// Execute the query (simplified implementation)
-	query := portal.Statement.Query
+	// Replace placeholders with actual parameters
+	query := s.replacePlaceholders(portal.Statement.Query, portal.Params)
 	
-	// Send row description
-	backend.Send(&pgproto3.RowDescription{
-		Fields: []pgproto3.FieldDescription{
-			{
-				Name:                 []byte("result"),
+	// Parse the modified query
+	ctx := context.Background()
+	parsed, err := s.parser.Parse(query)
+	if err != nil {
+		return s.sendErrorAndReady(backend, "42601", fmt.Sprintf("Syntax error: failed to parse SQL query: %v", err))
+	}
+	
+	// Execute the query
+	result, err := s.planner.Execute(ctx, parsed.Query)
+	if err != nil {
+		return s.sendErrorAndReady(backend, "42000", fmt.Sprintf("Query execution failed: %v", err))
+	}
+	
+	// Send row description if there are columns
+	if len(result.Columns) > 0 {
+		fields := make([]pgproto3.FieldDescription, len(result.Columns))
+		for i, col := range result.Columns {
+			fields[i] = pgproto3.FieldDescription{
+				Name:                 []byte(col),
 				TableOID:             0,
 				TableAttributeNumber: 0,
-				DataTypeOID:          705, // UNKNOWN
+				DataTypeOID:          25, // TEXT type
 				DataTypeSize:         -1,
 				TypeModifier:         -1,
 				Format:               0,
-			},
-		},
-	})
+			}
+		}
+		backend.Send(&pgproto3.RowDescription{Fields: fields})
+	}
 	
-	// Send a dummy row
-	backend.Send(&pgproto3.DataRow{
-		Values: [][]byte{[]byte("Query executed: " + query)},
-	})
+	// Send data rows
+	for _, row := range result.Rows {
+		dataRow := &pgproto3.DataRow{Values: make([][]byte, len(row))}
+		for i, val := range row {
+			if val == nil {
+				dataRow.Values[i] = nil
+			} else {
+				dataRow.Values[i] = []byte(fmt.Sprintf("%v", val))
+			}
+		}
+		backend.Send(dataRow)
+	}
 	
 	// Send command complete
+	var commandTag string
+	if len(result.Rows) > 0 {
+		commandTag = fmt.Sprintf("SELECT %d", result.Count)
+	} else {
+		commandTag = "SELECT 0"
+	}
 	backend.Send(&pgproto3.CommandComplete{
-		CommandTag: []byte("SELECT 1"),
+		CommandTag: []byte(commandTag),
 	})
 	
 	return backend.Flush()
@@ -435,4 +455,38 @@ func (s *PostgreSQLServer) handleClose(backend *pgproto3.Backend, msg *pgproto3.
 func (s *PostgreSQLServer) handleSync(backend *pgproto3.Backend) error {
 	backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
 	return backend.Flush()
+}
+
+// sendErrorAndReady sends an error response followed by ReadyForQuery
+func (s *PostgreSQLServer) sendErrorAndReady(backend *pgproto3.Backend, code, message string) error {
+	backend.Send(&pgproto3.ErrorResponse{
+		Severity: "ERROR",
+		Code:     code,
+		Message:  message,
+	})
+	backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+	return backend.Flush()
+}
+
+// replacePlaceholders replaces $1, $2, ... with actual parameter values
+func (s *PostgreSQLServer) replacePlaceholders(query string, params []string) string {
+	// Use regex to replace $n with the corresponding parameter
+	re := regexp.MustCompile(`\$(\d+)`)
+	result := re.ReplaceAllStringFunc(query, func(match string) string {
+		// Extract the parameter number
+		numStr := strings.TrimPrefix(match, "$")
+		num, err := strconv.Atoi(numStr)
+		if err != nil || num < 1 || num > len(params) {
+			return match // Return original if invalid
+		}
+		// Replace with the actual parameter value
+		param := params[num-1]
+		if param == "NULL" {
+			return "NULL"
+		}
+		// Simple escaping: wrap in single quotes and escape internal quotes
+		escaped := strings.ReplaceAll(param, "'", "''")
+		return fmt.Sprintf("'%s'", escaped)
+	})
+	return result
 }

@@ -23,6 +23,11 @@ const (
 	ColumnTypeVarchar   ColumnType = "varchar"
 	ColumnTypeChar      ColumnType = "char"
 	ColumnTypeJSONB     ColumnType = "jsonb"
+	
+	// PostgreSQL SERIAL types
+	ColumnTypeSerial    ColumnType = "serial"
+	ColumnTypeBigSerial ColumnType = "bigserial"
+	ColumnTypeSmallSerial ColumnType = "smallserial"
 )
 
 // IsValidColumnType checks if a column type is valid
@@ -33,7 +38,8 @@ func IsValidColumnType(typ ColumnType) bool {
 		ColumnTypeUUID, ColumnTypeText, ColumnTypeBinary,
 		ColumnTypeSmallInt, ColumnTypeInteger, ColumnTypeBigInt,
 		ColumnTypeReal, ColumnTypeDouble, ColumnTypeNumeric,
-		ColumnTypeVarchar, ColumnTypeChar, ColumnTypeJSONB:
+		ColumnTypeVarchar, ColumnTypeChar, ColumnTypeJSONB,
+		ColumnTypeSerial, ColumnTypeBigSerial, ColumnTypeSmallSerial:
 		return true
 	default:
 		return false
@@ -62,4 +68,23 @@ func GetColumnTypeFromGoType(typ string) ColumnType {
 	default:
 		return ColumnTypeJSON
 	}
+}
+
+// MapSerialType converts SERIAL types to their underlying integer types
+func MapSerialType(typ ColumnType) ColumnType {
+	switch typ {
+	case ColumnTypeSerial:
+		return ColumnTypeInteger
+	case ColumnTypeBigSerial:
+		return ColumnTypeBigInt
+	case ColumnTypeSmallSerial:
+		return ColumnTypeSmallInt
+	default:
+		return typ
+	}
+}
+
+// IsSerialType checks if a column type is a SERIAL type
+func IsSerialType(typ ColumnType) bool {
+	return typ == ColumnTypeSerial || typ == ColumnTypeBigSerial || typ == ColumnTypeSmallSerial
 }

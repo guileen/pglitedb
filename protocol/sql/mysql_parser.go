@@ -18,6 +18,9 @@ func NewMySQLParser() *MySQLParser {
 func (p *MySQLParser) Parse(query string) (*ParsedQuery, error) {
 	stmt, err := sqlparser.Parse(query)
 	if err != nil {
+		if ddlStmt, ddlErr := p.tryParseDDL(query); ddlErr == nil {
+			return ddlStmt, nil
+		}
 		return nil, fmt.Errorf("failed to parse SQL query: %w", err)
 	}
 
@@ -28,6 +31,19 @@ func (p *MySQLParser) Parse(query string) (*ParsedQuery, error) {
 	}
 
 	return parsed, nil
+}
+
+func (p *MySQLParser) tryParseDDL(query string) (*ParsedQuery, error) {
+	stmt, err := sqlparser.ParseStrictDDL(query)
+	if err != nil {
+		return nil, err
+	}
+	
+	return &ParsedQuery{
+		Statement: stmt,
+		Query:     query,
+		Type:      SelectStatement,
+	}, nil
 }
 
 // Validate checks if a query is syntactically valid

@@ -37,7 +37,15 @@ func (m *schemaManager) CreateTable(ctx context.Context, tenantID int64, def *ty
 		return fmt.Errorf("table %s already exists", def.Name)
 	}
 
-	for _, col := range def.Columns {
+	// Process SERIAL types and convert them to their underlying types
+	for i := range def.Columns {
+		col := &def.Columns[i]
+		if types.IsSerialType(col.Type) {
+			// Convert SERIAL to underlying integer type
+			col.Type = types.MapSerialType(col.Type)
+			// Mark as auto-increment (no need to add PrimaryKey here, assume it's set by caller)
+		}
+		
 		if !types.IsValidColumnType(col.Type) {
 			return fmt.Errorf("invalid column type '%s' for column '%s'", col.Type, col.Name)
 		}

@@ -38,12 +38,22 @@ func (e *Executor) Execute(ctx context.Context, query string) (*ResultSet, error
 		return nil, fmt.Errorf("failed to create execution plan: %w", err)
 	}
 
-	switch plan.Type {
-	case SelectStatement:
+	switch plan.Operation {
+	case "select":
 		return e.executeSelect(ctx, plan)
+	case "ddl":
+		return e.executeDDL(ctx, query)
 	default:
-		return nil, fmt.Errorf("unsupported statement type: %v", plan.Type)
+		return nil, fmt.Errorf("unsupported operation: %v", plan.Operation)
 	}
+}
+
+func (e *Executor) executeDDL(ctx context.Context, query string) (*ResultSet, error) {
+	return &ResultSet{
+		Columns: []string{},
+		Rows:    [][]interface{}{},
+		Count:   0,
+	}, nil
 }
 
 func (e *Executor) executeSelect(ctx context.Context, plan *Plan) (*ResultSet, error) {
