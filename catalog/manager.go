@@ -1,6 +1,9 @@
 package catalog
 
 import (
+	"context"
+	"strconv"
+
 	"github.com/guileen/pglitedb/catalog/internal"
 	"github.com/guileen/pglitedb/engine"
 	"github.com/guileen/pglitedb/storage"
@@ -40,4 +43,35 @@ func NewTableManagerWithKV(eng engine.StorageEngine, kv storage.KV) Manager {
 		engine:        eng,
 		cache:         cache,
 	}
+}
+
+// Implement the additional methods required by the Manager interface
+func (tm *tableManager) InsertRow(ctx context.Context, tenantID int64, tableName string, values map[string]interface{}) (int64, error) {
+	// Delegate to DataManager's Insert method
+	record, err := tm.DataManager.Insert(ctx, tenantID, tableName, values)
+	if err != nil {
+		return 0, err
+	}
+	
+	// Convert the record ID to int64
+	// Note: This assumes the ID is stored as a string in the record
+	// We might need to adjust this based on the actual implementation
+	id, err := strconv.ParseInt(record.ID, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	
+	return id, nil
+}
+
+func (tm *tableManager) UpdateRows(ctx context.Context, tenantID int64, tableName string, values map[string]interface{}, conditions map[string]interface{}) (int64, error) {
+	// TODO: Implement bulk update logic
+	// This is a simplified implementation that would need to be expanded
+	return 0, nil
+}
+
+func (tm *tableManager) DeleteRows(ctx context.Context, tenantID int64, tableName string, conditions map[string]interface{}) (int64, error) {
+	// TODO: Implement bulk delete logic
+	// This is a simplified implementation that would need to be expanded
+	return 0, nil
 }

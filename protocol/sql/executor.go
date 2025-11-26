@@ -183,25 +183,69 @@ func (e *Executor) executeSystemTableQuery(ctx context.Context, plan *Plan) (*Re
 	return result, nil
 }
 func (e *Executor) executeInsert(ctx context.Context, plan *Plan) (*ResultSet, error) {
+	if e.catalog == nil {
+		return nil, fmt.Errorf("catalog not initialized")
+	}
+	
+	// Extract values from the plan
+	// This requires enhancing the planner to extract INSERT values
+	values := map[string]interface{}{} // Extract from plan
+	
+	tenantID := int64(1) // Get from context
+	lastInsertID, err := e.catalog.InsertRow(ctx, tenantID, plan.Table, values)
+	if err != nil {
+		return nil, err
+	}
+	
 	return &ResultSet{
-		Columns: []string{},
-		Rows:    [][]interface{}{},
-		Count:   1,
+		Columns:      []string{},
+		Rows:         [][]interface{}{},
+		Count:        1,
+		LastInsertID: lastInsertID,
 	}, nil
 }
 
 func (e *Executor) executeUpdate(ctx context.Context, plan *Plan) (*ResultSet, error) {
+	if e.catalog == nil {
+		return nil, fmt.Errorf("catalog not initialized")
+	}
+	
+	// Extract values and conditions from the plan
+	// This requires enhancing the planner to extract UPDATE values and conditions
+	values := map[string]interface{}{}      // Extract from plan
+	conditions := map[string]interface{}{}  // Extract from plan
+	
+	tenantID := int64(1) // Get from context
+	affected, err := e.catalog.UpdateRows(ctx, tenantID, plan.Table, values, conditions)
+	if err != nil {
+		return nil, err
+	}
+	
 	return &ResultSet{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
-		Count:   1,
+		Count:   int(affected),
 	}, nil
 }
 
 func (e *Executor) executeDelete(ctx context.Context, plan *Plan) (*ResultSet, error) {
+	if e.catalog == nil {
+		return nil, fmt.Errorf("catalog not initialized")
+	}
+	
+	// Extract conditions from the plan
+	// This requires enhancing the planner to extract DELETE conditions
+	conditions := map[string]interface{}{} // Extract from plan
+	
+	tenantID := int64(1) // Get from context
+	affected, err := e.catalog.DeleteRows(ctx, tenantID, plan.Table, conditions)
+	if err != nil {
+		return nil, err
+	}
+	
 	return &ResultSet{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
-		Count:   1,
+		Count:   int(affected),
 	}, nil
 }

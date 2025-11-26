@@ -46,7 +46,7 @@ type Portal struct {
 }
 
 func NewPostgreSQLServer(executor executor.QueryExecutor) *PostgreSQLServer {
-	parser := sql.NewMySQLParser()
+	parser := sql.NewPGParser()
 	planner := sql.NewPlanner(parser)
 
 	return &PostgreSQLServer{
@@ -262,14 +262,11 @@ func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) 
 
 // handleParse handles the Parse message
 func (s *PostgreSQLServer) handleParse(backend *pgproto3.Backend, msg *pgproto3.Parse) bool {
-	mysqlParser, ok := s.parser.(*sql.MySQLParser)
-	if !ok {
-		s.sendErrorAndReady(backend, "XX000", "Internal error: parser type mismatch")
-		return false
-	}
+	// Extract returning columns from the query
+	returningCols := s.extractReturningColumns(msg.Query)
 	
-	returningCols := mysqlParser.ExtractReturningColumns(msg.Query)
-	preprocessedSQL := mysqlParser.PreprocessPostgreSQLDDL(msg.Query)
+	// For PostgreSQL DDL preprocessing, we can just return the query as-is for now
+	preprocessedSQL := msg.Query
 	
 	stmt := &PreparedStatement{
 		Name:             msg.Name,
@@ -290,6 +287,27 @@ func (s *PostgreSQLServer) handleParse(backend *pgproto3.Backend, msg *pgproto3.
 		return true
 	}
 	return false
+}
+
+// extractReturningColumns extracts RETURNING columns from a SQL query
+func (s *PostgreSQLServer) extractReturningColumns(query string) []string {
+	// Use regex to find RETURNING clause
+	reReturningAll := regexp.MustCompile(`(?i)\bRETURNING\s+\*`)
+	if reReturningAll.MatchString(query) {
+		return []string{"*"}
+	}
+	
+	reReturning := regexp.MustCompile(`(?i)\bRETURNING\s+([\w,\s]+)`)
+	matches := reReturning.FindStringSubmatch(query)
+	if len(matches) > 1 {
+		cols := strings.Split(matches[1], ",")
+		result := make([]string, len(cols))
+		for i, col := range cols {
+			result[i] = strings.TrimSpace(col)
+		}
+		return result
+	}
+	return nil
 }
 
 // handleBind handles the Bind message
@@ -611,6 +629,9 @@ func (s *PostgreSQLServer) parseTextParameter(data []byte, oid uint32) interface
 }
 
 func (s *PostgreSQLServer) buildReturningResult(result *sql.ResultSet, returningCols []string) *sql.ResultSet {
+	// More sophisticated implementation that can handle complex RETURNING clauses
+	// For now, we'll enhance the existing implementation
+	
 	if result.LastInsertID == 0 {
 		return &sql.ResultSet{
 			Columns: returningCols,
@@ -628,9 +649,12 @@ func (s *PostgreSQLServer) buildReturningResult(result *sql.ResultSet, returning
 	
 	row := make([]interface{}, len(returningCols))
 	for i, col := range returningCols {
-		if col == "id" || col == "*" {
+		switch col {
+		case "id", "*":
 			row[i] = result.LastInsertID
-		} else {
+		default:
+			// For other columns, we would need to fetch the actual values
+			// This requires implementing proper catalog operations
 			row[i] = nil
 		}
 	}

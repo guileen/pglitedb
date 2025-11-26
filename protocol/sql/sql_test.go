@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMySQLParser_Parse(t *testing.T) {
-	parser := NewMySQLParser()
+func TestPGParser_Parse(t *testing.T) {
+	parser := NewPGParser()
 
 	query := "SELECT id, name FROM users WHERE age > 18 ORDER BY name LIMIT 10"
 	parsed, err := parser.Parse(query)
@@ -19,8 +19,8 @@ func TestMySQLParser_Parse(t *testing.T) {
 	assert.Equal(t, query, parsed.Query)
 }
 
-func TestMySQLParser_Validate(t *testing.T) {
-	parser := NewMySQLParser()
+func TestPGParser_Validate(t *testing.T) {
+	parser := NewPGParser()
 
 	// Valid query
 	err := parser.Validate("SELECT id, name FROM users")
@@ -32,7 +32,7 @@ func TestMySQLParser_Validate(t *testing.T) {
 }
 
 func TestPlanner_CreatePlan(t *testing.T) {
-	parser := NewMySQLParser()
+	parser := NewPGParser()
 	planner := NewPlanner(parser)
 
 	query := "SELECT id, name FROM users WHERE age > 18 ORDER BY name LIMIT 10"
@@ -48,7 +48,7 @@ func TestPlanner_CreatePlan(t *testing.T) {
 }
 
 func TestExecutor_Execute(t *testing.T) {
-	parser := NewMySQLParser()
+	parser := NewPGParser()
 	planner := NewPlanner(parser)
 	executor := NewExecutor(planner)
 

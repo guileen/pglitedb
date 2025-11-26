@@ -39,6 +39,11 @@ type Manager interface {
 	QueryManager
 	IndexManager
 	QuerySystemTable(ctx context.Context, fullTableName string, filter map[string]interface{}) (*types.QueryResult, error)
+	
+	// New methods for DML operations with more flexible interfaces
+	InsertRow(ctx context.Context, tenantID int64, tableName string, values map[string]interface{}) (int64, error)
+	UpdateRows(ctx context.Context, tenantID int64, tableName string, values map[string]interface{}, conditions map[string]interface{}) (int64, error)
+	DeleteRows(ctx context.Context, tenantID int64, tableName string, conditions map[string]interface{}) (int64, error)
 }
 
 type AlterTableChanges struct {

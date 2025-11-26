@@ -1,10 +1,5 @@
 package sql
 
-import (
-	"github.com/xwb1989/sqlparser"
-)
-
-// StatementType represents the type of SQL statement
 type StatementType int
 
 const (
@@ -12,25 +7,39 @@ const (
 	InsertStatement
 	UpdateStatement
 	DeleteStatement
-	// Note: CreateTable, DropTable, AlterTable may not be supported by this parser
+	BeginStatement
+	CommitStatement
+	RollbackStatement
+	CreateTableStatement
+	DropTableStatement
+	CreateIndexStatement
+	DropIndexStatement
+	UnknownStatement
 )
 
-// ParsedQuery represents a parsed SQL query
 type ParsedQuery struct {
 	Type             StatementType
-	Statement        sqlparser.Statement
+	Statement        interface{}
 	Query            string
 	ReturningColumns []string
 }
 
-// Parser is the interface for parsing SQL queries
+type Statement interface {
+	StatementNode()
+}
+
+type ParameterPlaceholder struct {
+	Index int
+}
+
 type Parser interface {
-	// Parse takes a raw SQL query string and returns a parsed representation
 	Parse(query string) (*ParsedQuery, error)
 	
-	// Validate checks if a query is syntactically valid
+	ParseWithParams(query string, paramCount int) (*ParsedQuery, error)
+	
 	Validate(query string) error
 	
-	// GetStatementType returns the type of the SQL statement
-	GetStatementType(stmt sqlparser.Statement) StatementType
+	GetStatementType(stmt interface{}) StatementType
+	
+	SupportsParameterPlaceholders() bool
 }

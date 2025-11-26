@@ -3,8 +3,9 @@ package sql
 import (
 	"context"
 	"fmt"
-
-	"github.com/xwb1989/sqlparser"
+	"regexp"
+	"strconv"
+	"strings"
 )
 
 // Plan represents a query execution plan
@@ -20,6 +21,8 @@ type Plan struct {
 	GroupBy     []string
 	Aggregates  []Aggregate
 	QueryString string
+	Values      map[string]interface{} // For INSERT operations
+	Updates     map[string]interface{} // For UPDATE operations
 }
 
 // Condition represents a WHERE clause condition
@@ -90,19 +93,55 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 		QueryString: query,
 	}
 
+	// Handle different types of statements based on the parser used
 	switch stmt := parsed.Statement.(type) {
-	case *sqlparser.Select:
-		if err := p.planSelect(stmt, plan); err != nil {
-			return nil, fmt.Errorf("failed to plan SELECT statement: %w", err)
+	case string:
+		// Handle string-based statements from our new parser
+		lowerStmt := strings.ToLower(strings.TrimSpace(stmt))
+		switch {
+		case strings.HasPrefix(lowerStmt, "select"):
+			plan.Operation = "select"
+			// Extract table name and fields for SELECT
+			p.extractSelectInfo(stmt, plan)
+		case strings.HasPrefix(lowerStmt, "insert"):
+			plan.Operation = "insert"
+			// Extract table name for INSERT
+			p.extractInsertInfo(stmt, plan)
+		case strings.HasPrefix(lowerStmt, "update"):
+			plan.Operation = "update"
+			// Extract table name for UPDATE
+			p.extractUpdateInfo(stmt, plan)
+		case strings.HasPrefix(lowerStmt, "delete"):
+			plan.Operation = "delete"
+			// Extract table name for DELETE
+			p.extractDeleteInfo(stmt, plan)
+		case strings.HasPrefix(lowerStmt, "begin"), strings.HasPrefix(lowerStmt, "commit"), strings.HasPrefix(lowerStmt, "rollback"):
+			plan.Operation = "transaction"
+		case strings.HasPrefix(lowerStmt, "create"), strings.HasPrefix(lowerStmt, "drop"), strings.HasPrefix(lowerStmt, "alter"):
+			plan.Operation = "ddl"
+		default:
+			plan.Operation = "unsupported"
 		}
-	case *sqlparser.Insert:
-		plan.Operation = "insert"
-	case *sqlparser.Update:
-		plan.Operation = "update"
-	case *sqlparser.Delete:
-		plan.Operation = "delete"
-	case *sqlparser.DDL:
-		plan.Operation = "ddl"
+	case interface{}:
+		// Handle pg_query.Node based statements from the professional parser
+		// We need to check if this is a pg_query Node type
+		switch parsed.Type {
+		case SelectStatement:
+			plan.Operation = "select"
+			// Table name extraction would go here
+			p.extractSelectInfoFromPG(stmt, plan)
+		case InsertStatement:
+			plan.Operation = "insert"
+			// Table name extraction would go here
+		case UpdateStatement:
+			plan.Operation = "update"
+			// Table name extraction would go here
+		case DeleteStatement:
+			plan.Operation = "delete"
+			// Table name extraction would go here
+		default:
+			plan.Operation = "unsupported"
+		}
 	default:
 		plan.Operation = "unsupported"
 	}
@@ -110,85 +149,115 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 	return plan, nil
 }
 
-// planSelect creates a plan for a SELECT statement
-func (p *Planner) planSelect(stmt *sqlparser.Select, plan *Plan) error {
-	plan.Operation = "select"
-
-	// Extract table name
-	if len(stmt.From) > 0 {
-		if aliasedTable, ok := stmt.From[0].(*sqlparser.AliasedTableExpr); ok {
-			if tableName, ok := aliasedTable.Expr.(sqlparser.TableName); ok {
-				plan.Table = tableName.Name.String()
-			}
+// extractSelectInfo extracts table name, fields, and conditions for SELECT statements
+func (p *Planner) extractSelectInfo(stmt string, plan *Plan) {
+	// Extract fields and table
+	selectRe := regexp.MustCompile(`(?i)SELECT\s+(.+?)\s+FROM\s+(\w+)`)
+	matches := selectRe.FindStringSubmatch(stmt)
+	if len(matches) >= 3 {
+		plan.Table = matches[2]
+		// Parse the fields properly
+		fields := strings.Split(matches[1], ",")
+		for i, field := range fields {
+			fields[i] = strings.TrimSpace(field)
 		}
+		plan.Fields = fields
 	}
 
-	// Extract fields
-	for _, expr := range stmt.SelectExprs {
-		if aliasedExpr, ok := expr.(*sqlparser.AliasedExpr); ok {
-			if colName, ok := aliasedExpr.Expr.(*sqlparser.ColName); ok {
-				plan.Fields = append(plan.Fields, colName.Name.String())
+	// Extract WHERE conditions
+	whereRe := regexp.MustCompile(`(?i)WHERE\s+(.+?)(?:\s+ORDER\s+BY|\s+LIMIT|\s*$)`)
+	whereMatches := whereRe.FindStringSubmatch(stmt)
+	if len(whereMatches) >= 2 {
+		conditionsStr := whereMatches[1]
+		// Parse simple conditions (field operator value)
+		conditionRe := regexp.MustCompile(`(\w+)\s*(=|>|<|>=|<=|!=)\s*['"]?([^'"\s]+)['"]?`)
+		conditionMatches := conditionRe.FindAllStringSubmatch(conditionsStr, -1)
+		
+		var conditions []Condition
+		for _, match := range conditionMatches {
+			if len(match) >= 4 {
+				// Try to convert value to appropriate type
+				var value interface{} = match[3]
+				if i, err := strconv.ParseInt(match[3], 10, 64); err == nil {
+					value = i
+				} else if b, err := strconv.ParseBool(match[3]); err == nil {
+					value = b
+				}
+				conditions = append(conditions, Condition{
+					Field:    match[1],
+					Operator: match[2],
+					Value:    value,
+				})
 			}
 		}
-	}
-
-	// Extract conditions
-	if stmt.Where != nil {
-		p.extractConditions(stmt.Where.Expr, &plan.Conditions)
-	}
-
-	// Extract LIMIT
-	if stmt.Limit != nil {
-		if val, ok := stmt.Limit.Rowcount.(*sqlparser.SQLVal); ok {
-			if val.Type == sqlparser.IntVal {
-				limit := int64(0)
-				fmt.Sscanf(string(val.Val), "%d", &limit)
-				plan.Limit = &limit
-			}
-		}
+		plan.Conditions = conditions
 	}
 
 	// Extract ORDER BY
-	for _, orderBy := range stmt.OrderBy {
+	orderRe := regexp.MustCompile(`(?i)ORDER\s+BY\s+([^,]+?)(?:\s+(ASC|DESC))?(?:\s+LIMIT|\s*$)`)
+	orderMatches := orderRe.FindStringSubmatch(stmt)
+	if len(orderMatches) >= 2 {
+		orderField := strings.TrimSpace(orderMatches[1])
 		order := "ASC"
-		if orderBy.Direction == sqlparser.DescScr {
+		if len(orderMatches) >= 3 && strings.ToUpper(strings.TrimSpace(orderMatches[2])) == "DESC" {
 			order = "DESC"
 		}
-		plan.OrderBy = append(plan.OrderBy, OrderBy{
-			Field: orderBy.Expr.(*sqlparser.ColName).Name.String(),
-			Order: order,
-		})
+		plan.OrderBy = []OrderBy{
+			{
+				Field: orderField,
+				Order: order,
+			},
+		}
 	}
 
-	return nil
+	// Extract LIMIT
+	limitRe := regexp.MustCompile(`(?i)LIMIT\s+(\d+)`)
+	limitMatches := limitRe.FindStringSubmatch(stmt)
+	if len(limitMatches) >= 2 {
+		if limit, err := strconv.ParseInt(limitMatches[1], 10, 64); err == nil {
+			plan.Limit = &limit
+		}
+	}
 }
 
-// extractConditions extracts WHERE clause conditions
-func (p *Planner) extractConditions(expr sqlparser.Expr, conditions *[]Condition) {
-	switch e := expr.(type) {
-	case *sqlparser.ComparisonExpr:
-		if colName, ok := e.Left.(*sqlparser.ColName); ok {
-			field := colName.Name.String()
-			operator := e.Operator
-			var value interface{}
+// extractSelectInfoFromPG extracts information from PG parser nodes
+func (p *Planner) extractSelectInfoFromPG(stmt interface{}, plan *Plan) {
+	// For now, fall back to string-based extraction
+	// In the future, this should properly parse pg_query nodes
+	if stmtStr, ok := stmt.(string); ok {
+		p.extractSelectInfo(stmtStr, plan)
+	}
+}
 
-			if val, ok := e.Right.(*sqlparser.SQLVal); ok {
-				value = string(val.Val)
-			}
+// extractInsertInfo extracts table name for INSERT statements
+func (p *Planner) extractInsertInfo(stmt string, plan *Plan) {
+	// Simple extraction logic for INSERT statements
+	// This should be replaced with proper parsing in the future
+	re := regexp.MustCompile(`(?i)INSERT\s+INTO\s+(\w+)`)
+	matches := re.FindStringSubmatch(stmt)
+	if len(matches) >= 2 {
+		plan.Table = matches[1]
+	}
+}
 
-			*conditions = append(*conditions, Condition{
-				Field:    field,
-				Operator: operator,
-				Value:    value,
-			})
-		}
-	case *sqlparser.AndExpr:
-		p.extractConditions(e.Left, conditions)
-		p.extractConditions(e.Right, conditions)
-	case *sqlparser.OrExpr:
-		// For simplicity, we're treating OR expressions similarly to AND
-		// In a production system, this would need more sophisticated handling
-		p.extractConditions(e.Left, conditions)
-		p.extractConditions(e.Right, conditions)
+// extractUpdateInfo extracts table name for UPDATE statements
+func (p *Planner) extractUpdateInfo(stmt string, plan *Plan) {
+	// Simple extraction logic for UPDATE statements
+	// This should be replaced with proper parsing in the future
+	re := regexp.MustCompile(`(?i)UPDATE\s+(\w+)`)
+	matches := re.FindStringSubmatch(stmt)
+	if len(matches) >= 2 {
+		plan.Table = matches[1]
+	}
+}
+
+// extractDeleteInfo extracts table name for DELETE statements
+func (p *Planner) extractDeleteInfo(stmt string, plan *Plan) {
+	// Simple extraction logic for DELETE statements
+	// This should be replaced with proper parsing in the future
+	re := regexp.MustCompile(`(?i)DELETE\s+FROM\s+(\w+)`)
+	matches := re.FindStringSubmatch(stmt)
+	if len(matches) >= 2 {
+		plan.Table = matches[1]
 	}
 }

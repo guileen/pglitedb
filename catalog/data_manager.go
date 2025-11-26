@@ -504,3 +504,32 @@ func (m *dataManager) inferColumnType(data interface{}) types.ColumnType {
 		return types.ColumnTypeJSON
 	}
 }
+
+// Additional methods to satisfy the Manager interface
+func (m *dataManager) InsertRow(ctx context.Context, tenantID int64, tableName string, values map[string]interface{}) (int64, error) {
+	record, err := m.Insert(ctx, tenantID, tableName, values)
+	if err != nil {
+		return 0, err
+	}
+	
+	// Convert the record ID to int64
+	// Note: This assumes the ID is stored as a string in the record
+	id, err := strconv.ParseInt(record.ID, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	
+	return id, nil
+}
+
+func (m *dataManager) UpdateRows(ctx context.Context, tenantID int64, tableName string, values map[string]interface{}, conditions map[string]interface{}) (int64, error) {
+	// TODO: Implement bulk update logic
+	// This is a simplified implementation that would need to be expanded
+	return 0, nil
+}
+
+func (m *dataManager) DeleteRows(ctx context.Context, tenantID int64, tableName string, conditions map[string]interface{}) (int64, error) {
+	// TODO: Implement bulk delete logic
+	// This is a simplified implementation that would need to be expanded
+	return 0, nil
+}

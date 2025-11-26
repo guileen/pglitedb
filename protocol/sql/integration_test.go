@@ -63,8 +63,7 @@ func createTestSchema() *types.TableDefinition {
 }
 
 func TestIntegration_SQLWithIndexes(t *testing.T) {
-	// Create SQL executor
-	parser := NewMySQLParser()
+	parser := NewPGParser()
 	planner := NewPlanner(parser)
 	executor := NewExecutor(planner)
 
@@ -188,7 +187,7 @@ func TestIntegration_SQLWithIndexes(t *testing.T) {
 
 func TestIntegration_TransactionsWithIsolationLevels(t *testing.T) {
 	// Create SQL executor
-	parser := NewMySQLParser()
+	parser := NewPGParser()
 	planner := NewPlanner(parser)
 	executor := NewExecutor(planner)
 
@@ -271,7 +270,7 @@ func TestIntegration_TransactionsWithIsolationLevels(t *testing.T) {
 
 func TestIntegration_AdvancedDataTypesInSQL(t *testing.T) {
 	// Create SQL executor
-	parser := NewMySQLParser()
+	parser := NewPGParser()
 	planner := NewPlanner(parser)
 	executor := NewExecutor(planner)
 
@@ -380,7 +379,7 @@ func TestIntegration_AdvancedDataTypesInSQL(t *testing.T) {
 
 func TestIntegration_ComplexScenarios(t *testing.T) {
 	// Create SQL executor
-	parser := NewMySQLParser()
+	parser := NewPGParser()
 	planner := NewPlanner(parser)
 	executor := NewExecutor(planner)
 

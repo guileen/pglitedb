@@ -244,7 +244,7 @@ pglitedb/
 
 - [github.com/cockroachdb/pebble](https://github.com/cockroachdb/pebble) - High-performance LSM-tree key-value store
 - [github.com/jackc/pgx/v5](https://github.com/jackc/pgx) - PostgreSQL wire protocol
-- [github.com/xwb1989/sqlparser](https://github.com/xwb1989/sqlparser) - SQL parsing
+- [github.com/pganalyze/pg_query_go/v6](https://github.com/pganalyze/pg_query_go) - PostgreSQL query parsing
 - [github.com/go-chi/chi/v5](https://github.com/go-chi/chi) - HTTP router
 
 ## Limitations & Future Work
