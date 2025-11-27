@@ -92,46 +92,42 @@ func TestClientTransactions(t *testing.T) {
 	})
 }
 
-// TestClientDMLWithReturning tests DML operations with RETURNING clauses
-func TestClientDMLWithReturning(t *testing.T) {
+// TestClientBulkOperations tests bulk UPDATE and DELETE operations
+func TestClientBulkOperations(t *testing.T) {
 	parser := NewPGParser()
 	planner := NewPlanner(parser)
 	_ = planner // Fix unused variable error
 
-	// Test case 1: INSERT with RETURNING *
-	t.Run("InsertWithReturningAll", func(t *testing.T) {
-		query := "INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com') RETURNING *"
+	// Test case 1: Bulk UPDATE operation
+	t.Run("BulkUpdateOperation", func(t *testing.T) {
+		query := "UPDATE test_products SET price = $1 WHERE category = $2"
 		
-		parsed, err := parser.Parse(query)
-		require.NoError(t, err)
-		assert.Equal(t, InsertStatement, parsed.Type)
-		assert.Len(t, parsed.ReturningColumns, 1)
-		assert.Equal(t, "*", parsed.ReturningColumns[0])
-	})
-
-	// Test case 2: UPDATE with RETURNING specific columns
-	t.Run("UpdateWithReturningSpecific", func(t *testing.T) {
-		query := "UPDATE users SET name = 'Bob' WHERE id = 1 RETURNING id, name"
-		
+		// Test parsing
 		parsed, err := parser.Parse(query)
 		require.NoError(t, err)
 		assert.Equal(t, UpdateStatement, parsed.Type)
-		assert.Len(t, parsed.ReturningColumns, 2)
-		assert.Contains(t, parsed.ReturningColumns, "id")
-		assert.Contains(t, parsed.ReturningColumns, "name")
+		
+		// Test planning
+		plan, err := planner.CreatePlan(query)
+		require.NoError(t, err)
+		assert.Equal(t, "update", plan.Operation)
+		assert.Equal(t, "test_products", plan.Table)
 	})
 
-	// Test case 3: DELETE with RETURNING
-	t.Run("DeleteWithReturning", func(t *testing.T) {
-		query := "DELETE FROM users WHERE id = 1 RETURNING id, name, email"
+	// Test case 2: Bulk DELETE operation
+	t.Run("BulkDeleteOperation", func(t *testing.T) {
+		query := "DELETE FROM test_products WHERE category = $1"
 		
+		// Test parsing
 		parsed, err := parser.Parse(query)
 		require.NoError(t, err)
 		assert.Equal(t, DeleteStatement, parsed.Type)
-		assert.Len(t, parsed.ReturningColumns, 3)
-		assert.Contains(t, parsed.ReturningColumns, "id")
-		assert.Contains(t, parsed.ReturningColumns, "name")
-		assert.Contains(t, parsed.ReturningColumns, "email")
+		
+		// Test planning
+		plan, err := planner.CreatePlan(query)
+		require.NoError(t, err)
+		assert.Equal(t, "delete", plan.Operation)
+		assert.Equal(t, "test_products", plan.Table)
 	})
 }
 

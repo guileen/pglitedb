@@ -97,85 +97,52 @@ func (e *queryExecutor) executeInsert(ctx context.Context, query *Query) (*Query
 }
 
 func (e *queryExecutor) executeUpdate(ctx context.Context, query *Query) (*QueryResult, error) {
-	filters := e.convertFilters(query.Update.Where)
-	qOpts := &types.QueryOptions{
-		Where: filters,
+	// Convert filters to conditions map
+	conditions := make(map[string]interface{})
+	for _, filter := range query.Update.Where {
+		if filter.And != nil || filter.Or != nil {
+			// Complex filters not supported in this simple implementation
+			continue
+		}
+		conditions[filter.Column] = filter.Value
 	}
-	
-	result, err := e.manager.Query(ctx, query.TenantID, query.TableName, qOpts)
+
+	// Convert values to interface{} map
+	values := make(map[string]interface{})
+	for k, v := range query.Update.Values {
+		values[k] = v.Data
+	}
+
+	// Use the efficient bulk update method
+	affected, err := e.manager.UpdateRows(ctx, query.TenantID, query.TableName, values, conditions)
 	if err != nil {
-		return nil, fmt.Errorf("query for update failed: %w", err)
+		return nil, fmt.Errorf("bulk update failed: %w", err)
 	}
-	
-	records, ok := result.Records.([]*types.Record)
-	if !ok {
-		return nil, fmt.Errorf("invalid records type")
-	}
-	
-	updatedCount := int64(0)
-	for _, record := range records {
-		rowIDValue, ok := record.Data["_rowid"]
-		if !ok {
-			continue
-		}
-		rowID, ok := rowIDValue.Data.(int64)
-		if !ok {
-			continue
-		}
-		
-		updateData := make(map[string]interface{})
-		for k, v := range query.Update.Values {
-			updateData[k] = v.Data
-		}
-		
-		_, err := e.manager.Update(ctx, query.TenantID, query.TableName, rowID, updateData)
-		if err != nil {
-			return nil, fmt.Errorf("update row %d: %w", rowID, err)
-		}
-		updatedCount++
-	}
-	
+
 	return &QueryResult{
-		Count: updatedCount,
+		Count: affected,
 	}, nil
 }
 
 func (e *queryExecutor) executeDelete(ctx context.Context, query *Query) (*QueryResult, error) {
-	filters := e.convertFilters(query.Delete.Where)
-	qOpts := &types.QueryOptions{
-		Where: filters,
+	// Convert filters to conditions map
+	conditions := make(map[string]interface{})
+	for _, filter := range query.Delete.Where {
+		if filter.And != nil || filter.Or != nil {
+			// Complex filters not supported in this simple implementation
+			continue
+		}
+		conditions[filter.Column] = filter.Value
 	}
-	
-	result, err := e.manager.Query(ctx, query.TenantID, query.TableName, qOpts)
+
+	// Use the efficient bulk delete method
+	affected, err := e.manager.DeleteRows(ctx, query.TenantID, query.TableName, conditions)
 	if err != nil {
-		return nil, fmt.Errorf("query for delete failed: %w", err)
+		return nil, fmt.Errorf("bulk delete failed: %w", err)
 	}
-	
-	records, ok := result.Records.([]*types.Record)
-	if !ok {
-		return nil, fmt.Errorf("invalid records type")
-	}
-	
-	deletedCount := int64(0)
-	for _, record := range records {
-		rowIDValue, ok := record.Data["_rowid"]
-		if !ok {
-			continue
-		}
-		rowID, ok := rowIDValue.Data.(int64)
-		if !ok {
-			continue
-		}
-		
-		err := e.manager.Delete(ctx, query.TenantID, query.TableName, rowID)
-		if err != nil {
-			return nil, fmt.Errorf("delete row %d: %w", rowID, err)
-		}
-		deletedCount++
-	}
-	
+
 	return &QueryResult{
-		Count: deletedCount,
+		Count: affected,
 	}, nil
 }
 

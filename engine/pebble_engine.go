@@ -1608,10 +1608,14 @@ func (e *pebbleEngine) UpdateRows(ctx context.Context, tenantID, tableID int64, 
 	var rowUpdates []RowUpdate
 	for iter.Next() {
 		record := iter.Row()
-		// Extract row ID from the record
-		rowID, err := strconv.ParseInt(record.ID, 10, 64)
-		if err != nil {
-			return 0, fmt.Errorf("parse row ID: %w", err)
+		// Extract row ID from the record's _rowid field
+		rowIDValue, exists := record.Data["_rowid"]
+		if !exists || rowIDValue == nil {
+			return 0, fmt.Errorf("row ID not found in record")
+		}
+		rowID, ok := rowIDValue.Data.(int64)
+		if !ok {
+			return 0, fmt.Errorf("invalid row ID type: %T", rowIDValue.Data)
 		}
 		
 		rowUpdates = append(rowUpdates, RowUpdate{
@@ -1650,10 +1654,14 @@ func (e *pebbleEngine) DeleteRows(ctx context.Context, tenantID, tableID int64, 
 	var rowIDs []int64
 	for iter.Next() {
 		record := iter.Row()
-		// Extract row ID from the record
-		rowID, err := strconv.ParseInt(record.ID, 10, 64)
-		if err != nil {
-			return 0, fmt.Errorf("parse row ID: %w", err)
+		// Extract row ID from the record's _rowid field
+		rowIDValue, exists := record.Data["_rowid"]
+		if !exists || rowIDValue == nil {
+			return 0, fmt.Errorf("row ID not found in record")
+		}
+		rowID, ok := rowIDValue.Data.(int64)
+		if !ok {
+			return 0, fmt.Errorf("invalid row ID type: %T", rowIDValue.Data)
 		}
 		
 		rowIDs = append(rowIDs, rowID)
