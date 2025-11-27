@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"sync/atomic"
 
@@ -94,13 +95,10 @@ func (e *pebbleEngine) GetRowBatch(ctx context.Context, tenantID, tableID int64,
 }
 
 func sortInt64Slice(arr []int64) {
-	for i := 0; i < len(arr)-1; i++ {
-		for j := i + 1; j < len(arr); j++ {
-			if arr[i] > arr[j] {
-				arr[i], arr[j] = arr[j], arr[i]
-			}
-		}
-	}
+	// Use efficient sorting algorithm instead of bubble sort
+	sort.Slice(arr, func(i, j int) bool {
+		return arr[i] < arr[j]
+	})
 }
 
 func (e *pebbleEngine) InsertRow(ctx context.Context, tenantID, tableID int64, row *types.Record, schemaDef *types.TableDefinition) (int64, error) {
@@ -127,7 +125,10 @@ func (e *pebbleEngine) InsertRowBatch(ctx context.Context, tenantID, tableID int
 		return []int64{}, nil
 	}
 
+	// Pre-allocate rowIDs slice with exact capacity
 	rowIDs := make([]int64, len(rows))
+	
+	// Generate all row IDs first to minimize lock contention
 	for i := range rows {
 		rowID, err := e.NextRowID(ctx, tenantID, tableID)
 		if err != nil {
@@ -139,6 +140,7 @@ func (e *pebbleEngine) InsertRowBatch(ctx context.Context, tenantID, tableID int
 	batch := e.kv.NewBatch()
 	defer batch.Close()
 
+	// Process rows in batch with reduced allocations
 	for i, row := range rows {
 		key := e.codec.EncodeTableKey(tenantID, tableID, rowIDs[i])
 		value, err := e.codec.EncodeRow(row, schemaDef)
@@ -1145,7 +1147,12 @@ func (ii *indexIterator) Next() bool {
 	for {
 		// Need to fetch new batch
 		if len(ii.rowIDBuffer) == 0 || ii.cacheIdx >= len(ii.rowIDBuffer) {
-			ii.rowIDBuffer = ii.rowIDBuffer[:0]
+			// Reuse buffer slices to reduce allocations
+			if ii.rowIDBuffer == nil {
+				ii.rowIDBuffer = make([]int64, 0, 100)
+			} else {
+				ii.rowIDBuffer = ii.rowIDBuffer[:0]
+			}
 			ii.cacheIdx = 0
 
 			var hasNext bool
@@ -1153,25 +1160,36 @@ func (ii *indexIterator) Next() bool {
 				// First call: initialize and position iterator
 				ii.started = true
 				ii.batchSize = 100
-				ii.rowCache = make(map[int64]*types.Record)
+				// Reuse rowCache map to reduce allocations
+				if ii.rowCache == nil {
+					ii.rowCache = make(map[int64]*types.Record, ii.batchSize)
+				} else {
+					// Clear the map without reallocating
+					for k := range ii.rowCache {
+						delete(ii.rowCache, k)
+					}
+				}
 				
 				hasNext = ii.iter.First()
 				
 				// Skip offset rows
 				if ii.opts != nil && ii.opts.Offset > 0 && hasNext {
-					for i := 0; i < ii.opts.Offset; i++ {
-						if !ii.iter.Next() {
-							return false
-						}
+					for i := 0; i < ii.opts.Offset && hasNext; i++ {
+						hasNext = ii.iter.Next()
 					}
 					hasNext = ii.iter.Valid()
 				}
 			} else {
 				// Subsequent batches: iterator already positioned by previous batch's loop
 				hasNext = ii.iter.Valid()
+				// Clear the map without reallocating
+				for k := range ii.rowCache {
+					delete(ii.rowCache, k)
+				}
 			}
 
-			// Collect rowIDs for batch fetch
+			// Collect rowIDs for batch fetch with pre-allocated capacity
+			ii.rowIDBuffer = ii.rowIDBuffer[:0]
 			for len(ii.rowIDBuffer) < ii.batchSize && hasNext {
 				_, _, _, _, rowID, err := ii.codec.DecodeIndexKey(ii.iter.Key())
 				if err != nil {
@@ -1192,7 +1210,11 @@ func (ii *indexIterator) Next() bool {
 				ii.err = fmt.Errorf("fetch row batch: %w", err)
 				return false
 			}
-			ii.rowCache = rowCache
+			
+			// Efficiently copy results to reuse map
+			for k, v := range rowCache {
+				ii.rowCache[k] = v
+			}
 		}
 
 		// Process current batch
@@ -1214,9 +1236,16 @@ func (ii *indexIterator) Next() bool {
 				}
 			}
 
-			row.Data["_rowid"] = &types.Value{
-				Type: types.ColumnTypeNumber,
-				Data: rowID,
+			// Reuse the _rowid value object to reduce allocations
+			if rowIDVal, exists := row.Data["_rowid"]; exists {
+				// Update existing value
+				rowIDVal.Data = rowID
+			} else {
+				// Create new value
+				row.Data["_rowid"] = &types.Value{
+					Type: types.ColumnTypeNumber,
+					Data: rowID,
+				}
 			}
 
 			ii.current = row

@@ -2,6 +2,8 @@ package sql
 
 import (
 	"testing"
+
+	pg_query "github.com/pganalyze/pg_query_go/v6"
 )
 
 func BenchmarkPlanner_CreatePlan_SimpleSelect(b *testing.B) {
@@ -70,6 +72,74 @@ func BenchmarkPlanner_CreatePlan_Delete(b *testing.B) {
 		_, err := planner.CreatePlan(query)
 		if err != nil {
 			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkPlanner_ExtractConditionsFromExpr_Simple(b *testing.B) {
+	parser := NewPGParser()
+	planner := NewPlanner(parser)
+	
+	// Parse a query to get the AST
+	parsed, err := parser.Parse("SELECT * FROM users WHERE id = 123 AND name = 'John'")
+	if err != nil {
+		b.Fatal(err)
+	}
+	
+	pgNode, ok := parsed.Statement.(*pg_query.Node)
+	if !ok {
+		b.Fatal("Expected pg_query.Node")
+	}
+	
+	selectStmt := pgNode.GetSelectStmt()
+	if selectStmt == nil {
+		b.Fatal("Expected SelectStmt")
+	}
+	
+	whereClause := selectStmt.GetWhereClause()
+	if whereClause == nil {
+		b.Fatal("Expected WHERE clause")
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		conditions := planner.extractConditionsFromExpr(whereClause)
+		if len(conditions) == 0 {
+			b.Fatal("Expected conditions")
+		}
+	}
+}
+
+func BenchmarkPlanner_ExtractConditionsFromExpr_Complex(b *testing.B) {
+	parser := NewPGParser()
+	planner := NewPlanner(parser)
+	
+	// Parse a query to get the AST
+	parsed, err := parser.Parse("SELECT * FROM users WHERE id = 123 AND name = 'John' AND age > 25 AND active = true")
+	if err != nil {
+		b.Fatal(err)
+	}
+	
+	pgNode, ok := parsed.Statement.(*pg_query.Node)
+	if !ok {
+		b.Fatal("Expected pg_query.Node")
+	}
+	
+	selectStmt := pgNode.GetSelectStmt()
+	if selectStmt == nil {
+		b.Fatal("Expected SelectStmt")
+	}
+	
+	whereClause := selectStmt.GetWhereClause()
+	if whereClause == nil {
+		b.Fatal("Expected WHERE clause")
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		conditions := planner.extractConditionsFromExpr(whereClause)
+		if len(conditions) == 0 {
+			b.Fatal("Expected conditions")
 		}
 	}
 }

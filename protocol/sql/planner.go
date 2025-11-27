@@ -272,7 +272,8 @@ func (p *Planner) extractSelectInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 
 // extractConditionsFromExpr extracts simple conditions from a pg_query expression
 func (p *Planner) extractConditionsFromExpr(expr *pg_query.Node) []Condition {
-	var conditions []Condition
+	// Pre-allocate with reasonable capacity to reduce reallocations
+	conditions := make([]Condition, 0, 4)
 	
 	if expr == nil {
 		return conditions
@@ -284,58 +285,69 @@ func (p *Planner) extractConditionsFromExpr(expr *pg_query.Node) []Condition {
 		if aExpr.GetKind() == pg_query.A_Expr_Kind_AEXPR_OP {
 			// Get the operator name
 			var opName string
-			if len(aExpr.GetName()) > 0 {
-				if str := aExpr.GetName()[0].GetString_(); str != nil {
+			if nameParts := aExpr.GetName(); len(nameParts) > 0 {
+				if str := nameParts[0].GetString_(); str != nil {
 					opName = str.GetSval()
 				}
 			}
 			
 			// Get left side (should be a column reference)
-			left := aExpr.GetLexpr()
-			// Get right side (should be a constant)
-			right := aExpr.GetRexpr()
-			
-			if left != nil && right != nil {
-				// Extract column name from left side
-				var columnName string
-				if columnRef := left.GetColumnRef(); columnRef != nil {
-					if len(columnRef.GetFields()) > 0 {
-						if str := columnRef.GetFields()[len(columnRef.GetFields())-1].GetString_(); str != nil {
-							columnName = str.GetSval()
+			if left := aExpr.GetLexpr(); left != nil {
+				// Get right side (should be a constant)
+				if right := aExpr.GetRexpr(); right != nil {
+					// Extract column name from left side
+					var columnName string
+					if columnRef := left.GetColumnRef(); columnRef != nil {
+						if fields := columnRef.GetFields(); len(fields) > 0 {
+							if str := fields[len(fields)-1].GetString_(); str != nil {
+								columnName = str.GetSval()
+							}
 						}
 					}
-				}
-				
-				// Extract value from right side
-				var value interface{}
-				if aConst := right.GetAConst(); aConst != nil {
-					if aStr := aConst.GetSval(); aStr != nil {
-						value = aStr.GetSval()
-					} else if aInt := aConst.GetIval(); aInt != nil {
-						value = aInt.GetIval()
-					} else if aFloat := aConst.GetFval(); aFloat != nil {
-						if f, err := strconv.ParseFloat(aFloat.GetFval(), 64); err == nil {
-							value = f
+					
+					// Extract value from right side
+					var value interface{}
+					if aConst := right.GetAConst(); aConst != nil {
+						switch {
+						case aConst.GetSval() != nil:
+							value = aConst.GetSval().GetSval()
+						case aConst.GetIval() != nil:
+							value = aConst.GetIval().GetIval()
+						case aConst.GetFval() != nil:
+							if f, err := strconv.ParseFloat(aConst.GetFval().GetFval(), 64); err == nil {
+								value = f
+							}
+						case aConst.GetBoolval() != nil:
+							value = aConst.GetBoolval().GetBoolval()
 						}
-					} else if aBool := aConst.GetBoolval(); aBool != nil {
-						value = aBool.GetBoolval()
 					}
-				}
-				
-				if columnName != "" && opName != "" {
-					conditions = append(conditions, Condition{
-						Field:    columnName,
-						Operator: opName,
-						Value:    value,
-					})
+					
+					// Only add condition if we have both field and operator
+					if columnName != "" && opName != "" {
+						conditions = append(conditions, Condition{
+							Field:    columnName,
+							Operator: opName,
+							Value:    value,
+						})
+					}
 				}
 			}
 		}
 	} else if boolExpr := expr.GetBoolExpr(); boolExpr != nil {
 		// Handle Boolean expressions (AND, OR)
 		if boolExpr.GetBoolop() == pg_query.BoolExprType_AND_EXPR {
+			// Extract conditions from each operand with pre-allocation
+			args := boolExpr.GetArgs()
+			// Pre-size the conditions slice to reduce reallocations
+			totalCap := cap(conditions) + len(args)*2
+			if totalCap > cap(conditions) {
+				newConditions := make([]Condition, len(conditions), totalCap)
+				copy(newConditions, conditions)
+				conditions = newConditions
+			}
+			
 			// Extract conditions from each operand
-			for _, operand := range boolExpr.GetArgs() {
+			for _, operand := range args {
 				subConditions := p.extractConditionsFromExpr(operand)
 				conditions = append(conditions, subConditions...)
 			}

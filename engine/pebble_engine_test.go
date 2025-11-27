@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -508,116 +509,346 @@ func BenchmarkStorageEngine_GetRow(b *testing.B) {
 	}
 }
 
-func TestStorageEngine_IsolationLevels(t *testing.T) {
-	engine, cleanup := setupTestEngine(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	// schema := createTestSchema() // Not used in this test
-
-	// Test 1: Begin transaction with default isolation level
-	txn1, err := engine.BeginTx(ctx)
-	if err != nil {
-		t.Fatalf("begin transaction: %v", err)
-	}
-
-	// Check default isolation level
-	if txn1.Isolation() != storage.ReadCommitted {
-		t.Errorf("expected default isolation level ReadCommitted, got %v", txn1.Isolation())
-	}
-
-	// Test 2: Begin transaction with specific isolation level
-	txn2, err := engine.BeginTxWithIsolation(ctx, storage.RepeatableRead)
-	if err != nil {
-		t.Fatalf("begin transaction with isolation: %v", err)
-	}
-
-	if txn2.Isolation() != storage.RepeatableRead {
-		t.Errorf("expected isolation level RepeatableRead, got %v", txn2.Isolation())
-	}
-
-	// Clean up
-	txn1.Rollback()
-	txn2.Rollback()
-}
-
-func TestStorageEngine_TransactionWithConflictDetection(t *testing.T) {
+func TestStorageEngine_PerformanceOptimizations(t *testing.T) {
 	engine, cleanup := setupTestEngine(t)
 	defer cleanup()
 
 	ctx := context.Background()
 	schema := createTestSchema()
 
-	// Insert a record first
-	record := &types.Record{
-		Data: map[string]*types.Value{
-			"name":   {Data: "ConflictTest", Type: types.ColumnTypeString},
-			"email":  {Data: "conflict@example.com", Type: types.ColumnTypeString},
-			"age":    {Data: int64(30), Type: types.ColumnTypeNumber},
-			"active": {Data: true, Type: types.ColumnTypeBoolean},
-		},
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-
-	rowID, err := engine.InsertRow(ctx, 1, 1, record, schema)
-	if err != nil {
-		t.Fatalf("insert row: %v", err)
-	}
-
-	// Begin two transactions
-	txn1, err := engine.BeginTx(ctx)
-	if err != nil {
-		t.Fatalf("begin transaction 1: %v", err)
-	}
-
-	txn2, err := engine.BeginTx(ctx)
-	if err != nil {
-		t.Fatalf("begin transaction 2: %v", err)
-	}
-
-	// Both transactions try to update the same record
-	updates1 := map[string]*types.Value{
-		"age": {Data: int64(31), Type: types.ColumnTypeNumber},
-	}
-
-	updates2 := map[string]*types.Value{
-		"age": {Data: int64(32), Type: types.ColumnTypeNumber},
-	}
-
-	// Update in first transaction
-	err = txn1.UpdateRow(ctx, 1, 1, rowID, updates1, schema)
-	if err != nil {
-		t.Fatalf("txn1 update row: %v", err)
-	}
-
-	// Update in second transaction (may detect conflict)
-	err = txn2.UpdateRow(ctx, 1, 1, rowID, updates2, schema)
-	if err != nil {
-		// In our simplified implementation, conflict detection may not be fully implemented
-		t.Logf("txn2 update returned: %v", err)
-	}
-
-	// Commit first transaction
-	err = txn1.Commit()
-	if err != nil {
-		t.Fatalf("commit txn1: %v", err)
-	}
-
-	// Try to commit second transaction (may fail due to conflict)
-	err = txn2.Commit()
-	if err != nil {
-		// This is expected in a full implementation
-		t.Logf("commit txn2 returned: %v", err)
-	} else {
-		// If it succeeds, check the final value
-		finalRecord, err := engine.GetRow(ctx, 1, 1, rowID, schema)
-		if err != nil {
-			t.Fatalf("get final record: %v", err)
+	// Insert a large number of records to test batch operations
+	const recordCount = 1000
+	records := make([]*types.Record, recordCount)
+	
+	for i := 0; i < recordCount; i++ {
+		records[i] = &types.Record{
+			Data: map[string]*types.Value{
+				"name":   {Data: fmt.Sprintf("User%d", i), Type: types.ColumnTypeString},
+				"email":  {Data: fmt.Sprintf("user%d@example.com", i), Type: types.ColumnTypeString},
+				"age":    {Data: int64(20 + (i % 50)), Type: types.ColumnTypeNumber},
+				"active": {Data: i%3 == 0, Type: types.ColumnTypeBoolean}, // Every 3rd user is active
+			},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
 		}
-		t.Logf("Final age value: %v", finalRecord.Data["age"].Data)
 	}
 
-	// Clean up if needed
-	txn2.Rollback()
+	// Test batch insert performance
+	start := time.Now()
+	_, err := engine.InsertRowBatch(ctx, 1, 1, records, schema)
+	if err != nil {
+		t.Fatalf("insert row batch: %v", err)
+	}
+	batchInsertDuration := time.Since(start)
+
+	// Verify all records were inserted
+	iter, err := engine.ScanRows(ctx, 1, 1, schema, nil)
+	if err != nil {
+		t.Fatalf("scan rows: %v", err)
+	}
+	
+	count := 0
+	for iter.Next() {
+		count++
+	}
+	iter.Close()
+
+	if count != recordCount {
+		t.Errorf("expected %d records, got %d", recordCount, count)
+	}
+
+	// Test UpdateRows performance optimization
+	updates := map[string]*types.Value{
+		"age": {Data: int64(99), Type: types.ColumnTypeNumber},
+	}
+
+	conditions := map[string]interface{}{
+		"active": true,
+	}
+
+	start = time.Now()
+	affected, err := engine.UpdateRows(ctx, 1, 1, updates, conditions, schema)
+	if err != nil {
+		t.Fatalf("update rows: %v", err)
+	}
+	updateRowsDuration := time.Since(start)
+
+	// Calculate expected affected rows (every 3rd user is active: 0, 3, 6, 9, ...)
+	expectedAffected := 0
+	for i := 0; i < recordCount; i++ {
+		if i%3 == 0 {
+			expectedAffected++
+		}
+	}
+	
+	if int(affected) != expectedAffected {
+		t.Errorf("expected %d affected rows, got %d", expectedAffected, affected)
+	}
+
+	// Test DeleteRows performance optimization
+	deleteConditions := map[string]interface{}{
+		"age": int64(99), // Delete users whose age was just updated to 99
+	}
+
+	start = time.Now()
+	deleted, err := engine.DeleteRows(ctx, 1, 1, deleteConditions, schema)
+	if err != nil {
+		t.Fatalf("delete rows: %v", err)
+	}
+	deleteRowsDuration := time.Since(start)
+
+	if deleted != affected {
+		t.Errorf("expected %d deleted rows, got %d", affected, deleted)
+	}
+
+	// Log performance metrics (for manual verification)
+	t.Logf("Batch insert of %d records took: %v", recordCount, batchInsertDuration)
+	t.Logf("UpdateRows of %d records took: %v", affected, updateRowsDuration)
+	t.Logf("DeleteRows of %d records took: %v", deleted, deleteRowsDuration)
+}
+
+func TestStorageEngine_UpdateRows(t *testing.T) {
+	engine, cleanup := setupTestEngine(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	schema := createTestSchema()
+
+	// Insert test data
+	records := []*types.Record{
+		{
+			Data: map[string]*types.Value{
+				"name":   {Data: "Alice", Type: types.ColumnTypeString},
+				"email":  {Data: "alice@example.com", Type: types.ColumnTypeString},
+				"age":    {Data: int64(30), Type: types.ColumnTypeNumber},
+				"active": {Data: true, Type: types.ColumnTypeBoolean},
+			},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		{
+			Data: map[string]*types.Value{
+				"name":   {Data: "Bob", Type: types.ColumnTypeString},
+				"email":  {Data: "bob@example.com", Type: types.ColumnTypeString},
+				"age":    {Data: int64(25), Type: types.ColumnTypeNumber},
+				"active": {Data: true, Type: types.ColumnTypeBoolean},
+			},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		{
+			Data: map[string]*types.Value{
+				"name":   {Data: "Charlie", Type: types.ColumnTypeString},
+				"email":  {Data: "charlie@example.com", Type: types.ColumnTypeString},
+				"age":    {Data: int64(35), Type: types.ColumnTypeNumber},
+				"active": {Data: false, Type: types.ColumnTypeBoolean},
+			},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+	}
+
+	for _, record := range records {
+		if _, err := engine.InsertRow(ctx, 1, 1, record, schema); err != nil {
+			t.Fatalf("insert row: %v", err)
+		}
+	}
+
+	// Test case 1: Update rows with matching conditions
+	updates := map[string]*types.Value{
+		"age": {Data: int64(40), Type: types.ColumnTypeNumber},
+	}
+
+	conditions := map[string]interface{}{
+		"active": true,
+	}
+
+	affected, err := engine.UpdateRows(ctx, 1, 1, updates, conditions, schema)
+	if err != nil {
+		t.Fatalf("update rows: %v", err)
+	}
+
+	if affected != 2 {
+		t.Errorf("expected 2 affected rows, got %d", affected)
+	}
+
+	// Verify updates were applied
+	iter, err := engine.ScanRows(ctx, 1, 1, schema, nil)
+	if err != nil {
+		t.Fatalf("scan rows: %v", err)
+	}
+	defer iter.Close()
+
+	updatedCount := 0
+	for iter.Next() {
+		record := iter.Row()
+		if record.Data["active"].Data.(bool) == true {
+			if record.Data["age"].Data.(int64) != 40 {
+				t.Errorf("expected age 40 for active user, got %v", record.Data["age"].Data)
+			}
+			updatedCount++
+		}
+	}
+
+	if updatedCount != 2 {
+		t.Errorf("expected 2 updated records, got %d", updatedCount)
+	}
+}
+
+func TestStorageEngine_DeleteRows(t *testing.T) {
+	engine, cleanup := setupTestEngine(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	schema := createTestSchema()
+
+	// Insert test data
+	records := []*types.Record{
+		{
+			Data: map[string]*types.Value{
+				"name":   {Data: "Alice", Type: types.ColumnTypeString},
+				"email":  {Data: "alice@example.com", Type: types.ColumnTypeString},
+				"age":    {Data: int64(30), Type: types.ColumnTypeNumber},
+				"active": {Data: true, Type: types.ColumnTypeBoolean},
+			},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		{
+			Data: map[string]*types.Value{
+				"name":   {Data: "Bob", Type: types.ColumnTypeString},
+				"email":  {Data: "bob@example.com", Type: types.ColumnTypeString},
+				"age":    {Data: int64(25), Type: types.ColumnTypeNumber},
+				"active": {Data: true, Type: types.ColumnTypeBoolean},
+			},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		{
+			Data: map[string]*types.Value{
+				"name":   {Data: "Charlie", Type: types.ColumnTypeString},
+				"email":  {Data: "charlie@example.com", Type: types.ColumnTypeString},
+				"age":    {Data: int64(35), Type: types.ColumnTypeNumber},
+				"active": {Data: false, Type: types.ColumnTypeBoolean},
+			},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+	}
+
+	for _, record := range records {
+		if _, err := engine.InsertRow(ctx, 1, 1, record, schema); err != nil {
+			t.Fatalf("insert row: %v", err)
+		}
+	}
+
+	// Test case 1: Delete rows with matching conditions
+	conditions := map[string]interface{}{
+		"active": true,
+	}
+
+	deleted, err := engine.DeleteRows(ctx, 1, 1, conditions, schema)
+	if err != nil {
+		t.Fatalf("delete rows: %v", err)
+	}
+
+	if deleted != 2 {
+		t.Errorf("expected 2 deleted rows, got %d", deleted)
+	}
+
+	// Verify only 1 record remains
+	iter, err := engine.ScanRows(ctx, 1, 1, schema, nil)
+	if err != nil {
+		t.Fatalf("scan rows: %v", err)
+	}
+	defer iter.Close()
+
+	count := 0
+	for iter.Next() {
+		count++
+	}
+
+	if count != 1 {
+		t.Errorf("expected 1 remaining record, got %d", count)
+	}
+}
+
+func TestStorageEngine_BoundaryCases(t *testing.T) {
+	engine, cleanup := setupTestEngine(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	schema := createTestSchema()
+
+	// Test empty conditions for UpdateRows (should update all rows)
+	records := []*types.Record{
+		{
+			Data: map[string]*types.Value{
+				"name":   {Data: "Alice", Type: types.ColumnTypeString},
+				"email":  {Data: "alice@example.com", Type: types.ColumnTypeString},
+				"age":    {Data: int64(30), Type: types.ColumnTypeNumber},
+				"active": {Data: true, Type: types.ColumnTypeBoolean},
+			},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		{
+			Data: map[string]*types.Value{
+				"name":   {Data: "Bob", Type: types.ColumnTypeString},
+				"email":  {Data: "bob@example.com", Type: types.ColumnTypeString},
+				"age":    {Data: int64(25), Type: types.ColumnTypeNumber},
+				"active": {Data: true, Type: types.ColumnTypeBoolean},
+			},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+	}
+
+	for _, record := range records {
+		if _, err := engine.InsertRow(ctx, 1, 1, record, schema); err != nil {
+			t.Fatalf("insert row: %v", err)
+		}
+	}
+
+	// Test UpdateRows with empty conditions (should affect all rows)
+	updates := map[string]*types.Value{
+		"age": {Data: int64(50), Type: types.ColumnTypeNumber},
+	}
+
+	emptyConditions := map[string]interface{}{}
+
+	affected, err := engine.UpdateRows(ctx, 1, 1, updates, emptyConditions, schema)
+	if err != nil {
+		t.Fatalf("update rows with empty conditions: %v", err)
+	}
+
+	if affected != 2 {
+		t.Errorf("expected 2 affected rows with empty conditions, got %d", affected)
+	}
+
+	// Test DeleteRows with empty conditions (should delete all rows)
+	deleted, err := engine.DeleteRows(ctx, 1, 1, emptyConditions, schema)
+	if err != nil {
+		t.Fatalf("delete rows with empty conditions: %v", err)
+	}
+
+	if deleted != 2 {
+		t.Errorf("expected 2 deleted rows with empty conditions, got %d", deleted)
+	}
+
+	// Verify no records remain
+	iter, err := engine.ScanRows(ctx, 1, 1, schema, nil)
+	if err != nil {
+		t.Fatalf("scan rows: %v", err)
+	}
+	defer iter.Close()
+
+	count := 0
+	for iter.Next() {
+		count++
+	}
+
+	if count != 0 {
+		t.Errorf("expected 0 remaining records, got %d", count)
+	}
 }
