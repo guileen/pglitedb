@@ -103,19 +103,19 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 		case strings.HasPrefix(lowerStmt, "select"):
 			plan.Operation = "select"
 			// Extract table name and fields for SELECT
-			p.extractSelectInfo(stmt, plan)
+
 		case strings.HasPrefix(lowerStmt, "insert"):
 			plan.Operation = "insert"
 			// Extract table name for INSERT
-			p.extractInsertInfo(stmt, plan)
+
 		case strings.HasPrefix(lowerStmt, "update"):
 			plan.Operation = "update"
 			// Extract table name for UPDATE
-			p.extractUpdateInfo(stmt, plan)
+
 		case strings.HasPrefix(lowerStmt, "delete"):
 			plan.Operation = "delete"
 			// Extract table name for DELETE
-			p.extractDeleteInfo(stmt, plan)
+
 		case strings.HasPrefix(lowerStmt, "begin"), strings.HasPrefix(lowerStmt, "commit"), strings.HasPrefix(lowerStmt, "rollback"):
 			plan.Operation = "transaction"
 		case strings.HasPrefix(lowerStmt, "create"), strings.HasPrefix(lowerStmt, "drop"), strings.HasPrefix(lowerStmt, "alter"):
@@ -172,21 +172,9 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 	return plan, nil
 }
 
-// extractSelectInfo extracts table name, fields, and conditions for SELECT statements
-// This function is deprecated and should not be used in new code
-func (p *Planner) extractSelectInfo(stmt string, plan *Plan) {
-	// This function is kept for backward compatibility but should not be used
-	// All new code should use the AST-based parser instead
-}
 
-// extractSelectInfoFromPG extracts information from PG parser nodes
-func (p *Planner) extractSelectInfoFromPG(stmt interface{}, plan *Plan) {
-	// For now, fall back to string-based extraction
-	// In the future, this should properly parse pg_query nodes
-	if stmtStr, ok := stmt.(string); ok {
-		p.extractSelectInfo(stmtStr, plan)
-	}
-}
+
+
 
 // extractSelectInfoFromPGNode extracts table name, fields, and conditions for SELECT statements from pg_query AST
 func (p *Planner) extractSelectInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
@@ -391,25 +379,4 @@ func (p *Planner) extractDeleteInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 	if relation := deleteStmt.GetRelation(); relation != nil {
 		plan.Table = relation.GetRelname()
 	}
-}
-
-// extractInsertInfo extracts table name for INSERT statements
-// This function is deprecated and should not be used in new code
-func (p *Planner) extractInsertInfo(stmt string, plan *Plan) {
-	// This function is kept for backward compatibility but should not be used
-	// All new code should use the AST-based parser instead
-}
-
-// extractUpdateInfo extracts table name for UPDATE statements
-// This function is deprecated and should not be used in new code
-func (p *Planner) extractUpdateInfo(stmt string, plan *Plan) {
-	// This function is kept for backward compatibility but should not be used
-	// All new code should use the AST-based parser instead
-}
-
-// extractDeleteInfo extracts table name for DELETE statements
-// This function is deprecated and should not be used in new code
-func (p *Planner) extractDeleteInfo(stmt string, plan *Plan) {
-	// This function is kept for backward compatibility but should not be used
-	// All new code should use the AST-based parser instead
 }
