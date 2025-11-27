@@ -14,6 +14,7 @@ type Executor struct {
 	planner *Planner
 	catalog catalog.Manager
 	inTransaction bool
+	pipeline *QueryPipeline
 }
 
 type ResultSet struct {
@@ -23,6 +24,11 @@ type ResultSet struct {
 	LastInsertID int64
 }
 
+// GetCatalog returns the catalog manager
+func (e *Executor) GetCatalog() catalog.Manager {
+	return e.catalog
+}
+
 func NewExecutor(planner *Planner) *Executor {
 	return &Executor{
 		planner: planner,
@@ -30,15 +36,28 @@ func NewExecutor(planner *Planner) *Executor {
 }
 
 func NewExecutorWithCatalog(planner *Planner, catalog catalog.Manager) *Executor {
-	return &Executor{
+	exec := &Executor{
 		planner: planner,
 		catalog: catalog,
 	}
+	
+	// Initialize pipeline for batched execution
+	exec.pipeline = NewQueryPipeline(exec, 10)
+	
+	return exec
 }
 
 func (e *Executor) Execute(ctx context.Context, query string) (*ResultSet, error) {
+	// Use pooled ResultSet instead of allocating new one each time
+	// result := types.AcquireResultSet()
+	// defer func() {
+		// Only release if not returning successfully
+		// Note: This is a simplified approach - in practice, the caller would need to release
+	// }()
+	
 	parsed, err := e.planner.parser.Parse(query)
 	if err != nil {
+		// ReleaseResultSet(result)  // This line was incorrect
 		return nil, fmt.Errorf("failed to parse query: %w", err)
 	}
 
@@ -161,11 +180,13 @@ func (e *Executor) executeSelect(ctx context.Context, plan *Plan) (*ResultSet, e
 		return nil, fmt.Errorf("query execution failed: %w", err)
 	}
 
-	result := &ResultSet{
-		Columns: plan.Fields,
-		Rows:    queryResult.Rows,
-		Count:   int(queryResult.Count),
-	}
+	// Use pooled ResultSet for better memory management
+	result := AcquireResultSet()
+	result.Columns = make([]string, len(plan.Fields))
+	copy(result.Columns, plan.Fields)
+	result.Rows = make([][]interface{}, len(queryResult.Rows))
+	copy(result.Rows, queryResult.Rows)
+	result.Count = int(queryResult.Count)
 
 	return result, nil
 }
@@ -301,6 +322,7 @@ func (e *Executor) executeSystemTableQuery(ctx context.Context, plan *Plan) (*Re
 	
 	return result, nil
 }
+
 func (e *Executor) executeInsert(ctx context.Context, plan *Plan) (*ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
