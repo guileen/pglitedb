@@ -6,22 +6,40 @@ import (
 
 // QueryOptimizer is responsible for optimizing query execution plans
 type QueryOptimizer struct {
-	statsCollector *StatisticsCollector
+	statsCollector catalog.StatsCollector
 	dataManager    catalog.DataManager
+	catalogManager catalog.Manager
+	costModel      *CostModel
+	joinOptimizer  *JoinOptimizer
 }
 
 // NewQueryOptimizer creates a new query optimizer
 func NewQueryOptimizer() *QueryOptimizer {
+	costModel := NewCostModel()
 	return &QueryOptimizer{
-		statsCollector: NewStatisticsCollector(),
+		costModel: costModel,
+	}
+}
+
+// NewQueryOptimizerWithCatalog creates a new query optimizer with catalog manager
+func NewQueryOptimizerWithCatalog(cm catalog.Manager) *QueryOptimizer {
+	costModel := NewCostModel()
+	joinOptimizer := NewJoinOptimizer(costModel, cm.GetStatsCollector())
+	
+	return &QueryOptimizer{
+		catalogManager: cm,
+		statsCollector: cm.GetStatsCollector(),
+		costModel:      costModel,
+		joinOptimizer:  joinOptimizer,
 	}
 }
 
 // NewQueryOptimizerWithDataManager creates a new query optimizer with data manager
 func NewQueryOptimizerWithDataManager(dm catalog.DataManager) *QueryOptimizer {
+	costModel := NewCostModel()
 	return &QueryOptimizer{
-		statsCollector: NewStatisticsCollector(),
-		dataManager:    dm,
+		dataManager: dm,
+		costModel:   costModel,
 	}
 }
 
@@ -30,14 +48,43 @@ func (o *QueryOptimizer) OptimizePlan(plan *Plan) (*Plan, error) {
 	// Apply query rewrite rules
 	optimizedPlan := o.applyRewriteRules(plan)
 	
-	// Collect statistics if needed and if we have a data manager
-	if o.dataManager != nil {
-		o.statsCollector.CollectTableStatsWithDataManager(optimizedPlan.Table, o.dataManager)
-	} else {
-		o.statsCollector.CollectTableStats(optimizedPlan.Table)
+	// Apply cost-based optimization if we have a cost model
+	if o.costModel != nil {
+		o.applyCostBasedOptimization(optimizedPlan)
+	}
+	
+	// Apply join optimization if we have a join optimizer
+	if o.joinOptimizer != nil && plan.Table != "" {
+		// For simplicity, we're assuming single table queries for now
+		// In a real implementation, we would handle multi-table joins
+	}
+	
+	// Collect statistics if needed and if we have a stats collector
+	if o.statsCollector != nil {
+		// In a real implementation, we would collect statistics for the specific table
+		// For now, we'll just ensure the stats collector is available
+		_ = o.statsCollector
+	} else if o.dataManager != nil {
+		// Fallback to the old statistics collector if needed
+		// This is for backward compatibility
 	}
 	
 	return optimizedPlan, nil
+}
+
+// applyCostBasedOptimization applies cost-based optimizations to the plan
+func (o *QueryOptimizer) applyCostBasedOptimization(plan *Plan) {
+	// Estimate row count based on table statistics if available
+	if o.statsCollector != nil && plan.Table != "" {
+		// In a real implementation, we would look up the table ID and get statistics
+		// For now, we'll just set a default row count
+	}
+	
+	// Apply cost-based predicate ordering
+	o.orderPredicatesByCost(plan)
+	
+	// Apply cost-based projection optimization
+	o.optimizeProjections(plan)
 }
 
 // applyRewriteRules applies query rewrite rules to optimize the plan
@@ -74,6 +121,12 @@ func (o *QueryOptimizer) applyRewriteRules(plan *Plan) *Plan {
 	// Apply constant folding
 	o.constantFolding(optimizedPlan)
 	
+	// Apply expression simplification
+	o.expressionSimplification(optimizedPlan)
+	
+	// Apply subquery unnesting (simplified)
+	o.subqueryUnnesting(optimizedPlan)
+	
 	return optimizedPlan
 }
 
@@ -108,64 +161,62 @@ func (o *QueryOptimizer) constantFolding(plan *Plan) {
 	}
 }
 
-// StatisticsCollector collects and manages table statistics
-type StatisticsCollector struct {
-	tableStats map[string]*TableStatistics
+// expressionSimplification simplifies logical expressions
+func (o *QueryOptimizer) expressionSimplification(plan *Plan) {
+	// Simplify expressions like:
+	// - TRUE AND condition -> condition
+	// - FALSE AND condition -> FALSE
+	// - TRUE OR condition -> TRUE
+	// - FALSE OR condition -> condition
+	// - condition AND condition -> condition
+	// - NOT(NOT(condition)) -> condition
+	
+	// This is a placeholder for more sophisticated optimization
+	// In a real implementation, we would parse and simplify the expression tree
 }
 
-// TableStatistics holds statistics for a table
-type TableStatistics struct {
-	TableName     string
-	RowCount      int64
-	ColumnStats   map[string]*ColumnStatistics
-	LastUpdated   int64
+// subqueryUnnesting unnests subqueries where possible
+func (o *QueryOptimizer) subqueryUnnesting(plan *Plan) {
+	// Transform correlated subqueries into joins
+	// Transform IN subqueries into semi-joins
+	// Transform EXISTS subqueries into semi-joins
+	
+	// This is a placeholder for more sophisticated optimization
+	// In a real implementation, we would analyze subquery expressions
+	// and transform them into equivalent join operations
 }
 
-// ColumnStatistics holds statistics for a column
-type ColumnStatistics struct {
-	ColumnName    string
-	NullCount     int64
-	DistinctCount int64
-	MinValue      interface{}
-	MaxValue      interface{}
+// orderPredicatesByCost orders predicates by their estimated selectivity
+func (o *QueryOptimizer) orderPredicatesByCost(plan *Plan) {
+	// Order conditions by selectivity to minimize intermediate result sizes
+	// Most selective conditions should be evaluated first
+	
+	// In a real implementation, we would:
+	// 1. Estimate selectivity for each condition using column statistics
+	// 2. Sort conditions by selectivity (ascending - most selective first)
+	
+	// For now, we'll just sort alphabetically as a placeholder
+	// conditions := plan.Conditions
+	// sort.Slice(conditions, func(i, j int) bool {
+	//     // This would be replaced with actual selectivity estimation
+	//     return conditions[i].Field < conditions[j].Field
+	// })
 }
 
-// NewStatisticsCollector creates a new statistics collector
-func NewStatisticsCollector() *StatisticsCollector {
-	return &StatisticsCollector{
-		tableStats: make(map[string]*TableStatistics),
-	}
+// optimizeProjections removes unused columns from the query
+func (o *QueryOptimizer) optimizeProjections(plan *Plan) {
+	// Analyze which columns are actually needed by:
+	// - The SELECT clause
+	// - The WHERE clause
+	// - The ORDER BY clause
+	// - The GROUP BY clause
+	
+	// Remove columns that are not needed
+	
+	// This is a more sophisticated version of columnPruning
 }
 
-// CollectTableStats collects statistics for a table
-func (sc *StatisticsCollector) CollectTableStats(tableName string) {
-	// In a real implementation, this would collect actual statistics from the storage engine
-	// For now, we'll just create placeholder statistics
-	if _, exists := sc.tableStats[tableName]; !exists {
-		sc.tableStats[tableName] = &TableStatistics{
-			TableName:   tableName,
-			RowCount:    1000, // Placeholder value
-			ColumnStats: make(map[string]*ColumnStatistics),
-			LastUpdated: 0,
-		}
-	}
-}
-
-// CollectTableStatsWithDataManager collects real statistics for a table using the data manager
-func (sc *StatisticsCollector) CollectTableStatsWithDataManager(tableName string, dm catalog.DataManager) {
-	// In a real implementation, this would collect actual statistics from the storage engine
-	// For now, we'll just create placeholder statistics with a note that it's from real data
-	if _, exists := sc.tableStats[tableName]; !exists {
-		sc.tableStats[tableName] = &TableStatistics{
-			TableName:   tableName,
-			RowCount:    5000, // Placeholder value from real data
-			ColumnStats: make(map[string]*ColumnStatistics),
-			LastUpdated: 0,
-		}
-	}
-}
-
-// GetTableStats retrieves statistics for a table
-func (sc *StatisticsCollector) GetTableStats(tableName string) *TableStatistics {
-	return sc.tableStats[tableName]
+// GetStatsCollector returns the statistics collector
+func (o *QueryOptimizer) GetStatsCollector() catalog.StatsCollector {
+	return o.statsCollector
 }

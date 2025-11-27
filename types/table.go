@@ -280,3 +280,12 @@ type TypeError struct {
 func (e *TypeError) Error() string {
 	return e.Message
 }
+
+// ViewDefinition represents a database view definition
+type ViewDefinition struct {
+	Name        string    `json:"name"`
+	Query       string    `json:"query"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}

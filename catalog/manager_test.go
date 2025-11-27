@@ -10,6 +10,8 @@ import (
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/engine"
 	"github.com/guileen/pglitedb/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func setupTestManager(t *testing.T) (Manager, func()) {
@@ -369,4 +371,207 @@ func TestTableManager_AdvancedDataTypes(t *testing.T) {
 	if record.Data["image"].Data == nil {
 		t.Error("expected image to be stored")
 	}
+}
+
+func TestViewManagement(t *testing.T) {
+	mgr, teardown := setupTestManager(t)
+	defer teardown()
+
+	ctx := context.Background()
+	tenantID := int64(1)
+
+	t.Run("CreateAndViewView", func(t *testing.T) {
+		viewName := "test_view"
+		query := "SELECT * FROM test_table"
+
+		// Create view
+		err := mgr.CreateView(ctx, tenantID, viewName, query, false)
+		require.NoError(t, err)
+
+		// Get view definition
+		viewDef, err := mgr.GetViewDefinition(ctx, tenantID, viewName)
+		require.NoError(t, err)
+		assert.Equal(t, viewName, viewDef.Name)
+		assert.Equal(t, query, viewDef.Query)
+	})
+
+	t.Run("CreateOrReplaceView", func(t *testing.T) {
+		viewName := "replace_view"
+		query1 := "SELECT * FROM table1"
+		query2 := "SELECT * FROM table2"
+
+		// Create view
+		err := mgr.CreateView(ctx, tenantID, viewName, query1, false)
+		require.NoError(t, err)
+
+		// Replace view
+		err = mgr.CreateView(ctx, tenantID, viewName, query2, true)
+		require.NoError(t, err)
+
+		// Get view definition
+		viewDef, err := mgr.GetViewDefinition(ctx, tenantID, viewName)
+		require.NoError(t, err)
+		assert.Equal(t, query2, viewDef.Query)
+	})
+
+	t.Run("DropView", func(t *testing.T) {
+		viewName := "drop_view"
+		query := "SELECT * FROM test_table"
+
+		// Create view
+		err := mgr.CreateView(ctx, tenantID, viewName, query, false)
+		require.NoError(t, err)
+
+		// Drop view
+		err = mgr.DropView(ctx, tenantID, viewName)
+		require.NoError(t, err)
+
+		// Try to get dropped view
+		_, err = mgr.GetViewDefinition(ctx, tenantID, viewName)
+		assert.Error(t, err)
+	})
+}
+
+func TestConstraintValidation(t *testing.T) {
+	mgr, teardown := setupTestManager(t)
+	defer teardown()
+
+	ctx := context.Background()
+	tenantID := int64(1)
+
+	// Create a test table first
+	tableDef := &types.TableDefinition{
+		Name: "test_table",
+		Columns: []types.ColumnDefinition{
+			{
+				Name:     "id",
+				Type:     types.ColumnTypeInteger,
+				PrimaryKey: true,
+			},
+			{
+				Name: "name",
+				Type: types.ColumnTypeText,
+			},
+			{
+				Name: "email",
+				Type: types.ColumnTypeText,
+			},
+		},
+	}
+
+	err := mgr.CreateTable(ctx, tenantID, tableDef)
+	require.NoError(t, err)
+
+	t.Run("ValidateUniqueConstraint", func(t *testing.T) {
+		constraint := &types.ConstraintDef{
+			Name:    "unique_email",
+			Type:    "unique",
+			Columns: []string{"email"},
+		}
+
+		err := mgr.ValidateConstraint(ctx, tenantID, "test_table", constraint)
+		assert.NoError(t, err)
+	})
+
+	t.Run("ValidateNonExistentColumn", func(t *testing.T) {
+		constraint := &types.ConstraintDef{
+			Name:    "invalid_constraint",
+			Type:    "unique",
+			Columns: []string{"nonexistent"},
+		}
+
+		err := mgr.ValidateConstraint(ctx, tenantID, "test_table", constraint)
+		assert.Error(t, err)
+	})
+}
+
+func TestAlterTableWithConstraints(t *testing.T) {
+	mgr, teardown := setupTestManager(t)
+	defer teardown()
+
+	ctx := context.Background()
+	tenantID := int64(1)
+
+	// Create a test table first
+	tableDef := &types.TableDefinition{
+		Name: "test_table",
+		Columns: []types.ColumnDefinition{
+			{
+				Name: "id",
+				Type: types.ColumnTypeInteger,
+			},
+			{
+				Name: "name",
+				Type: types.ColumnTypeText,
+			},
+		},
+	}
+
+	err := mgr.CreateTable(ctx, tenantID, tableDef)
+	require.NoError(t, err)
+
+	t.Run("AddColumn", func(t *testing.T) {
+		changes := &AlterTableChanges{
+			AddColumns: []types.ColumnDefinition{
+				{
+					Name: "email",
+					Type: types.ColumnTypeText,
+				},
+			},
+		}
+
+		err := mgr.AlterTable(ctx, tenantID, "test_table", changes)
+		assert.NoError(t, err)
+
+		// Verify the column was added
+		table, err := mgr.GetTableDefinition(ctx, tenantID, "test_table")
+		require.NoError(t, err)
+		assert.Len(t, table.Columns, 3)
+		assert.Equal(t, "email", table.Columns[2].Name)
+	})
+
+	t.Run("ModifyColumnType", func(t *testing.T) {
+		changes := &AlterTableChanges{
+			ModifyColumns: []types.ColumnDefinition{
+				{
+					Name: "name",
+					Type: types.ColumnTypeVarchar,
+				},
+			},
+		}
+
+		err := mgr.AlterTable(ctx, tenantID, "test_table", changes)
+		assert.NoError(t, err)
+
+		// Verify the column type was modified
+		table, err := mgr.GetTableDefinition(ctx, tenantID, "test_table")
+		require.NoError(t, err)
+		for _, col := range table.Columns {
+			if col.Name == "name" {
+				assert.Equal(t, types.ColumnTypeVarchar, col.Type)
+				break
+			}
+		}
+	})
+
+	t.Run("AddConstraint", func(t *testing.T) {
+		changes := &AlterTableChanges{
+			AddConstraints: []types.ConstraintDef{
+				{
+					Name:    "unique_name",
+					Type:    "unique",
+					Columns: []string{"name"},
+				},
+			},
+		}
+
+		err := mgr.AlterTable(ctx, tenantID, "test_table", changes)
+		assert.NoError(t, err)
+
+		// Verify the constraint was added
+		table, err := mgr.GetTableDefinition(ctx, tenantID, "test_table")
+		require.NoError(t, err)
+		assert.Len(t, table.Constraints, 1)
+		assert.Equal(t, "unique_name", table.Constraints[0].Name)
+	})
 }

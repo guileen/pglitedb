@@ -19,6 +19,9 @@ const (
 	AlterTableStatement
 	CreateIndexStatement
 	DropIndexStatement
+	CreateViewStatement
+	DropViewStatement
+	AnalyzeStatementType
 	UnknownStatement
 )
 
@@ -32,11 +35,85 @@ type ColumnDefinition struct {
 	Default    string
 }
 
+// AlterAction represents an ALTER TABLE action
+type AlterAction interface {
+	ActionType() string
+}
+
+// AddColumnAction represents adding a column
+type AddColumnAction struct {
+	ColumnDef *ColumnDefinition
+}
+
+func (a *AddColumnAction) ActionType() string {
+	return "ADD_COLUMN"
+}
+
+// DropColumnAction represents dropping a column
+type DropColumnAction struct {
+	ColumnName string
+	Cascade    bool
+	Restrict   bool
+}
+
+func (a *DropColumnAction) ActionType() string {
+	return "DROP_COLUMN"
+}
+
+// AlterColumnTypeAction represents altering a column type
+type AlterColumnTypeAction struct {
+	ColumnName string
+	NewType    string
+	UsingExpr  string
+}
+
+func (a *AlterColumnTypeAction) ActionType() string {
+	return "ALTER_COLUMN_TYPE"
+}
+
+// AddConstraintAction represents adding a constraint
+type AddConstraintAction struct {
+	Constraint *ConstraintDefinition
+}
+
+func (a *AddConstraintAction) ActionType() string {
+	return "ADD_CONSTRAINT"
+}
+
+// DropConstraintAction represents dropping a constraint
+type DropConstraintAction struct {
+	ConstraintName string
+	Cascade        bool
+}
+
+func (a *DropConstraintAction) ActionType() string {
+	return "DROP_CONSTRAINT"
+}
+
+// ConstraintDefinition represents a constraint definition
+type ConstraintDefinition struct {
+	Name       string
+	Type       string // "PRIMARY KEY", "UNIQUE", "CHECK", "FOREIGN KEY"
+	Columns    []string
+	Reference  *ReferenceDefinition
+	CheckExpr  string
+}
+
+// ReferenceDefinition represents a foreign key reference
+type ReferenceDefinition struct {
+	Table   string
+	Columns []string
+}
+
 // AlterCommand represents an ALTER TABLE command
 type AlterCommand struct {
-	Action     pg_query.AlterTableType
-	ColumnName string
-	ColumnType string
+	Action           pg_query.AlterTableType
+	ColumnName       string
+	ColumnType       string
+	ConstraintTypes  []string // For column constraints
+	ConstraintType   string   // For table constraints
+	ConstraintName   string
+	ConstraintColumns []string
 }
 
 // DDLStatement represents a parsed DDL statement
@@ -46,6 +123,27 @@ type DDLStatement struct {
 	TableName     string
 	Columns       []ColumnDefinition
 	AlterCommands []AlterCommand
+	Statement     interface{} // Added to hold specific statement types like AnalyzeStatement
+	
+	// Index related fields
+	IndexName     string
+	IndexNames    []string
+	IndexColumns  []string
+	IndexType     string
+	Unique        bool
+	Concurrent    bool
+	WhereClause   string
+	IndexOptions  map[string]string
+	Cascade       bool
+	Restrict      bool
+	
+	// View related fields
+	ViewName         string
+	ViewNames        []string
+	ViewQuery        string
+	Replace          bool
+	ViewColumnNames  []string
+	ViewOptions      map[string]string
 }
 
 type ParsedQuery struct {

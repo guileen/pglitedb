@@ -152,6 +152,8 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 			plan.Operation = "delete"
 			// Extract table name for DELETE from pg_query AST
 			p.extractDeleteInfoFromPGNode(stmt, plan)
+		case AnalyzeStatementType:
+			plan.Operation = "analyze"
 		default:
 			plan.Operation = "unsupported"
 		}

@@ -35,12 +35,36 @@ func (p *DDLParser) Parse(query string) (*DDLStatement, error) {
 	case stmt.GetCreateStmt() != nil:
 		ddlStmt.Type = CreateTableStatement
 		p.parseCreateTable(stmt.GetCreateStmt(), ddlStmt)
+	case stmt.GetIndexStmt() != nil:
+		ddlStmt.Type = CreateIndexStatement
+		p.parseCreateIndex(stmt.GetIndexStmt(), ddlStmt)
+	case stmt.GetViewStmt() != nil:
+		ddlStmt.Type = CreateViewStatement
+		p.parseCreateView(stmt.GetViewStmt(), ddlStmt)
 	case stmt.GetDropStmt() != nil:
-		ddlStmt.Type = DropTableStatement
-		p.parseDropTable(stmt.GetDropStmt(), ddlStmt)
+		dropStmt := stmt.GetDropStmt()
+		if p.isDropIndexStatement(dropStmt) {
+			ddlStmt.Type = DropIndexStatement
+			p.parseDropIndex(dropStmt, ddlStmt)
+		} else if p.isDropViewStatement(dropStmt) {
+			ddlStmt.Type = DropViewStatement
+			p.parseDropView(dropStmt, ddlStmt)
+		} else {
+			ddlStmt.Type = DropTableStatement
+			p.parseDropTable(dropStmt, ddlStmt)
+		}
 	case stmt.GetAlterTableStmt() != nil:
 		ddlStmt.Type = AlterTableStatement
 		p.parseAlterTable(stmt.GetAlterTableStmt(), ddlStmt)
+	case stmt.GetVacuumStmt() != nil:
+		// ANALYZE statements are parsed as VacuumStmt with IsVacuumcmd = false
+		vacuumStmt := stmt.GetVacuumStmt()
+		if !vacuumStmt.GetIsVacuumcmd() {
+			p.parseAnalyzeStatement(vacuumStmt, ddlStmt)
+		} else {
+			// Handle VACUUM statements if needed
+			return nil, fmt.Errorf("VACUUM statements not supported")
+		}
 	default:
 		return nil, fmt.Errorf("unsupported DDL statement type")
 	}
@@ -117,6 +141,16 @@ func (p *DDLParser) parseDropTable(stmt *pg_query.DropStmt, ddlStmt *DDLStatemen
 	// Full implementation would extract table names from the objects
 }
 
+// isDropIndexStatement checks if a DropStmt is for dropping an index
+func (p *DDLParser) isDropIndexStatement(stmt *pg_query.DropStmt) bool {
+	return stmt.GetRemoveType() == pg_query.ObjectType_OBJECT_INDEX
+}
+
+// isDropViewStatement checks if a DropStmt is for dropping a view
+func (p *DDLParser) isDropViewStatement(stmt *pg_query.DropStmt) bool {
+	return stmt.GetRemoveType() == pg_query.ObjectType_OBJECT_VIEW
+}
+
 // parseAlterTable parses an ALTER TABLE statement
 func (p *DDLParser) parseAlterTable(stmt *pg_query.AlterTableStmt, ddlStmt *DDLStatement) {
 	if relation := stmt.GetRelation(); relation != nil {
@@ -150,6 +184,85 @@ func (p *DDLParser) parseAlterTable(stmt *pg_query.AlterTableStmt, ddlStmt *DDLS
 								}
 							}
 						}
+						
+						// Extract constraints
+						if constraints := columnDef.GetConstraints(); constraints != nil {
+							constraintTypes := make([]string, 0)
+							for _, constraintNode := range constraints {
+								if constraint := constraintNode.GetConstraint(); constraint != nil {
+									switch constraint.GetContype() {
+									case pg_query.ConstrType_CONSTR_NOTNULL:
+										constraintTypes = append(constraintTypes, "NOT NULL")
+									case pg_query.ConstrType_CONSTR_PRIMARY:
+										constraintTypes = append(constraintTypes, "PRIMARY KEY")
+									case pg_query.ConstrType_CONSTR_UNIQUE:
+										constraintTypes = append(constraintTypes, "UNIQUE")
+									case pg_query.ConstrType_CONSTR_CHECK:
+										constraintTypes = append(constraintTypes, "CHECK")
+									case pg_query.ConstrType_CONSTR_FOREIGN:
+										constraintTypes = append(constraintTypes, "FOREIGN KEY")
+									}
+								}
+							}
+							alterCmd.ConstraintTypes = constraintTypes
+						}
+					}
+				}
+				
+				// Handle constraint definitions
+				if cmd.GetSubtype() == pg_query.AlterTableType_AT_AddConstraint {
+					if def := cmd.GetDef(); def != nil {
+						if constraint := def.GetConstraint(); constraint != nil {
+							alterCmd.ConstraintName = constraint.GetConname()
+							switch constraint.GetContype() {
+							case pg_query.ConstrType_CONSTR_PRIMARY:
+								alterCmd.ConstraintType = "PRIMARY KEY"
+							case pg_query.ConstrType_CONSTR_UNIQUE:
+								alterCmd.ConstraintType = "UNIQUE"
+							case pg_query.ConstrType_CONSTR_CHECK:
+								alterCmd.ConstraintType = "CHECK"
+							case pg_query.ConstrType_CONSTR_FOREIGN:
+								alterCmd.ConstraintType = "FOREIGN KEY"
+							}
+							
+							// Extract constraint columns
+							if keys := constraint.GetKeys(); keys != nil {
+								columns := make([]string, 0)
+								for _, key := range keys {
+									if str := key.GetString_(); str != nil {
+										columns = append(columns, str.GetSval())
+									}
+								}
+								alterCmd.ConstraintColumns = columns
+							}
+						}
+					}
+				}
+				
+				// Handle DROP COLUMN actions
+				if cmd.GetSubtype() == pg_query.AlterTableType_AT_DropColumn {
+					alterCmd.ColumnName = cmd.GetName()
+				}
+				
+				// Handle DROP CONSTRAINT actions
+				if cmd.GetSubtype() == pg_query.AlterTableType_AT_DropConstraint {
+					alterCmd.ConstraintName = cmd.GetName()
+				}
+				
+				// Handle ALTER COLUMN TYPE actions
+				if cmd.GetSubtype() == pg_query.AlterTableType_AT_AlterColumnType {
+					alterCmd.ColumnName = cmd.GetName()
+					if def := cmd.GetDef(); def != nil {
+						if columnDef := def.GetColumnDef(); columnDef != nil {
+							// Extract new column type
+							if typeName := columnDef.GetTypeName(); typeName != nil {
+								if names := typeName.GetNames(); len(names) > 0 {
+									if str := names[len(names)-1].GetString_(); str != nil {
+										alterCmd.ColumnType = strings.ToLower(str.GetSval())
+									}
+								}
+							}
+						}
 					}
 				}
 				
@@ -158,4 +271,157 @@ func (p *DDLParser) parseAlterTable(stmt *pg_query.AlterTableStmt, ddlStmt *DDLS
 		}
 		ddlStmt.AlterCommands = alterCommands
 	}
+}
+
+// parseCreateIndex parses a CREATE INDEX statement
+func (p *DDLParser) parseCreateIndex(stmt *pg_query.IndexStmt, ddlStmt *DDLStatement) {
+	if relation := stmt.GetRelation(); relation != nil {
+		ddlStmt.TableName = relation.GetRelname()
+	}
+	
+	ddlStmt.IndexName = stmt.GetIdxname()
+	ddlStmt.Unique = stmt.GetUnique()
+	
+	// Parse index columns
+	if indexParams := stmt.GetIndexParams(); indexParams != nil {
+		columns := make([]string, 0)
+		for _, param := range indexParams {
+			if indexElem := param.GetIndexElem(); indexElem != nil {
+				if name := indexElem.GetName(); name != "" {
+					columns = append(columns, name)
+				}
+			}
+		}
+		ddlStmt.IndexColumns = columns
+	}
+	
+	// Parse index type
+	if accessMethod := stmt.GetAccessMethod(); accessMethod != "" {
+		ddlStmt.IndexType = accessMethod
+	} else {
+		ddlStmt.IndexType = "btree" // default
+	}
+	
+	// Parse concurrent creation
+	ddlStmt.Concurrent = stmt.GetConcurrent()
+	
+	// Parse WHERE clause for partial indexes
+	if whereClause := stmt.GetWhereClause(); whereClause != nil {
+		ddlStmt.WhereClause = whereClause.String()
+	}
+	
+	// Parse index options
+	if options := stmt.GetOptions(); options != nil {
+		indexOptions := make(map[string]string)
+		for _, option := range options {
+			if defElem := option.GetDefElem(); defElem != nil {
+				if defName := defElem.GetDefname(); defName != "" {
+					if arg := defElem.GetArg(); arg != nil {
+						// Extract the value as string
+						indexOptions[defName] = arg.String()
+					}
+				}
+			}
+		}
+		ddlStmt.IndexOptions = indexOptions
+	}
+}
+
+// parseDropIndex parses a DROP INDEX statement
+func (p *DDLParser) parseDropIndex(stmt *pg_query.DropStmt, ddlStmt *DDLStatement) {
+	// Parse index names from the objects
+	if objects := stmt.GetObjects(); objects != nil {
+		indexNames := make([]string, 0)
+		for _, obj := range objects {
+			if list := obj.GetList(); list != nil {
+				if items := list.GetItems(); items != nil {
+					// Get the last item which should be the index name
+					if len(items) > 0 {
+						if lastItem := items[len(items)-1]; lastItem != nil {
+							if str := lastItem.GetString_(); str != nil {
+								indexNames = append(indexNames, str.GetSval())
+							}
+						}
+					}
+				}
+			}
+		}
+		ddlStmt.IndexNames = indexNames
+	}
+	
+	// Parse concurrent deletion
+	ddlStmt.Concurrent = stmt.GetConcurrent()
+	
+	// Parse CASCADE/RESTRICT options
+	ddlStmt.Cascade = stmt.GetBehavior() == pg_query.DropBehavior_DROP_CASCADE
+	ddlStmt.Restrict = stmt.GetBehavior() == pg_query.DropBehavior_DROP_RESTRICT
+}
+
+// parseCreateView parses a CREATE VIEW statement
+func (p *DDLParser) parseCreateView(stmt *pg_query.ViewStmt, ddlStmt *DDLStatement) {
+	if view := stmt.GetView(); view != nil {
+		ddlStmt.ViewName = view.GetRelname()
+	}
+	
+	// Store the query for the view
+	if query := stmt.GetQuery(); query != nil {
+		ddlStmt.ViewQuery = query.String() // Simplified representation
+	}
+	
+	// Check if it's a REPLACE operation
+	ddlStmt.Replace = stmt.GetReplace()
+	
+	// Parse column names if specified
+	if aliases := stmt.GetAliases(); aliases != nil {
+		columnNames := make([]string, 0)
+		for _, alias := range aliases {
+			if str := alias.GetString_(); str != nil {
+				columnNames = append(columnNames, str.GetSval())
+			}
+		}
+		ddlStmt.ViewColumnNames = columnNames
+	}
+	
+	// Parse view options
+	if options := stmt.GetOptions(); options != nil {
+		viewOptions := make(map[string]string)
+		for _, option := range options {
+			if defElem := option.GetDefElem(); defElem != nil {
+				if defName := defElem.GetDefname(); defName != "" {
+					if arg := defElem.GetArg(); arg != nil {
+						// Extract the value as string
+						viewOptions[defName] = arg.String()
+					}
+				}
+			}
+		}
+		ddlStmt.ViewOptions = viewOptions
+	}
+}
+
+// parseDropView parses a DROP VIEW statement
+func (p *DDLParser) parseDropView(stmt *pg_query.DropStmt, ddlStmt *DDLStatement) {
+	// Parse view names from the objects
+	if objects := stmt.GetObjects(); objects != nil {
+		viewNames := make([]string, 0)
+		for _, obj := range objects {
+			if list := obj.GetList(); list != nil {
+				if items := list.GetItems(); items != nil {
+					// Get the last item which should be the view name
+					if len(items) > 0 {
+						if lastItem := items[len(items)-1]; lastItem != nil {
+							if str := lastItem.GetString_(); str != nil {
+								viewNames = append(viewNames, str.GetSval())
+							}
+						}
+					}
+				}
+			}
+		}
+		ddlStmt.ViewNames = viewNames
+	}
+	
+	// Parse CASCADE/RESTRICT options
+	ddlStmt.Cascade = stmt.GetBehavior() == pg_query.DropBehavior_DROP_CASCADE
+	ddlStmt.Restrict = stmt.GetBehavior() == pg_query.DropBehavior_DROP_RESTRICT
 }
