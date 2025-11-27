@@ -15,6 +15,11 @@ type queryExecutor struct {
 	engine  engine.StorageEngine
 }
 
+// GetCatalog returns the catalog manager
+func (e *queryExecutor) GetCatalog() catalog.Manager {
+	return e.manager
+}
+
 func NewExecutor(mgr catalog.Manager, eng engine.StorageEngine) QueryExecutor {
 	return &queryExecutor{
 		manager: mgr,

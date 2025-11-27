@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	pg_query "github.com/pganalyze/pg_query_go/v6"
+	"github.com/guileen/pglitedb/catalog"
 	"github.com/guileen/pglitedb/protocol/executor"
 	"github.com/guileen/pglitedb/protocol/sql"
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -48,6 +49,10 @@ type Portal struct {
 func NewPostgreSQLServer(executor executor.QueryExecutor) *PostgreSQLServer {
 	parser := sql.NewPGParser()
 	planner := sql.NewPlanner(parser)
+	// Set catalog for the planner's executor if possible
+	if catalogProvider, ok := executor.(interface{ GetCatalog() catalog.Manager }); ok {
+		planner.SetCatalog(catalogProvider.GetCatalog())
+	}
 
 	return &PostgreSQLServer{
 		executor: executor,

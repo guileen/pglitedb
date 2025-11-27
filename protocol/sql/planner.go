@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	pg_query "github.com/pganalyze/pg_query_go/v6"
+	"github.com/guileen/pglitedb/catalog"
 )
 
 // Plan represents a query execution plan
@@ -54,11 +55,18 @@ type Planner struct {
 
 // NewPlanner creates a new query planner
 func NewPlanner(parser Parser) *Planner {
+	return &Planner{
+		parser: parser,
+	}
+}
+
+// NewPlannerWithCatalog creates a new query planner with catalog
+func NewPlannerWithCatalog(parser Parser, catalogMgr catalog.Manager) *Planner {
 	planner := &Planner{
 		parser: parser,
 	}
-	// Create executor with this planner (circular dependency resolved at runtime)
-	planner.executor = NewExecutor(planner)
+	// Create executor with this planner and catalog
+	planner.executor = NewExecutorWithCatalog(planner, catalogMgr)
 	return planner
 }
 
@@ -71,14 +79,13 @@ func (p *Planner) Execute(ctx context.Context, query string) (*ResultSet, error)
 }
 
 // SetCatalog sets the catalog manager for the executor
-func (p *Planner) SetCatalog(catalog interface{}) {
-	if p.executor != nil {
-		// Create a new executor with catalog if needed
-		executor := &Executor{
-			planner: p,
-		}
-		// The catalog will be set directly in executor if needed
-		p.executor = executor
+func (p *Planner) SetCatalog(catalogMgr catalog.Manager) {
+	if p.executor == nil {
+		// Create a new executor with catalog
+		p.executor = NewExecutorWithCatalog(p, catalogMgr)
+	} else {
+		// Update existing executor with catalog
+		p.executor.catalog = catalogMgr
 	}
 }
 
@@ -171,10 +178,6 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 
 	return plan, nil
 }
-
-
-
-
 
 // extractSelectInfoFromPGNode extracts table name, fields, and conditions for SELECT statements from pg_query AST
 func (p *Planner) extractSelectInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
