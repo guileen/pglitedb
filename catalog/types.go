@@ -59,6 +59,9 @@ type Manager interface {
 	
 	// Statistics collector access
 	GetStatsCollector() StatsCollector
+	
+	// Helper method for query manager to access system table queries
+	SystemTableQuery(ctx context.Context, fullTableName string, filter map[string]interface{}) (*types.QueryResult, error)
 }
 
 type AlterTableChanges struct {

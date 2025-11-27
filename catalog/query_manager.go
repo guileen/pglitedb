@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/guileen/pglitedb/catalog/internal"
@@ -11,18 +12,35 @@ import (
 )
 
 type queryManager struct {
-	engine engine.StorageEngine
-	cache  *internal.SchemaCache
+	engine  engine.StorageEngine
+	cache   *internal.SchemaCache
+	manager Manager // Add reference to the full manager
 }
 
-func newQueryManager(eng engine.StorageEngine, cache *internal.SchemaCache) QueryManager {
+func newQueryManager(eng engine.StorageEngine, cache *internal.SchemaCache, manager Manager) QueryManager {
 	return &queryManager{
-		engine: eng,
-		cache:  cache,
+		engine:  eng,
+		cache:   cache,
+		manager: manager,
 	}
 }
 
 func (m *queryManager) Query(ctx context.Context, tenantID int64, tableName string, opts *types.QueryOptions) (*types.QueryResult, error) {
+	// Check if this is a system table query
+	if m.isSystemTable(tableName) {
+		// Convert opts.Where to the filter format expected by QuerySystemTable
+		filter := make(map[string]interface{})
+		if opts != nil && opts.Where != nil {
+			for key, value := range opts.Where {
+				filter[key] = value
+			}
+		}
+		
+		// Delegate to system table query handler
+		return m.systemTableQuery(ctx, tenantID, tableName, filter)
+	}
+	
+	// Handle regular user table query
 	schema, tableID, err := m.getTableSchema(tenantID, tableName)
 	if err != nil {
 		return nil, err
@@ -150,6 +168,41 @@ func (m *queryManager) Count(ctx context.Context, tenantID int64, tableName stri
 	}
 
 	return count, nil
+}
+
+func (m *queryManager) isSystemTable(tableName string) bool {
+	// Normalize table name by removing any extra whitespace and converting to lowercase
+	normalized := strings.TrimSpace(strings.ToLower(tableName))
+	
+	// Check for system table prefixes
+	if strings.HasPrefix(normalized, "information_schema.") || 
+	   strings.HasPrefix(normalized, "pg_catalog.") {
+		return true
+	}
+	
+	// Also check for common system table names without schema prefix
+	if strings.HasPrefix(normalized, "pg_") {
+		return true
+	}
+	
+	return false
+}
+
+func (m *queryManager) systemTableQuery(ctx context.Context, tenantID int64, fullTableName string, filter map[string]interface{}) (*types.QueryResult, error) {
+	// Normalize the table name
+	normalizedTableName := strings.TrimSpace(fullTableName)
+	
+	// If no schema is specified, try to infer it
+	if !strings.Contains(normalizedTableName, ".") {
+		if strings.HasPrefix(strings.ToLower(normalizedTableName), "pg_") {
+			normalizedTableName = "pg_catalog." + normalizedTableName
+		} else {
+			normalizedTableName = "information_schema." + normalizedTableName
+		}
+	}
+	
+	// Use the manager's QuerySystemTable method
+	return m.manager.QuerySystemTable(ctx, normalizedTableName, filter)
 }
 
 func (m *queryManager) getTableSchema(tenantID int64, tableName string) (*types.TableDefinition, int64, error) {

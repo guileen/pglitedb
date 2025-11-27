@@ -13,6 +13,7 @@ import (
 type Executor struct {
 	planner *Planner
 	catalog catalog.Manager
+	inTransaction bool
 }
 
 type ResultSet struct {
@@ -36,49 +37,89 @@ func NewExecutorWithCatalog(planner *Planner, catalog catalog.Manager) *Executor
 }
 
 func (e *Executor) Execute(ctx context.Context, query string) (*ResultSet, error) {
-	plan, err := e.planner.CreatePlan(query)
+	parsed, err := e.planner.parser.Parse(query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create execution plan: %w", err)
+		return nil, fmt.Errorf("failed to parse query: %w", err)
 	}
 
-	switch plan.Operation {
-	case "select":
+	switch parsed.Type {
+	case SelectStatement:
+		plan, err := e.planner.CreatePlan(query)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create execution plan: %w", err)
+		}
 		return e.executeSelect(ctx, plan)
-	case "ddl":
+	case InsertStatement, UpdateStatement, DeleteStatement:
+		plan, err := e.planner.CreatePlan(query)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create execution plan: %w", err)
+		}
+		switch parsed.Type {
+		case InsertStatement:
+			return e.executeInsert(ctx, plan)
+		case UpdateStatement:
+			return e.executeUpdate(ctx, plan)
+		case DeleteStatement:
+			return e.executeDelete(ctx, plan)
+		}
+	case BeginStatement:
+		return e.executeBegin(ctx)
+	case CommitStatement:
+		return e.executeCommit(ctx)
+	case RollbackStatement:
+		return e.executeRollback(ctx)
+	case CreateTableStatement, DropTableStatement, AlterTableStatement, 
+	     CreateIndexStatement, DropIndexStatement, CreateViewStatement, DropViewStatement:
 		return e.executeDDL(ctx, query)
-	case "insert":
-		return e.executeInsert(ctx, plan)
-	case "update":
-		return e.executeUpdate(ctx, plan)
-	case "delete":
-		return e.executeDelete(ctx, plan)
-	case "analyze":
+	case AnalyzeStatementType:
 		return e.executeAnalyze(ctx, query)
 	default:
-		return nil, fmt.Errorf("unsupported operation: %v", plan.Operation)
+		return nil, fmt.Errorf("unsupported statement type: %v", parsed.Type)
 	}
+
+	// This should never be reached
+	return nil, fmt.Errorf("unhandled statement type: %v", parsed.Type)
 }
 
 func (e *Executor) executeDDL(ctx context.Context, query string) (*ResultSet, error) {
-	// For now, we'll just return a successful result for DDL operations
-	// In a full implementation, we would actually create/drop/alter tables
-	// log.Printf("DDL statement executed: %s", query)
-	return &ResultSet{
-		Columns: []string{},
-		Rows:    [][]interface{}{},
-		Count:   0,
-	}, nil
+	// Parse the DDL statement
+	ddlParser := NewDDLParser()
+	ddlStmt, err := ddlParser.Parse(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse DDL statement: %w", err)
+	}
+
+	// Handle different DDL statement types
+	switch ddlStmt.Type {
+	case CreateTableStatement:
+		return e.executeCreateTable(ctx, ddlStmt)
+	case CreateIndexStatement:
+		return e.executeCreateIndex(ctx, ddlStmt)
+	case DropTableStatement:
+		return e.executeDropTable(ctx, ddlStmt)
+	case DropIndexStatement:
+		return e.executeDropIndex(ctx, ddlStmt)
+	case AlterTableStatement:
+		return e.executeAlterTable(ctx, ddlStmt)
+	case CreateViewStatement:
+		return e.executeCreateView(ctx, ddlStmt)
+	case DropViewStatement:
+		return e.executeDropView(ctx, ddlStmt)
+	case AnalyzeStatementType:
+		return e.executeAnalyze(ctx, query)
+	default:
+		// For unsupported DDL operations, return a successful result
+		return &ResultSet{
+			Columns: []string{},
+			Rows:    [][]interface{}{},
+			Count:   0,
+		}, nil
+	}
 }
 
 func (e *Executor) executeSelect(ctx context.Context, plan *Plan) (*ResultSet, error) {
 	if e.catalog == nil {
-		result := &ResultSet{
-			Columns: plan.Fields,
-			Count:   0,
-		}
-		result.Rows = append(result.Rows, []interface{}{"mock_value1", "mock_value2"})
-		result.Count = len(result.Rows)
-		return result, nil
+		return nil, fmt.Errorf("catalog not initialized")
 	}
 
 	if isSystemTable(plan.Table) {
@@ -86,6 +127,12 @@ func (e *Executor) executeSelect(ctx context.Context, plan *Plan) (*ResultSet, e
 	}
 
 	tenantID := int64(1)
+
+	// Check if table exists
+	_, err := e.catalog.GetTableDefinition(ctx, tenantID, plan.Table)
+	if err != nil {
+		return nil, fmt.Errorf("table %s not found", plan.Table)
+	}
 
 	orderByStrings := make([]string, len(plan.OrderBy))
 	for i, ob := range plan.OrderBy {
@@ -146,9 +193,31 @@ func (e *Executor) Explain(query string) (*Plan, error) {
 	return e.planner.CreatePlan(query)
 }
 
+func IsSystemTable(tableName string) bool {
+	return isSystemTable(tableName)
+}
+
 func isSystemTable(tableName string) bool {
-	return strings.HasPrefix(tableName, "information_schema.") || 
-		   strings.HasPrefix(tableName, "pg_catalog.")
+	// Normalize table name by removing any extra whitespace and converting to lowercase
+	normalized := strings.TrimSpace(strings.ToLower(tableName))
+	
+	// Check for system table prefixes
+	if strings.HasPrefix(normalized, "information_schema.") || 
+	   strings.HasPrefix(normalized, "pg_catalog.") {
+		return true
+	}
+	
+	// Also check for common system table names without schema prefix
+	if strings.HasPrefix(normalized, "pg_") {
+		return true
+	}
+	
+	// Check for information_schema tables without schema prefix
+	if normalized == "tables" || normalized == "columns" || normalized == "views" {
+		return true
+	}
+	
+	return false
 }
 
 func (e *Executor) executeSystemTableQuery(ctx context.Context, plan *Plan) (*ResultSet, error) {
@@ -156,16 +225,59 @@ func (e *Executor) executeSystemTableQuery(ctx context.Context, plan *Plan) (*Re
 		return nil, fmt.Errorf("catalog not initialized")
 	}
 	
-	filter := make(map[string]interface{})
-	for _, cond := range plan.Conditions {
-		if cond.Operator == "=" {
-			filter[cond.Field] = cond.Value
+	// Normalize the table name to ensure consistent format
+	fullTableName := strings.TrimSpace(plan.Table)
+	
+	// Ensure the table name has the proper schema prefix
+	if !strings.Contains(fullTableName, ".") {
+		// If no schema is specified, try to determine the correct schema
+		if strings.HasPrefix(strings.ToLower(fullTableName), "pg_") {
+			fullTableName = "pg_catalog." + fullTableName
+		} else {
+			// Default to information_schema for other system-like tables
+			fullTableName = "information_schema." + fullTableName
 		}
 	}
 	
-	queryResult, err := e.catalog.QuerySystemTable(ctx, plan.Table, filter)
+	filter := make(map[string]interface{})
+	for _, cond := range plan.Conditions {
+		// Support multiple operators, not just equality
+		switch cond.Operator {
+		case "=", "==":
+			filter[cond.Field] = cond.Value
+		case "!=":
+			// For inequality, we might need special handling in the system table query
+			// For now, we'll pass it through and let the system table implementation handle it
+			filter[cond.Field] = map[string]interface{}{
+				"operator": "!=", 
+				"value": cond.Value,
+			}
+		case ">":
+			filter[cond.Field] = map[string]interface{}{
+				"operator": ">", 
+				"value": cond.Value,
+			}
+		case "<":
+			filter[cond.Field] = map[string]interface{}{
+				"operator": "<", 
+				"value": cond.Value,
+			}
+		case ">=":
+			filter[cond.Field] = map[string]interface{}{
+				"operator": ">=", 
+				"value": cond.Value,
+			}
+		case "<=":
+			filter[cond.Field] = map[string]interface{}{
+				"operator": "<=", 
+				"value": cond.Value,
+			}
+		}
+	}
+	
+	queryResult, err := e.catalog.QuerySystemTable(ctx, fullTableName, filter)
 	if err != nil {
-		return nil, fmt.Errorf("system table query failed: %w", err)
+		return nil, fmt.Errorf("system table query failed for '%s': %w", fullTableName, err)
 	}
 	
 	if len(queryResult.Columns) == 0 {
@@ -266,7 +378,39 @@ func (e *Executor) executeDelete(ctx context.Context, plan *Plan) (*ResultSet, e
 	}, nil
 }
 
-// executeAnalyze executes an ANALYZE statement to collect table and column statistics
+func (e *Executor) executeRollback(ctx context.Context) (*ResultSet, error) {
+	// For now, we'll just update the transaction state
+	// In a full implementation, we would rollback the transaction in the storage engine
+	e.inTransaction = false
+	return &ResultSet{
+		Columns: []string{},
+		Rows:    [][]interface{}{},
+		Count:   0,
+	}, nil
+}
+
+func (e *Executor) executeCommit(ctx context.Context) (*ResultSet, error) {
+	// For now, we'll just update the transaction state
+	// In a full implementation, we would commit the transaction in the storage engine
+	e.inTransaction = false
+	return &ResultSet{
+		Columns: []string{},
+		Rows:    [][]interface{}{},
+		Count:   0,
+	}, nil
+}
+
+func (e *Executor) executeBegin(ctx context.Context) (*ResultSet, error) {
+	// For now, we'll just update the transaction state
+	// In a full implementation, we would begin a transaction in the storage engine
+	e.inTransaction = true
+	return &ResultSet{
+		Columns: []string{},
+		Rows:    [][]interface{}{},
+		Count:   0,
+	}, nil
+}
+
 func (e *Executor) executeAnalyze(ctx context.Context, query string) (*ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
@@ -366,5 +510,174 @@ func (e *Executor) executeAnalyze(ctx context.Context, query string) (*ResultSet
 		Columns: []string{"message"},
 		Rows:    [][]interface{}{{"ANALYZE completed"}},
 		Count:   1,
+	}, nil
+}
+
+// executeCreateTable handles CREATE TABLE statements
+func (e *Executor) executeCreateTable(ctx context.Context, ddlStmt *DDLStatement) (*ResultSet, error) {
+	if e.catalog == nil {
+		return nil, fmt.Errorf("catalog not initialized")
+	}
+
+	// Convert DDL column definitions to catalog column definitions
+	columns := make([]types.ColumnDefinition, len(ddlStmt.Columns))
+	for i, col := range ddlStmt.Columns {
+		columns[i] = types.ColumnDefinition{
+			Name:       col.Name,
+			Type:       types.ColumnType(col.Type),
+			Nullable:   !col.NotNull,
+			PrimaryKey: col.PrimaryKey,
+			Unique:     col.Unique,
+		}
+		// Handle default values if present
+		if col.Default != "" {
+			// For now, we'll just store the default as a string
+			// In a full implementation, we would parse and validate the default expression
+			defaultValue := &types.Value{
+				Data: col.Default,
+				Type: types.ColumnTypeString,
+			}
+			columns[i].Default = defaultValue
+		}
+	}
+
+	// Create table definition
+	tableDef := &types.TableDefinition{
+		Name:    ddlStmt.TableName,
+		Columns: columns,
+	}
+
+	// Create the table in the catalog
+	if err := e.catalog.CreateTable(ctx, 1, tableDef); err != nil {
+		return nil, fmt.Errorf("failed to create table: %w", err)
+	}
+
+	return &ResultSet{
+		Columns: []string{},
+		Rows:    [][]interface{}{},
+		Count:   0,
+	}, nil
+}
+
+// executeCreateIndex handles CREATE INDEX statements
+func (e *Executor) executeCreateIndex(ctx context.Context, ddlStmt *DDLStatement) (*ResultSet, error) {
+	if e.catalog == nil {
+		return nil, fmt.Errorf("catalog not initialized")
+	}
+
+	// Create index definition
+	indexDef := &types.IndexDefinition{
+		Name:    ddlStmt.IndexName,
+		Columns: ddlStmt.IndexColumns,
+		Unique:  ddlStmt.Unique,
+		Type:    ddlStmt.IndexType,
+	}
+
+	// Create the index in the catalog
+	if err := e.catalog.CreateIndex(ctx, 1, ddlStmt.TableName, indexDef); err != nil {
+		return nil, fmt.Errorf("failed to create index: %w", err)
+	}
+
+	return &ResultSet{
+		Columns: []string{},
+		Rows:    [][]interface{}{},
+		Count:   0,
+	}, nil
+}
+
+// executeDropTable handles DROP TABLE statements
+func (e *Executor) executeDropTable(ctx context.Context, ddlStmt *DDLStatement) (*ResultSet, error) {
+	if e.catalog == nil {
+		return nil, fmt.Errorf("catalog not initialized")
+	}
+
+	// Drop the table from the catalog
+	err := e.catalog.DropTable(ctx, 1, ddlStmt.TableName)
+	if err != nil {
+		// If IF EXISTS is specified, ignore table not found errors
+		if ddlStmt.IfExists && err == types.ErrTableNotFound {
+			// Table doesn't exist, but IF EXISTS was specified, so this is not an error
+			return &ResultSet{
+				Columns: []string{},
+				Rows:    [][]interface{}{},
+				Count:   0,
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to drop table: %w", err)
+	}
+
+	return &ResultSet{
+		Columns: []string{},
+		Rows:    [][]interface{}{},
+		Count:   0,
+	}, nil
+}
+
+// executeDropIndex handles DROP INDEX statements
+func (e *Executor) executeDropIndex(ctx context.Context, ddlStmt *DDLStatement) (*ResultSet, error) {
+	if e.catalog == nil {
+		return nil, fmt.Errorf("catalog not initialized")
+	}
+
+	// Drop the index from the catalog
+	if err := e.catalog.DropIndex(ctx, 1, ddlStmt.TableName, ddlStmt.IndexName); err != nil {
+		return nil, fmt.Errorf("failed to drop index: %w", err)
+	}
+
+	return &ResultSet{
+		Columns: []string{},
+		Rows:    [][]interface{}{},
+		Count:   0,
+	}, nil
+}
+
+// executeAlterTable handles ALTER TABLE statements
+func (e *Executor) executeAlterTable(ctx context.Context, ddlStmt *DDLStatement) (*ResultSet, error) {
+	if e.catalog == nil {
+		return nil, fmt.Errorf("catalog not initialized")
+	}
+
+	// For now, we'll just return a successful result
+	// In a full implementation, we would handle the ALTER TABLE commands
+	return &ResultSet{
+		Columns: []string{},
+		Rows:    [][]interface{}{},
+		Count:   0,
+	}, nil
+}
+
+// executeCreateView handles CREATE VIEW statements
+func (e *Executor) executeCreateView(ctx context.Context, ddlStmt *DDLStatement) (*ResultSet, error) {
+	if e.catalog == nil {
+		return nil, fmt.Errorf("catalog not initialized")
+	}
+
+	// Create the view in the catalog
+	if err := e.catalog.CreateView(ctx, 1, ddlStmt.ViewName, ddlStmt.ViewQuery, ddlStmt.Replace); err != nil {
+		return nil, fmt.Errorf("failed to create view: %w", err)
+	}
+
+	return &ResultSet{
+		Columns: []string{},
+		Rows:    [][]interface{}{},
+		Count:   0,
+	}, nil
+}
+
+// executeDropView handles DROP VIEW statements
+func (e *Executor) executeDropView(ctx context.Context, ddlStmt *DDLStatement) (*ResultSet, error) {
+	if e.catalog == nil {
+		return nil, fmt.Errorf("catalog not initialized")
+	}
+
+	// Drop the view from the catalog
+	if err := e.catalog.DropView(ctx, 1, ddlStmt.ViewName); err != nil {
+		return nil, fmt.Errorf("failed to drop view: %w", err)
+	}
+
+	return &ResultSet{
+		Columns: []string{},
+		Rows:    [][]interface{}{},
+		Count:   0,
 	}, nil
 }

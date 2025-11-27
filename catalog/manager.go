@@ -27,11 +27,13 @@ func NewTableManager(eng engine.StorageEngine) Manager {
 	tm := &tableManager{
 		SchemaManager: sm,
 		DataManager:   newDataManager(eng, cache, sm),
-		QueryManager:  newQueryManager(eng, cache),
+		QueryManager:  newQueryManager(eng, cache, nil), // Will be set below
 		IndexManager:  newIndexManager(eng, nil, cache),
 		engine:        eng,
 		cache:         cache,
 	}
+	// Set the manager reference in QueryManager
+	tm.QueryManager = newQueryManager(eng, cache, tm)
 	tm.statsCollector = NewStatsCollector(tm)
 	return tm
 }
@@ -42,11 +44,13 @@ func NewTableManagerWithKV(eng engine.StorageEngine, kv storage.KV) Manager {
 	tm := &tableManager{
 		SchemaManager: sm,
 		DataManager:   newDataManager(eng, cache, sm),
-		QueryManager:  newQueryManager(eng, cache),
+		QueryManager:  newQueryManager(eng, cache, nil), // Will be set below
 		IndexManager:  newIndexManager(eng, kv, cache),
 		engine:        eng,
 		cache:         cache,
 	}
+	// Set the manager reference in QueryManager
+	tm.QueryManager = newQueryManager(eng, cache, tm)
 	tm.statsCollector = NewStatsCollector(tm)
 	return tm
 }
@@ -83,6 +87,11 @@ func (tm *tableManager) DeleteRows(ctx context.Context, tenantID int64, tableNam
 // GetStatsCollector returns the statistics collector for this manager
 func (tm *tableManager) GetStatsCollector() StatsCollector {
 	return tm.statsCollector
+}
+
+// SystemTableQuery is a helper method for query manager to access system table queries
+func (tm *tableManager) SystemTableQuery(ctx context.Context, fullTableName string, filter map[string]interface{}) (*types.QueryResult, error) {
+	return tm.QuerySystemTable(ctx, fullTableName, filter)
 }
 
 // Implement view management methods by delegating to SchemaManager

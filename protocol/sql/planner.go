@@ -152,6 +152,9 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 			plan.Operation = "delete"
 			// Extract table name for DELETE from pg_query AST
 			p.extractDeleteInfoFromPGNode(stmt, plan)
+		case CreateTableStatement, DropTableStatement, AlterTableStatement, 
+		     CreateIndexStatement, DropIndexStatement, CreateViewStatement, DropViewStatement:
+			plan.Operation = "ddl"
 		case AnalyzeStatementType:
 			plan.Operation = "analyze"
 		default:
@@ -202,11 +205,22 @@ func (p *Planner) extractSelectInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 		return
 	}
 	
-	// Extract table name from FROM clause
+	// Extract table name from FROM clause with schema support
 	if len(selectStmt.GetFromClause()) > 0 {
 		fromClause := selectStmt.GetFromClause()[0]
 		if rangeVar := fromClause.GetRangeVar(); rangeVar != nil {
-			plan.Table = rangeVar.GetRelname()
+			tableName := rangeVar.GetRelname()
+			
+			// Check if schema is specified
+			schemaName := rangeVar.GetSchemaname()
+			if schemaName != "" {
+				// Combine schema and table name
+				plan.Table = schemaName + "." + tableName
+			} else {
+				// No schema specified, use table name as-is
+				// The executor will handle schema resolution
+				plan.Table = tableName
+			}
 		}
 	}
 	
