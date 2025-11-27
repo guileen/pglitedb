@@ -22,6 +22,11 @@ type ParsedQuery struct {
 	Statement        interface{}
 	Query            string
 	ReturningColumns []string
+	Table            string
+	Fields           []string
+	Conditions       []Condition
+	OrderBy          []OrderBy
+	Limit            *int64
 }
 
 type Statement interface {

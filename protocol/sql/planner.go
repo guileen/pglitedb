@@ -3,7 +3,6 @@ package sql
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -146,6 +145,26 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 		default:
 			plan.Operation = "unsupported"
 		}
+	case *ParsedQuery:
+		// Handle ParsedQuery from our new AST parser
+		plan.Table = stmt.Table
+		plan.Fields = stmt.Fields
+		plan.Conditions = stmt.Conditions
+		plan.OrderBy = stmt.OrderBy
+		plan.Limit = stmt.Limit
+		
+		switch stmt.Type {
+		case SelectStatement:
+			plan.Operation = "select"
+		case InsertStatement:
+			plan.Operation = "insert"
+		case UpdateStatement:
+			plan.Operation = "update"
+		case DeleteStatement:
+			plan.Operation = "delete"
+		default:
+			plan.Operation = "unsupported"
+		}
 	default:
 		plan.Operation = "unsupported"
 	}
@@ -154,74 +173,10 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 }
 
 // extractSelectInfo extracts table name, fields, and conditions for SELECT statements
+// This function is deprecated and should not be used in new code
 func (p *Planner) extractSelectInfo(stmt string, plan *Plan) {
-	// Extract fields and table
-	selectRe := regexp.MustCompile(`(?i)SELECT\s+(.+?)\s+FROM\s+(\w+)`)
-	matches := selectRe.FindStringSubmatch(stmt)
-	if len(matches) >= 3 {
-		plan.Table = matches[2]
-		// Parse the fields properly
-		fields := strings.Split(matches[1], ",")
-		for i, field := range fields {
-			fields[i] = strings.TrimSpace(field)
-		}
-		plan.Fields = fields
-	}
-
-	// Extract WHERE conditions
-	whereRe := regexp.MustCompile(`(?i)WHERE\s+(.+?)(?:\s+ORDER\s+BY|\s+LIMIT|\s*$)`)
-	whereMatches := whereRe.FindStringSubmatch(stmt)
-	if len(whereMatches) >= 2 {
-		conditionsStr := whereMatches[1]
-		// Parse simple conditions (field operator value)
-		conditionRe := regexp.MustCompile(`(\w+)\s*(=|>|<|>=|<=|!=)\s*['"]?([^'"\s]+)['"]?`)
-		conditionMatches := conditionRe.FindAllStringSubmatch(conditionsStr, -1)
-		
-		var conditions []Condition
-		for _, match := range conditionMatches {
-			if len(match) >= 4 {
-				// Try to convert value to appropriate type
-				var value interface{} = match[3]
-				if i, err := strconv.ParseInt(match[3], 10, 64); err == nil {
-					value = i
-				} else if b, err := strconv.ParseBool(match[3]); err == nil {
-					value = b
-				}
-				conditions = append(conditions, Condition{
-					Field:    match[1],
-					Operator: match[2],
-					Value:    value,
-				})
-			}
-		}
-		plan.Conditions = conditions
-	}
-
-	// Extract ORDER BY
-	orderRe := regexp.MustCompile(`(?i)ORDER\s+BY\s+([^,]+?)(?:\s+(ASC|DESC))?(?:\s+LIMIT|\s*$)`)
-	orderMatches := orderRe.FindStringSubmatch(stmt)
-	if len(orderMatches) >= 2 {
-		orderField := strings.TrimSpace(orderMatches[1])
-		order := "ASC"
-		if len(orderMatches) >= 3 && strings.ToUpper(strings.TrimSpace(orderMatches[2])) == "DESC" {
-			order = "DESC"
-		}
-		plan.OrderBy = []OrderBy{
-			{
-				Field: orderField,
-				Order: order,
-			},
-		}
-	}
-
-	// Extract LIMIT
-	limitRe := regexp.MustCompile(`(?i)LIMIT\s+(\d+)`)
-	limitMatches := limitRe.FindStringSubmatch(stmt)
-	if len(limitMatches) >= 2 {
-		if limit, err := strconv.ParseInt(limitMatches[1], 10, 64); err == nil {
-			plan.Limit = &limit
-		}
-	}
+	// This function is kept for backward compatibility but should not be used
+	// All new code should use the AST-based parser instead
 }
 
 // extractSelectInfoFromPG extracts information from PG parser nodes
@@ -439,179 +394,22 @@ func (p *Planner) extractDeleteInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 }
 
 // extractInsertInfo extracts table name for INSERT statements
+// This function is deprecated and should not be used in new code
 func (p *Planner) extractInsertInfo(stmt string, plan *Plan) {
-	// Simple extraction logic for INSERT statements
-	// This should be replaced with proper parsing in the future
-	re := regexp.MustCompile(`(?i)INSERT\s+INTO\s+(\w+)`)
-	matches := re.FindStringSubmatch(stmt)
-	if len(matches) >= 2 {
-		plan.Table = matches[1]
-	}
-	
-	// Extract columns for INSERT statements
-	columnsRe := regexp.MustCompile(`(?i)INSERT\s+INTO\s+\w+\s*\(([^)]+)\)`)
-	columnsMatches := columnsRe.FindStringSubmatch(stmt)
-	var columns []string
-	if len(columnsMatches) >= 2 {
-		// Parse columns
-		columnsStr := columnsMatches[1]
-		columnParts := strings.Split(columnsStr, ",")
-		columns = make([]string, len(columnParts))
-		for i, part := range columnParts {
-			columns[i] = strings.TrimSpace(part)
-		}
-	}
-	
-	// Extract values for INSERT statements
-	// This is a simplified implementation
-	valuesRe := regexp.MustCompile(`(?i)VALUES\s*\(([^)]+)\)`)
-	valuesMatches := valuesRe.FindStringSubmatch(stmt)
-	if len(valuesMatches) >= 2 {
-		// Parse values
-		valuesStr := valuesMatches[1]
-		// Handle quoted values properly
-		valueParts := splitByCommaOutsideQuotes(valuesStr)
-		values := make(map[string]interface{})
-		for i, part := range valueParts {
-			part = strings.TrimSpace(part)
-			// Remove quotes if present
-			if strings.HasPrefix(part, "'") && strings.HasSuffix(part, "'") {
-				part = strings.Trim(part, "'")
-			}
-			// Handle NULL values
-			if strings.ToUpper(part) == "NULL" {
-				values[fmt.Sprintf("col%d", i)] = nil
-			} else {
-				values[fmt.Sprintf("col%d", i)] = part
-			}
-		}
-		
-		// Map columns to values if columns were specified
-		if len(columns) > 0 && len(columns) == len(valueParts) {
-			values = make(map[string]interface{})
-			for i, column := range columns {
-				part := strings.TrimSpace(valueParts[i])
-				// Remove quotes if present
-				if strings.HasPrefix(part, "'") && strings.HasSuffix(part, "'") {
-					part = strings.Trim(part, "'")
-				}
-				// Handle NULL values
-				if strings.ToUpper(part) == "NULL" {
-					values[column] = nil
-				} else {
-					values[column] = part
-				}
-			}
-		}
-		
-		plan.Values = values
-	}
+	// This function is kept for backward compatibility but should not be used
+	// All new code should use the AST-based parser instead
 }
 
 // extractUpdateInfo extracts table name for UPDATE statements
+// This function is deprecated and should not be used in new code
 func (p *Planner) extractUpdateInfo(stmt string, plan *Plan) {
-	// Simple extraction logic for UPDATE statements
-	// This should be replaced with proper parsing in the future
-	re := regexp.MustCompile(`(?i)UPDATE\s+(\w+)`)
-	matches := re.FindStringSubmatch(stmt)
-	if len(matches) >= 2 {
-		plan.Table = matches[1]
-	}
-	
-	// Extract SET values for UPDATE statements
-	// This is a simplified implementation
-	setRe := regexp.MustCompile(`(?i)SET\s+([^WHERE]+)`)
-	setMatches := setRe.FindStringSubmatch(stmt)
-	if len(setMatches) >= 2 {
-		// Parse SET clause
-		setStr := strings.TrimSpace(setMatches[1])
-		// Handle quoted values properly
-		setParts := splitByCommaOutsideQuotes(setStr)
-		updates := make(map[string]interface{})
-		for _, part := range setParts {
-			part = strings.TrimSpace(part)
-			if strings.Contains(part, "=") {
-				kv := strings.SplitN(part, "=", 2)
-				if len(kv) == 2 {
-					key := strings.TrimSpace(kv[0])
-					value := strings.TrimSpace(kv[1])
-					// Remove quotes if present
-					if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
-						value = strings.Trim(value, "'")
-					}
-					updates[key] = value
-				}
-			}
-		}
-		plan.Updates = updates
-	}
-	
-	// Extract WHERE conditions for UPDATE statements
-	whereRe := regexp.MustCompile(`(?i)WHERE\s+(.+?)(?:\s+RETURNING|\s*$)`)
-	whereMatches := whereRe.FindStringSubmatch(stmt)
-	if len(whereMatches) >= 2 {
-		conditionsStr := whereMatches[1]
-		// Parse simple conditions (field operator value)
-		conditionRe := regexp.MustCompile(`(\w+)\s*(=|>|<|>=|<=|!=)\s*['"]?([^'"\s]+)['"]?`)
-		conditionMatches := conditionRe.FindAllStringSubmatch(conditionsStr, -1)
-		
-		var conditions []Condition
-		for _, match := range conditionMatches {
-			if len(match) >= 4 {
-				// Try to convert value to appropriate type
-				var value interface{} = match[3]
-				if i, err := strconv.ParseInt(match[3], 10, 64); err == nil {
-					value = i
-				} else if b, err := strconv.ParseBool(match[3]); err == nil {
-					value = b
-				}
-				conditions = append(conditions, Condition{
-					Field:    match[1],
-					Operator: match[2],
-					Value:    value,
-				})
-			}
-		}
-		plan.Conditions = conditions
-	}
+	// This function is kept for backward compatibility but should not be used
+	// All new code should use the AST-based parser instead
 }
 
 // extractDeleteInfo extracts table name for DELETE statements
+// This function is deprecated and should not be used in new code
 func (p *Planner) extractDeleteInfo(stmt string, plan *Plan) {
-	// Simple extraction logic for DELETE statements
-	// This should be replaced with proper parsing in the future
-	re := regexp.MustCompile(`(?i)DELETE\s+FROM\s+(\w+)`)
-	matches := re.FindStringSubmatch(stmt)
-	if len(matches) >= 2 {
-		plan.Table = matches[1]
-	}
-	
-	// Extract WHERE conditions for DELETE statements
-	whereRe := regexp.MustCompile(`(?i)WHERE\s+(.+?)(?:\s+RETURNING|\s*$)`)
-	whereMatches := whereRe.FindStringSubmatch(stmt)
-	if len(whereMatches) >= 2 {
-		conditionsStr := whereMatches[1]
-		// Parse simple conditions (field operator value)
-		conditionRe := regexp.MustCompile(`(\w+)\s*(=|>|<|>=|<=|!=)\s*['"]?([^'"\s]+)['"]?`)
-		conditionMatches := conditionRe.FindAllStringSubmatch(conditionsStr, -1)
-		
-		var conditions []Condition
-		for _, match := range conditionMatches {
-			if len(match) >= 4 {
-				// Try to convert value to appropriate type
-				var value interface{} = match[3]
-				if i, err := strconv.ParseInt(match[3], 10, 64); err == nil {
-					value = i
-				} else if b, err := strconv.ParseBool(match[3]); err == nil {
-					value = b
-				}
-				conditions = append(conditions, Condition{
-					Field:    match[1],
-					Operator: match[2],
-					Value:    value,
-				})
-			}
-		}
-		plan.Conditions = conditions
-	}
+	// This function is kept for backward compatibility but should not be used
+	// All new code should use the AST-based parser instead
 }

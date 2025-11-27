@@ -596,6 +596,18 @@ func (s *PostgreSQLServer) sendErrorAndReady(backend *pgproto3.Backend, code, me
 
 // replacePlaceholders replaces $1, $2, ... with actual parameter values
 func (s *PostgreSQLServer) replacePlaceholders(query string, params []interface{}) string {
+	// Use the professional parameter binder based on AST
+	result, err := BindParametersInQuery(query, params)
+	if err != nil {
+		// Fallback to the old regex-based implementation if AST binding fails
+		log.Printf("Failed to bind parameters using AST, falling back to regex: %v", err)
+		return s.replacePlaceholdersRegex(query, params)
+	}
+	return result
+}
+
+// replacePlaceholdersRegex is the old regex-based implementation as fallback
+func (s *PostgreSQLServer) replacePlaceholdersRegex(query string, params []interface{}) string {
 	// 处理 PostgreSQL 风格参数 $1, $2, ...
 	result := query
 	
