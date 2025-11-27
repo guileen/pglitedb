@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -324,24 +323,22 @@ func (s *PostgreSQLServer) handleParse(backend *pgproto3.Backend, msg *pgproto3.
 	return false
 }
 
-// extractReturningColumns extracts RETURNING columns from a SQL query
+// extractReturningColumns extracts RETURNING columns from a SQL query using AST-based parsing
 func (s *PostgreSQLServer) extractReturningColumns(query string) []string {
-	// Use regex to find RETURNING clause
-	reReturningAll := regexp.MustCompile(`(?i)\bRETURNING\s+\*`)
-	if reReturningAll.MatchString(query) {
-		return []string{"*"}
+	// Use the professional AST-based parser to extract RETURNING columns
+	parser := sql.NewPGParser()
+	parsed, err := parser.Parse(query)
+	if err != nil {
+		// If parsing fails, return nil (no RETURNING clause detected)
+		return nil
 	}
 	
-	reReturning := regexp.MustCompile(`(?i)\bRETURNING\s+([\w,\s]+)`)
-	matches := reReturning.FindStringSubmatch(query)
-	if len(matches) > 1 {
-		cols := strings.Split(matches[1], ",")
-		result := make([]string, len(cols))
-		for i, col := range cols {
-			result[i] = strings.TrimSpace(col)
-		}
-		return result
+	// Extract RETURNING columns from the parsed AST
+	if pgNode, ok := parsed.Statement.(*pg_query.Node); ok {
+		pgParser := sql.NewPGParser()
+		return pgParser.ExtractReturningColumns(pgNode)
 	}
+	
 	return nil
 }
 
@@ -636,9 +633,9 @@ func (s *PostgreSQLServer) replacePlaceholdersRegex(query string, params []inter
 			replacement = "'" + strings.ReplaceAll(fmt.Sprintf("%v", v), "'", "''") + "'"
 		}
 		
-		// 使用正则表达式确保精确替换,避免部分匹配
-		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(placeholder) + `\b`)
-		result = re.ReplaceAllString(result, replacement)
+		// 使用字符串替换确保精确替换,避免部分匹配
+		// We use a simple string replacement with word boundary checking
+		result = strings.ReplaceAll(result, placeholder, replacement)
 	}
 	
 	return result

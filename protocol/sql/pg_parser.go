@@ -58,6 +58,11 @@ func (p *PGParser) getStatementType(stmt *pg_query.Node) StatementType {
 	}
 }
 
+// ExtractReturningColumns extracts RETURNING columns from a pg_query AST node
+func (p *PGParser) ExtractReturningColumns(stmt *pg_query.Node) []string {
+	return p.extractReturningColumns(stmt)
+}
+
 // extractReturningColumns extracts RETURNING columns from the pg_query AST
 func (p *PGParser) extractReturningColumns(stmt *pg_query.Node) []string {
 	switch {
