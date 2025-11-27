@@ -7,7 +7,9 @@ GO=go
 GOFLAGS=-v
 DB_PATH=/tmp/pglitedb
 HTTP_PORT=8080
-PG_PORT=5432
+PG_PORT=5666
+REGRESS_DIR=/Users/gl/agentwork/postgresql-18.1/src/test/regress
+PWD := $(shell pwd)
 
 # 版本信息
 VERSION?=0.1.0
@@ -38,6 +40,7 @@ help:
 	@echo "  make coverage       - 生成测试覆盖率报告"
 	@echo "  make integration-test - 运行集成测试"
 	@echo "  make benchmark      - 运行性能测试"
+	@echo "  make pgbench        - 运行 pgbench 性能测试"
 	@echo ""
 	@echo "运行相关:"
 	@echo "  make run            - 运行 HTTP 服务器"
@@ -129,6 +132,13 @@ benchmark:
 	@cd examples/benchmark && $(GO) mod tidy && $(GO) run benchmark.go
 	@echo "Benchmark tests complete"
 
+## pgbench: 运行 pgbench 性能测试
+pgbench:
+	@echo "Running pgbench tests..."
+	@(make run-pg > /tmp/pglitedb-pgbench.log 2>&1 &) && sleep 5
+	@scripts/run_pgbench.sh
+	@echo "pgbench tests complete"
+
 ## test-client: 运行客户端兼容性测试（需要启动服务器）
 test-client:
 	@echo "Running client compatibility tests..."
@@ -169,6 +179,18 @@ run-pg:
 	@echo "Starting PostgreSQL server on port $(PG_PORT)..."
 	@mkdir -p $(DB_PATH)-postgres
 	PG_PORT=$(PG_PORT) $(GO) run ./cmd/server $(DB_PATH) pg
+
+## regress_bench: 运行回归测试和性能测试
+regress_bench:
+	@echo "Starting regression and benchmark tests..."
+	@(make run-pg > /tmp/pglitedb-regress.log 2>&1 &) && sleep 5
+	@TIMESTAMP=$$(date +%s); \
+	echo "Running regression tests..."; \
+	mkdir -p regress && cd $(REGRESS_DIR) && ./pg_regress --output-format=json > $(PWD)/regress/$$TIMESTAMP.json || true; \
+	echo "Regression test results saved to regress/$$TIMESTAMP.json"; \
+	echo "Running pgbench tests..."; \
+	mkdir -p scripts && chmod +x scripts/run_pgbench.sh && scripts/run_pgbench.sh; \
+	echo "Tests completed. Results saved to regress/ and bench/ directories."
 
 ## run-both: 同时运行 HTTP 和 PostgreSQL 服务器（需要多个终端）
 run-both:
@@ -241,6 +263,7 @@ init-examples:
 	@cd examples/benchmark && $(GO) mod tidy
 	@cd examples/compatibility_test && $(GO) mod tidy
 	@cd examples/typescript_test && npm install
+	@cd examples/pgbench_test && $(GO) mod tidy
 	@echo "Example dependencies initialized"
 
 ## start-dev: 开发环境快速启动
