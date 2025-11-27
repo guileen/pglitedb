@@ -21,6 +21,10 @@ type DataManager interface {
 	Update(ctx context.Context, tenantID int64, tableName string, rowID int64, data map[string]interface{}) (*types.Record, error)
 	Delete(ctx context.Context, tenantID int64, tableName string, rowID int64) error
 	Get(ctx context.Context, tenantID int64, tableName string, rowID int64) (*types.Record, error)
+	
+	// New methods for bulk DML operations
+	UpdateRows(ctx context.Context, tenantID int64, tableName string, values map[string]interface{}, conditions map[string]interface{}) (int64, error)
+	DeleteRows(ctx context.Context, tenantID int64, tableName string, conditions map[string]interface{}) (int64, error)
 }
 
 type QueryManager interface {

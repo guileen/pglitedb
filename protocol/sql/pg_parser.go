@@ -90,12 +90,16 @@ func (p *PGParser) parseReturningClause(returningList []*pg_query.Node) []string
 				if columnRef := val.GetColumnRef(); columnRef != nil {
 					// Extract column name from ColumnRef
 					if len(columnRef.GetFields()) > 0 {
+						// Check if the last field is a string (regular column name)
 						if str := columnRef.GetFields()[len(columnRef.GetFields())-1].GetString_(); str != nil {
 							columns[i] = str.GetSval()
+						} else if aStar := columnRef.GetFields()[len(columnRef.GetFields())-1].GetAStar(); aStar != nil {
+							// Handle * in RETURNING
+							columns[i] = "*"
 						}
 					}
 				} else if aStar := val.GetAStar(); aStar != nil {
-					// Handle * in RETURNING
+					// Handle * in RETURNING (direct A_Star, not in ColumnRef)
 					columns[i] = "*"
 				}
 			}

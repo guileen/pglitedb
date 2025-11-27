@@ -523,13 +523,46 @@ func (m *dataManager) InsertRow(ctx context.Context, tenantID int64, tableName s
 }
 
 func (m *dataManager) UpdateRows(ctx context.Context, tenantID int64, tableName string, values map[string]interface{}, conditions map[string]interface{}) (int64, error) {
-	// TODO: Implement bulk update logic
-	// This is a simplified implementation that would need to be expanded
-	return 0, nil
+	schema, tableID, err := m.getTableSchema(tenantID, tableName)
+	if err != nil {
+		return 0, err
+	}
+
+	// Convert values to types.Value
+	updates := make(map[string]*types.Value)
+	for k, v := range values {
+		colType, err := m.getColumnType(schema, k)
+		if err != nil {
+			return 0, err
+		}
+
+		val, err := m.convertValue(v, colType)
+		if err != nil {
+			return 0, fmt.Errorf("convert value for %s: %w", k, err)
+		}
+		updates[k] = val
+	}
+
+	// Perform the update operation
+	affected, err := m.engine.UpdateRows(ctx, tenantID, tableID, updates, conditions, schema)
+	if err != nil {
+		return 0, fmt.Errorf("update rows: %w", err)
+	}
+
+	return affected, nil
 }
 
 func (m *dataManager) DeleteRows(ctx context.Context, tenantID int64, tableName string, conditions map[string]interface{}) (int64, error) {
-	// TODO: Implement bulk delete logic
-	// This is a simplified implementation that would need to be expanded
-	return 0, nil
+	schema, tableID, err := m.getTableSchema(tenantID, tableName)
+	if err != nil {
+		return 0, err
+	}
+
+	// Perform the delete operation
+	affected, err := m.engine.DeleteRows(ctx, tenantID, tableID, conditions, schema)
+	if err != nil {
+		return 0, fmt.Errorf("delete rows: %w", err)
+	}
+
+	return affected, nil
 }

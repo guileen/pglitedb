@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync/atomic"
 
 	"github.com/guileen/pglitedb/codec"
@@ -1468,4 +1469,204 @@ func (t *transaction) Commit() error {
 
 func (t *transaction) Rollback() error {
 	return t.kvTxn.Rollback()
+}
+
+// UpdateRows updates multiple rows that match the given conditions
+func (t *transaction) UpdateRows(ctx context.Context, tenantID, tableID int64, updates map[string]*types.Value, conditions map[string]interface{}, schemaDef *types.TableDefinition) (int64, error) {
+	// For transactions, we'll implement a simpler version that scans and updates
+	// In a production system, this would need to be more sophisticated
+	
+	// Create a scan options with the conditions as filter
+	scanOpts := &ScanOptions{
+		Filter: t.engine.buildFilterExpression(conditions),
+	}
+	
+	// Scan for matching rows
+	iter, err := t.engine.ScanRows(ctx, tenantID, tableID, schemaDef, scanOpts)
+	if err != nil {
+		return 0, fmt.Errorf("scan rows: %w", err)
+	}
+	defer iter.Close()
+	
+	// Update each matching row
+	var count int64
+	for iter.Next() {
+		record := iter.Row()
+		// Extract row ID from the record
+		rowID, err := strconv.ParseInt(record.ID, 10, 64)
+		if err != nil {
+			return count, fmt.Errorf("parse row ID: %w", err)
+		}
+		
+		// Update the row
+		if err := t.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
+			return count, fmt.Errorf("update row %d: %w", rowID, err)
+		}
+		
+		count++
+	}
+	
+	if err := iter.Error(); err != nil {
+		return count, fmt.Errorf("iterator error: %w", err)
+	}
+	
+	return count, nil
+}
+
+// DeleteRows deletes multiple rows that match the given conditions
+func (t *transaction) DeleteRows(ctx context.Context, tenantID, tableID int64, conditions map[string]interface{}, schemaDef *types.TableDefinition) (int64, error) {
+	// For transactions, we'll implement a simpler version that scans and deletes
+	// In a production system, this would need to be more sophisticated
+	
+	// Create a scan options with the conditions as filter
+	scanOpts := &ScanOptions{
+		Filter: t.engine.buildFilterExpression(conditions),
+	}
+	
+	// Scan for matching rows
+	iter, err := t.engine.ScanRows(ctx, tenantID, tableID, schemaDef, scanOpts)
+	if err != nil {
+		return 0, fmt.Errorf("scan rows: %w", err)
+	}
+	defer iter.Close()
+	
+	// Delete each matching row
+	var count int64
+	for iter.Next() {
+		record := iter.Row()
+		// Extract row ID from the record
+		rowID, err := strconv.ParseInt(record.ID, 10, 64)
+		if err != nil {
+			return count, fmt.Errorf("parse row ID: %w", err)
+		}
+		
+		// Delete the row
+		if err := t.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
+			return count, fmt.Errorf("delete row %d: %w", rowID, err)
+		}
+		
+		count++
+	}
+	
+	if err := iter.Error(); err != nil {
+		return count, fmt.Errorf("iterator error: %w", err)
+	}
+	
+	return count, nil
+}
+
+// buildFilterExpression converts a simple map filter to a complex FilterExpression
+func (e *pebbleEngine) buildFilterExpression(conditions map[string]interface{}) *FilterExpression {
+	if len(conditions) == 0 {
+		return nil
+	}
+	
+	if len(conditions) == 1 {
+		// Single condition
+		for col, val := range conditions {
+			return &FilterExpression{
+				Type:     "simple",
+				Column:   col,
+				Operator: "=",
+				Value:    val,
+			}
+		}
+	}
+	
+	// Multiple conditions - combine with AND
+	children := make([]*FilterExpression, 0, len(conditions))
+	for col, val := range conditions {
+		children = append(children, &FilterExpression{
+			Type:     "simple",
+			Column:   col,
+			Operator: "=",
+			Value:    val,
+		})
+	}
+	
+	return &FilterExpression{
+		Type:     "and",
+		Children: children,
+	}
+}
+
+// UpdateRows updates multiple rows that match the given conditions
+func (e *pebbleEngine) UpdateRows(ctx context.Context, tenantID, tableID int64, updates map[string]*types.Value, conditions map[string]interface{}, schemaDef *types.TableDefinition) (int64, error) {
+	// Create a scan options with the conditions as filter
+	scanOpts := &ScanOptions{
+		Filter: e.buildFilterExpression(conditions),
+	}
+	
+	// Scan for matching rows
+	iter, err := e.ScanRows(ctx, tenantID, tableID, schemaDef, scanOpts)
+	if err != nil {
+		return 0, fmt.Errorf("scan rows: %w", err)
+	}
+	defer iter.Close()
+	
+	// Collect row IDs to update
+	var rowUpdates []RowUpdate
+	for iter.Next() {
+		record := iter.Row()
+		// Extract row ID from the record
+		rowID, err := strconv.ParseInt(record.ID, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse row ID: %w", err)
+		}
+		
+		rowUpdates = append(rowUpdates, RowUpdate{
+			RowID:   rowID,
+			Updates: updates,
+		})
+	}
+	
+	if err := iter.Error(); err != nil {
+		return 0, fmt.Errorf("iterator error: %w", err)
+	}
+	
+	// Perform batch update
+	if err := e.UpdateRowBatch(ctx, tenantID, tableID, rowUpdates, schemaDef); err != nil {
+		return 0, fmt.Errorf("update row batch: %w", err)
+	}
+	
+	return int64(len(rowUpdates)), nil
+}
+
+// DeleteRows deletes multiple rows that match the given conditions
+func (e *pebbleEngine) DeleteRows(ctx context.Context, tenantID, tableID int64, conditions map[string]interface{}, schemaDef *types.TableDefinition) (int64, error) {
+	// Create a scan options with the conditions as filter
+	scanOpts := &ScanOptions{
+		Filter: e.buildFilterExpression(conditions),
+	}
+	
+	// Scan for matching rows
+	iter, err := e.ScanRows(ctx, tenantID, tableID, schemaDef, scanOpts)
+	if err != nil {
+		return 0, fmt.Errorf("scan rows: %w", err)
+	}
+	defer iter.Close()
+	
+	// Collect row IDs to delete
+	var rowIDs []int64
+	for iter.Next() {
+		record := iter.Row()
+		// Extract row ID from the record
+		rowID, err := strconv.ParseInt(record.ID, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse row ID: %w", err)
+		}
+		
+		rowIDs = append(rowIDs, rowID)
+	}
+	
+	if err := iter.Error(); err != nil {
+		return 0, fmt.Errorf("iterator error: %w", err)
+	}
+	
+	// Perform batch delete
+	if err := e.DeleteRowBatch(ctx, tenantID, tableID, rowIDs, schemaDef); err != nil {
+		return 0, fmt.Errorf("delete row batch: %w", err)
+	}
+	
+	return int64(len(rowIDs)), nil
 }

@@ -65,13 +65,11 @@ func (tm *tableManager) InsertRow(ctx context.Context, tenantID int64, tableName
 }
 
 func (tm *tableManager) UpdateRows(ctx context.Context, tenantID int64, tableName string, values map[string]interface{}, conditions map[string]interface{}) (int64, error) {
-	// TODO: Implement bulk update logic
-	// This is a simplified implementation that would need to be expanded
-	return 0, nil
+	// Delegate to DataManager's Update method
+	return tm.DataManager.UpdateRows(ctx, tenantID, tableName, values, conditions)
 }
 
 func (tm *tableManager) DeleteRows(ctx context.Context, tenantID int64, tableName string, conditions map[string]interface{}) (int64, error) {
-	// TODO: Implement bulk delete logic
-	// This is a simplified implementation that would need to be expanded
-	return 0, nil
+	// Delegate to DataManager's Delete method
+	return tm.DataManager.DeleteRows(ctx, tenantID, tableName, conditions)
 }

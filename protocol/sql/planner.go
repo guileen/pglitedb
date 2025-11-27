@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	pg_query "github.com/pganalyze/pg_query_go/v6"
 )
 
 // Plan represents a query execution plan
@@ -122,23 +124,25 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 		default:
 			plan.Operation = "unsupported"
 		}
-	case interface{}:
+	case *pg_query.Node:
 		// Handle pg_query.Node based statements from the professional parser
-		// We need to check if this is a pg_query Node type
 		switch parsed.Type {
 		case SelectStatement:
 			plan.Operation = "select"
-			// Table name extraction would go here
-			p.extractSelectInfoFromPG(stmt, plan)
+			// Extract table name and fields for SELECT from pg_query AST
+			p.extractSelectInfoFromPGNode(stmt, plan)
 		case InsertStatement:
 			plan.Operation = "insert"
-			// Table name extraction would go here
+			// Extract table name for INSERT from pg_query AST
+			p.extractInsertInfoFromPGNode(stmt, plan)
 		case UpdateStatement:
 			plan.Operation = "update"
-			// Table name extraction would go here
+			// Extract table name for UPDATE from pg_query AST
+			p.extractUpdateInfoFromPGNode(stmt, plan)
 		case DeleteStatement:
 			plan.Operation = "delete"
-			// Table name extraction would go here
+			// Extract table name for DELETE from pg_query AST
+			p.extractDeleteInfoFromPGNode(stmt, plan)
 		default:
 			plan.Operation = "unsupported"
 		}
@@ -229,6 +233,211 @@ func (p *Planner) extractSelectInfoFromPG(stmt interface{}, plan *Plan) {
 	}
 }
 
+// extractSelectInfoFromPGNode extracts table name, fields, and conditions for SELECT statements from pg_query AST
+func (p *Planner) extractSelectInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
+	// Implementation to extract information from pg_query.SelectStmt
+	selectStmt := stmt.GetSelectStmt()
+	if selectStmt == nil {
+		return
+	}
+	
+	// Extract table name from FROM clause
+	if len(selectStmt.GetFromClause()) > 0 {
+		fromClause := selectStmt.GetFromClause()[0]
+		if rangeVar := fromClause.GetRangeVar(); rangeVar != nil {
+			plan.Table = rangeVar.GetRelname()
+		}
+	}
+	
+	// Extract fields (target list)
+	if targetList := selectStmt.GetTargetList(); targetList != nil {
+		fields := make([]string, 0, len(targetList))
+		for _, target := range targetList {
+			if resTarget := target.GetResTarget(); resTarget != nil {
+				if val := resTarget.GetVal(); val != nil {
+					if columnRef := val.GetColumnRef(); columnRef != nil {
+						// Extract column name from ColumnRef
+						if len(columnRef.GetFields()) > 0 {
+							if str := columnRef.GetFields()[len(columnRef.GetFields())-1].GetString_(); str != nil {
+								fields = append(fields, str.GetSval())
+							}
+						}
+					} else if aConst := val.GetAConst(); aConst != nil {
+						// Handle constants like '*'
+						fields = append(fields, "*")
+					}
+				}
+			}
+		}
+		plan.Fields = fields
+	}
+	
+	// Extract WHERE conditions
+	if whereClause := selectStmt.GetWhereClause(); whereClause != nil {
+		// Extract simple equality conditions
+		conditions := p.extractConditionsFromExpr(whereClause)
+		plan.Conditions = conditions
+	}
+	
+	// Extract ORDER BY
+	if sortClause := selectStmt.GetSortClause(); sortClause != nil {
+		orderBy := make([]OrderBy, 0, len(sortClause))
+		for _, sortBy := range sortClause {
+			if sortNode := sortBy.GetSortBy(); sortNode != nil {
+				var field string
+				// Extract field name from sort expression
+				if node := sortNode.GetNode(); node != nil {
+					if columnRef := node.GetColumnRef(); columnRef != nil {
+						if len(columnRef.GetFields()) > 0 {
+							if str := columnRef.GetFields()[len(columnRef.GetFields())-1].GetString_(); str != nil {
+								field = str.GetSval()
+							}
+						}
+					}
+				}
+				
+				// Determine sort order
+				order := "ASC"
+				if sortNode.GetSortbyDir() == pg_query.SortByDir_SORTBY_DESC {
+					order = "DESC"
+				}
+				
+				if field != "" {
+					orderBy = append(orderBy, OrderBy{
+						Field: field,
+						Order: order,
+					})
+				}
+			}
+		}
+		plan.OrderBy = orderBy
+	}
+	
+	// Extract LIMIT
+	if limitCount := selectStmt.GetLimitCount(); limitCount != nil {
+		if aConst := limitCount.GetAConst(); aConst != nil {
+			if iConst := aConst.GetIval(); iConst != nil {
+				limit := int64(iConst.GetIval())
+				plan.Limit = &limit
+			}
+		}
+	}
+}
+
+// extractConditionsFromExpr extracts simple conditions from a pg_query expression
+func (p *Planner) extractConditionsFromExpr(expr *pg_query.Node) []Condition {
+	var conditions []Condition
+	
+	if expr == nil {
+		return conditions
+	}
+	
+	// Handle A_Expr (arithmetic expressions like =, >, <, etc.)
+	if aExpr := expr.GetAExpr(); aExpr != nil {
+		// Check if this is a simple equality condition
+		if aExpr.GetKind() == pg_query.A_Expr_Kind_AEXPR_OP {
+			// Get the operator name
+			var opName string
+			if len(aExpr.GetName()) > 0 {
+				if str := aExpr.GetName()[0].GetString_(); str != nil {
+					opName = str.GetSval()
+				}
+			}
+			
+			// Get left side (should be a column reference)
+			left := aExpr.GetLexpr()
+			// Get right side (should be a constant)
+			right := aExpr.GetRexpr()
+			
+			if left != nil && right != nil {
+				// Extract column name from left side
+				var columnName string
+				if columnRef := left.GetColumnRef(); columnRef != nil {
+					if len(columnRef.GetFields()) > 0 {
+						if str := columnRef.GetFields()[len(columnRef.GetFields())-1].GetString_(); str != nil {
+							columnName = str.GetSval()
+						}
+					}
+				}
+				
+				// Extract value from right side
+				var value interface{}
+				if aConst := right.GetAConst(); aConst != nil {
+					if aStr := aConst.GetSval(); aStr != nil {
+						value = aStr.GetSval()
+					} else if aInt := aConst.GetIval(); aInt != nil {
+						value = aInt.GetIval()
+					} else if aFloat := aConst.GetFval(); aFloat != nil {
+						if f, err := strconv.ParseFloat(aFloat.GetFval(), 64); err == nil {
+							value = f
+						}
+					} else if aBool := aConst.GetBoolval(); aBool != nil {
+						value = aBool.GetBoolval()
+					}
+				}
+				
+				if columnName != "" && opName != "" {
+					conditions = append(conditions, Condition{
+						Field:    columnName,
+						Operator: opName,
+						Value:    value,
+					})
+				}
+			}
+		}
+	} else if boolExpr := expr.GetBoolExpr(); boolExpr != nil {
+		// Handle Boolean expressions (AND, OR)
+		if boolExpr.GetBoolop() == pg_query.BoolExprType_AND_EXPR {
+			// Extract conditions from each operand
+			for _, operand := range boolExpr.GetArgs() {
+				subConditions := p.extractConditionsFromExpr(operand)
+				conditions = append(conditions, subConditions...)
+			}
+		}
+	}
+	
+	return conditions
+}
+
+// extractInsertInfoFromPGNode extracts table name for INSERT statements from pg_query AST
+func (p *Planner) extractInsertInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
+	insertStmt := stmt.GetInsertStmt()
+	if insertStmt == nil {
+		return
+	}
+	
+	// Extract table name
+	if relation := insertStmt.GetRelation(); relation != nil {
+		plan.Table = relation.GetRelname()
+	}
+}
+
+// extractUpdateInfoFromPGNode extracts table name for UPDATE statements from pg_query AST
+func (p *Planner) extractUpdateInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
+	updateStmt := stmt.GetUpdateStmt()
+	if updateStmt == nil {
+		return
+	}
+	
+	// Extract table name
+	if relation := updateStmt.GetRelation(); relation != nil {
+		plan.Table = relation.GetRelname()
+	}
+}
+
+// extractDeleteInfoFromPGNode extracts table name for DELETE statements from pg_query AST
+func (p *Planner) extractDeleteInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
+	deleteStmt := stmt.GetDeleteStmt()
+	if deleteStmt == nil {
+		return
+	}
+	
+	// Extract table name
+	if relation := deleteStmt.GetRelation(); relation != nil {
+		plan.Table = relation.GetRelname()
+	}
+}
+
 // extractInsertInfo extracts table name for INSERT statements
 func (p *Planner) extractInsertInfo(stmt string, plan *Plan) {
 	// Simple extraction logic for INSERT statements
@@ -237,6 +446,65 @@ func (p *Planner) extractInsertInfo(stmt string, plan *Plan) {
 	matches := re.FindStringSubmatch(stmt)
 	if len(matches) >= 2 {
 		plan.Table = matches[1]
+	}
+	
+	// Extract columns for INSERT statements
+	columnsRe := regexp.MustCompile(`(?i)INSERT\s+INTO\s+\w+\s*\(([^)]+)\)`)
+	columnsMatches := columnsRe.FindStringSubmatch(stmt)
+	var columns []string
+	if len(columnsMatches) >= 2 {
+		// Parse columns
+		columnsStr := columnsMatches[1]
+		columnParts := strings.Split(columnsStr, ",")
+		columns = make([]string, len(columnParts))
+		for i, part := range columnParts {
+			columns[i] = strings.TrimSpace(part)
+		}
+	}
+	
+	// Extract values for INSERT statements
+	// This is a simplified implementation
+	valuesRe := regexp.MustCompile(`(?i)VALUES\s*\(([^)]+)\)`)
+	valuesMatches := valuesRe.FindStringSubmatch(stmt)
+	if len(valuesMatches) >= 2 {
+		// Parse values
+		valuesStr := valuesMatches[1]
+		// Handle quoted values properly
+		valueParts := splitByCommaOutsideQuotes(valuesStr)
+		values := make(map[string]interface{})
+		for i, part := range valueParts {
+			part = strings.TrimSpace(part)
+			// Remove quotes if present
+			if strings.HasPrefix(part, "'") && strings.HasSuffix(part, "'") {
+				part = strings.Trim(part, "'")
+			}
+			// Handle NULL values
+			if strings.ToUpper(part) == "NULL" {
+				values[fmt.Sprintf("col%d", i)] = nil
+			} else {
+				values[fmt.Sprintf("col%d", i)] = part
+			}
+		}
+		
+		// Map columns to values if columns were specified
+		if len(columns) > 0 && len(columns) == len(valueParts) {
+			values = make(map[string]interface{})
+			for i, column := range columns {
+				part := strings.TrimSpace(valueParts[i])
+				// Remove quotes if present
+				if strings.HasPrefix(part, "'") && strings.HasSuffix(part, "'") {
+					part = strings.Trim(part, "'")
+				}
+				// Handle NULL values
+				if strings.ToUpper(part) == "NULL" {
+					values[column] = nil
+				} else {
+					values[column] = part
+				}
+			}
+		}
+		
+		plan.Values = values
 	}
 }
 
@@ -249,6 +517,63 @@ func (p *Planner) extractUpdateInfo(stmt string, plan *Plan) {
 	if len(matches) >= 2 {
 		plan.Table = matches[1]
 	}
+	
+	// Extract SET values for UPDATE statements
+	// This is a simplified implementation
+	setRe := regexp.MustCompile(`(?i)SET\s+([^WHERE]+)`)
+	setMatches := setRe.FindStringSubmatch(stmt)
+	if len(setMatches) >= 2 {
+		// Parse SET clause
+		setStr := strings.TrimSpace(setMatches[1])
+		// Handle quoted values properly
+		setParts := splitByCommaOutsideQuotes(setStr)
+		updates := make(map[string]interface{})
+		for _, part := range setParts {
+			part = strings.TrimSpace(part)
+			if strings.Contains(part, "=") {
+				kv := strings.SplitN(part, "=", 2)
+				if len(kv) == 2 {
+					key := strings.TrimSpace(kv[0])
+					value := strings.TrimSpace(kv[1])
+					// Remove quotes if present
+					if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
+						value = strings.Trim(value, "'")
+					}
+					updates[key] = value
+				}
+			}
+		}
+		plan.Updates = updates
+	}
+	
+	// Extract WHERE conditions for UPDATE statements
+	whereRe := regexp.MustCompile(`(?i)WHERE\s+(.+?)(?:\s+RETURNING|\s*$)`)
+	whereMatches := whereRe.FindStringSubmatch(stmt)
+	if len(whereMatches) >= 2 {
+		conditionsStr := whereMatches[1]
+		// Parse simple conditions (field operator value)
+		conditionRe := regexp.MustCompile(`(\w+)\s*(=|>|<|>=|<=|!=)\s*['"]?([^'"\s]+)['"]?`)
+		conditionMatches := conditionRe.FindAllStringSubmatch(conditionsStr, -1)
+		
+		var conditions []Condition
+		for _, match := range conditionMatches {
+			if len(match) >= 4 {
+				// Try to convert value to appropriate type
+				var value interface{} = match[3]
+				if i, err := strconv.ParseInt(match[3], 10, 64); err == nil {
+					value = i
+				} else if b, err := strconv.ParseBool(match[3]); err == nil {
+					value = b
+				}
+				conditions = append(conditions, Condition{
+					Field:    match[1],
+					Operator: match[2],
+					Value:    value,
+				})
+			}
+		}
+		plan.Conditions = conditions
+	}
 }
 
 // extractDeleteInfo extracts table name for DELETE statements
@@ -259,5 +584,34 @@ func (p *Planner) extractDeleteInfo(stmt string, plan *Plan) {
 	matches := re.FindStringSubmatch(stmt)
 	if len(matches) >= 2 {
 		plan.Table = matches[1]
+	}
+	
+	// Extract WHERE conditions for DELETE statements
+	whereRe := regexp.MustCompile(`(?i)WHERE\s+(.+?)(?:\s+RETURNING|\s*$)`)
+	whereMatches := whereRe.FindStringSubmatch(stmt)
+	if len(whereMatches) >= 2 {
+		conditionsStr := whereMatches[1]
+		// Parse simple conditions (field operator value)
+		conditionRe := regexp.MustCompile(`(\w+)\s*(=|>|<|>=|<=|!=)\s*['"]?([^'"\s]+)['"]?`)
+		conditionMatches := conditionRe.FindAllStringSubmatch(conditionsStr, -1)
+		
+		var conditions []Condition
+		for _, match := range conditionMatches {
+			if len(match) >= 4 {
+				// Try to convert value to appropriate type
+				var value interface{} = match[3]
+				if i, err := strconv.ParseInt(match[3], 10, 64); err == nil {
+					value = i
+				} else if b, err := strconv.ParseBool(match[3]); err == nil {
+					value = b
+				}
+				conditions = append(conditions, Condition{
+					Field:    match[1],
+					Operator: match[2],
+					Value:    value,
+				})
+			}
+		}
+		plan.Conditions = conditions
 	}
 }

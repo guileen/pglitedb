@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	pg_query "github.com/pganalyze/pg_query_go/v6"
 	"github.com/guileen/pglitedb/protocol/executor"
 	"github.com/guileen/pglitedb/protocol/sql"
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -203,6 +204,16 @@ func (s *PostgreSQLServer) Close() error {
 func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) bool {
 	ctx := context.Background()
 	
+	// Handle empty query
+	if strings.TrimSpace(query) == "" {
+		backend.Send(&pgproto3.EmptyQueryResponse{})
+		backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+		if err := backend.Flush(); err != nil {
+			return true
+		}
+		return false
+	}
+	
 	parsed, err := s.parser.Parse(query)
 	if err != nil {
 		s.sendErrorAndReady(backend, "42601", fmt.Sprintf("Syntax error: failed to parse SQL query: %v", err))
@@ -212,6 +223,16 @@ func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) 
 	result, err := s.planner.Execute(ctx, parsed.Query)
 	if err != nil {
 		s.sendErrorAndReady(backend, "42000", fmt.Sprintf("Query execution failed: %v", err))
+		return false
+	}
+	
+	// Handle RETURNING clause for INSERT/UPDATE/DELETE
+	if len(parsed.ReturningColumns) > 0 {
+		returningResult := s.buildReturningResult(result, parsed.ReturningColumns)
+		s.sendReturningResult(backend, returningResult)
+		if err := backend.Flush(); err != nil {
+			return true
+		}
 		return false
 	}
 	
@@ -244,11 +265,25 @@ func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) 
 	}
 	
 	var commandTag string
-	if len(result.Rows) > 0 {
-		commandTag = fmt.Sprintf("SELECT %d", result.Count)
-	} else {
-		commandTag = "SELECT 0"
+	switch parsed.Type {
+	case sql.InsertStatement:
+		if result.LastInsertID > 0 {
+			commandTag = fmt.Sprintf("INSERT 0 %d", result.Count)
+		} else {
+			commandTag = fmt.Sprintf("INSERT 0 %d", result.Count)
+		}
+	case sql.UpdateStatement:
+		commandTag = fmt.Sprintf("UPDATE %d", result.Count)
+	case sql.DeleteStatement:
+		commandTag = fmt.Sprintf("DELETE %d", result.Count)
+	default: // SELECT
+		if len(result.Rows) > 0 {
+			commandTag = fmt.Sprintf("SELECT %d", result.Count)
+		} else {
+			commandTag = "SELECT 0"
+		}
 	}
+	
 	backend.Send(&pgproto3.CommandComplete{
 		CommandTag: []byte(commandTag),
 	})
@@ -324,28 +359,17 @@ func (s *PostgreSQLServer) handleBind(backend *pgproto3.Backend, msg *pgproto3.B
 		return false
 	}
 
+	// 确保参数正确解析和存储
 	params := make([]interface{}, len(msg.Parameters))
 	for i, paramBytes := range msg.Parameters {
 		if paramBytes == nil {
 			params[i] = nil
 			continue
 		}
-
-		paramFormat := int16(0)
-		if i < len(msg.ParameterFormatCodes) {
-			paramFormat = msg.ParameterFormatCodes[i]
-		}
-
-		paramOID := uint32(0)
-		if i < len(stmt.ParameterOIDs) {
-			paramOID = stmt.ParameterOIDs[i]
-		}
-
-		if paramFormat == 0 {
-			params[i] = s.parseTextParameter(paramBytes, paramOID)
-		} else {
-			params[i] = paramBytes
-		}
+		
+		// 根据 ParameterFormatCodes 解析参数
+		// 简化实现:假设都是文本格式
+		params[i] = string(paramBytes)
 	}
 
 	portal := &Portal{
@@ -438,16 +462,41 @@ func (s *PostgreSQLServer) handleExecute(backend *pgproto3.Backend, msg *pgproto
 		return false
 	}
 
-	query := s.replacePostgreSQLPlaceholders(portal.Statement.PreprocessedSQL, portal.Params)
+	// 使用改进的参数绑定器
+	parseResult, err := pg_query.Parse(portal.Statement.Query)
+	if err != nil {
+		s.sendErrorAndReady(backend, "42000", 
+			fmt.Sprintf("Query parsing failed: %v", err))
+		return false
+	}
+	
+	binder := NewParameterBinder(parseResult, portal.Params)
+	boundAST, err := binder.BindParameters()
+	if err != nil {
+		s.sendErrorAndReady(backend, "42000", 
+			fmt.Sprintf("Parameter binding failed: %v", err))
+		return false
+	}
+	
+	// 将绑定后的AST转换回SQL
+	deparseResult, err := pg_query.Deparse(boundAST)
+	if err != nil {
+		s.sendErrorAndReady(backend, "42000", 
+			fmt.Sprintf("Query generation failed: %v", err))
+		return false
+	}
+	
+	boundQuery := deparseResult
 	
 	ctx := context.Background()
-	result, err := s.planner.Execute(ctx, query)
+	result, err := s.planner.Execute(ctx, boundQuery)
 	if err != nil {
 		s.sendErrorAndReady(backend, "42000", 
 			fmt.Sprintf("Query execution failed: %v", err))
 		return false
 	}
 	
+	// Handle RETURNING clause
 	if len(portal.Statement.ReturningColumns) > 0 {
 		returningResult := s.buildReturningResult(result, portal.Statement.ReturningColumns)
 		s.sendReturningResult(backend, returningResult)
@@ -486,11 +535,21 @@ func (s *PostgreSQLServer) handleExecute(backend *pgproto3.Backend, msg *pgproto
 	}
 	
 	var commandTag string
-	if len(result.Rows) > 0 {
-		commandTag = fmt.Sprintf("SELECT %d", result.Count)
-	} else {
-		commandTag = "SELECT 0"
+	switch s.getStatementType(portal.Statement.Query) {
+	case "INSERT":
+		commandTag = fmt.Sprintf("INSERT 0 %d", result.Count)
+	case "UPDATE":
+		commandTag = fmt.Sprintf("UPDATE %d", result.Count)
+	case "DELETE":
+		commandTag = fmt.Sprintf("DELETE %d", result.Count)
+	default: // SELECT
+		if len(result.Rows) > 0 {
+			commandTag = fmt.Sprintf("SELECT %d", result.Count)
+		} else {
+			commandTag = "SELECT 0"
+		}
 	}
+	
 	backend.Send(&pgproto3.CommandComplete{
 		CommandTag: []byte(commandTag),
 	})
@@ -537,50 +596,63 @@ func (s *PostgreSQLServer) sendErrorAndReady(backend *pgproto3.Backend, code, me
 
 // replacePlaceholders replaces $1, $2, ... with actual parameter values
 func (s *PostgreSQLServer) replacePlaceholders(query string, params []interface{}) string {
-	re := regexp.MustCompile(`\$(\d+)`)
-	result := re.ReplaceAllStringFunc(query, func(match string) string {
-		numStr := strings.TrimPrefix(match, "$")
-		num, err := strconv.Atoi(numStr)
-		if err != nil || num < 1 || num > len(params) {
-			return match
-		}
+	// 处理 PostgreSQL 风格参数 $1, $2, ...
+	result := query
+	
+	// 按参数索引从高到低排序替换，避免编号冲突
+	for i := len(params) - 1; i >= 0; i-- {
+		param := params[i]
+		placeholder := fmt.Sprintf("$%d", i+1)
+		var replacement string
 		
-		param := params[num-1]
-		
+		// 根据参数类型进行适当转义
 		switch v := param.(type) {
+		case string:
+			replacement = "'" + strings.ReplaceAll(v, "'", "''") + "'"
 		case nil:
-			return "NULL"
+			replacement = "NULL"
+		case int, int32, int64, float32, float64:
+			replacement = fmt.Sprintf("%v", v)
 		case bool:
 			if v {
-				return "1"
+				replacement = "true"
+			} else {
+				replacement = "false"
 			}
-			return "0"
-		case int, int8, int16, int32, int64:
-			return fmt.Sprintf("%d", v)
-		case uint, uint8, uint16, uint32, uint64:
-			return fmt.Sprintf("%d", v)
-		case float32, float64:
-			return fmt.Sprintf("%f", v)
-		case string:
-			escaped := strings.ReplaceAll(v, "'", "''")
-			escaped = strings.ReplaceAll(escaped, "\\", "\\\\")
-			return fmt.Sprintf("'%s'", escaped)
-		case []byte:
-			escaped := strings.ReplaceAll(string(v), "'", "''")
-			escaped = strings.ReplaceAll(escaped, "\\", "\\\\")
-			return fmt.Sprintf("'%s'", escaped)
 		default:
-			str := fmt.Sprintf("%v", v)
-			escaped := strings.ReplaceAll(str, "'", "''")
-			escaped = strings.ReplaceAll(escaped, "\\", "\\\\")
-			return fmt.Sprintf("'%s'", escaped)
+			// 对于复杂类型,转换为字符串并加上引号
+			replacement = "'" + strings.ReplaceAll(fmt.Sprintf("%v", v), "'", "''") + "'"
 		}
-	})
+		
+		// 使用正则表达式确保精确替换,避免部分匹配
+		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(placeholder) + `\b`)
+		result = re.ReplaceAllString(result, replacement)
+	}
+	
 	return result
 }
 
 func (s *PostgreSQLServer) replacePostgreSQLPlaceholders(query string, params []interface{}) string {
 	return s.replacePlaceholders(query, params)
+}
+
+// getStatementType determines the type of SQL statement
+func (s *PostgreSQLServer) getStatementType(query string) string {
+	query = strings.TrimSpace(query)
+	lowerQuery := strings.ToLower(query)
+	
+	switch {
+	case strings.HasPrefix(lowerQuery, "select"):
+		return "SELECT"
+	case strings.HasPrefix(lowerQuery, "insert"):
+		return "INSERT"
+	case strings.HasPrefix(lowerQuery, "update"):
+		return "UPDATE"
+	case strings.HasPrefix(lowerQuery, "delete"):
+		return "DELETE"
+	default:
+		return "SELECT"
+	}
 }
 
 func (s *PostgreSQLServer) parseTextParameter(data []byte, oid uint32) interface{} {
@@ -632,7 +704,7 @@ func (s *PostgreSQLServer) buildReturningResult(result *sql.ResultSet, returning
 	// More sophisticated implementation that can handle complex RETURNING clauses
 	// For now, we'll enhance the existing implementation
 	
-	if result.LastInsertID == 0 {
+	if result.LastInsertID == 0 && result.Count == 0 {
 		return &sql.ResultSet{
 			Columns: returningCols,
 			Rows:    [][]interface{}{},
@@ -640,27 +712,71 @@ func (s *PostgreSQLServer) buildReturningResult(result *sql.ResultSet, returning
 		}
 	}
 	
-	returningResult := &sql.ResultSet{
-		Columns:      returningCols,
-		Rows:         make([][]interface{}, 1),
-		Count:        1,
-		LastInsertID: result.LastInsertID,
-	}
-	
-	row := make([]interface{}, len(returningCols))
-	for i, col := range returningCols {
-		switch col {
-		case "id", "*":
-			row[i] = result.LastInsertID
-		default:
-			// For other columns, we would need to fetch the actual values
-			// This requires implementing proper catalog operations
-			row[i] = nil
+	// If we have a LastInsertID, create a simple result with it
+	if result.LastInsertID != 0 {
+		returningResult := &sql.ResultSet{
+			Columns:      returningCols,
+			Rows:         make([][]interface{}, 1),
+			Count:        1,
+			LastInsertID: result.LastInsertID,
 		}
+		
+		row := make([]interface{}, len(returningCols))
+		for i, col := range returningCols {
+			switch col {
+			case "id", "*":
+				row[i] = result.LastInsertID
+			default:
+				// For other columns, we would need to fetch the actual values
+				// This requires implementing proper catalog operations
+				row[i] = nil
+			}
+		}
+		returningResult.Rows[0] = row
+		
+		return returningResult
 	}
-	returningResult.Rows[0] = row
 	
-	return returningResult
+	// For UPDATE/DELETE operations, we might have rows to return
+	if len(result.Rows) > 0 {
+		// Create a new result with the specified columns
+		returningResult := &sql.ResultSet{
+			Columns: returningCols,
+			Rows:    make([][]interface{}, len(result.Rows)),
+			Count:   result.Count,
+		}
+		
+		// Copy the relevant columns from the original result
+		for i, originalRow := range result.Rows {
+			newRow := make([]interface{}, len(returningCols))
+			for j, col := range returningCols {
+				// Find the column in the original result
+				found := false
+				for k, originalCol := range result.Columns {
+					if originalCol == col || col == "*" {
+						if k < len(originalRow) {
+							newRow[j] = originalRow[k]
+							found = true
+							break
+						}
+					}
+				}
+				if !found {
+					newRow[j] = nil
+				}
+			}
+			returningResult.Rows[i] = newRow
+		}
+		
+		return returningResult
+	}
+	
+	// Fallback
+	return &sql.ResultSet{
+		Columns: returningCols,
+		Rows:    [][]interface{}{},
+		Count:   0,
+	}
 }
 
 func (s *PostgreSQLServer) sendReturningResult(backend *pgproto3.Backend, result *sql.ResultSet) {

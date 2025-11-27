@@ -188,8 +188,7 @@ func (e *Executor) executeInsert(ctx context.Context, plan *Plan) (*ResultSet, e
 	}
 	
 	// Extract values from the plan
-	// This requires enhancing the planner to extract INSERT values
-	values := map[string]interface{}{} // Extract from plan
+	values := plan.Values
 	
 	tenantID := int64(1) // Get from context
 	lastInsertID, err := e.catalog.InsertRow(ctx, tenantID, plan.Table, values)
@@ -211,9 +210,15 @@ func (e *Executor) executeUpdate(ctx context.Context, plan *Plan) (*ResultSet, e
 	}
 	
 	// Extract values and conditions from the plan
-	// This requires enhancing the planner to extract UPDATE values and conditions
-	values := map[string]interface{}{}      // Extract from plan
-	conditions := map[string]interface{}{}  // Extract from plan
+	values := plan.Updates
+	
+	// Convert conditions to filter map
+	conditions := make(map[string]interface{})
+	for _, cond := range plan.Conditions {
+		if cond.Operator == "=" {
+			conditions[cond.Field] = cond.Value
+		}
+	}
 	
 	tenantID := int64(1) // Get from context
 	affected, err := e.catalog.UpdateRows(ctx, tenantID, plan.Table, values, conditions)
@@ -234,8 +239,12 @@ func (e *Executor) executeDelete(ctx context.Context, plan *Plan) (*ResultSet, e
 	}
 	
 	// Extract conditions from the plan
-	// This requires enhancing the planner to extract DELETE conditions
-	conditions := map[string]interface{}{} // Extract from plan
+	conditions := make(map[string]interface{})
+	for _, cond := range plan.Conditions {
+		if cond.Operator == "=" {
+			conditions[cond.Field] = cond.Value
+		}
+	}
 	
 	tenantID := int64(1) // Get from context
 	affected, err := e.catalog.DeleteRows(ctx, tenantID, plan.Table, conditions)
