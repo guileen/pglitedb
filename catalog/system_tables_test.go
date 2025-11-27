@@ -74,4 +74,102 @@ func TestSystemTables(t *testing.T) {
 		assert.NotNil(t, result)
 		assert.Greater(t, len(result.Rows), 0)
 	})
+	
+	t.Run("QueryPgStatDatabase", func(t *testing.T) {
+		result, err := manager.QuerySystemTable(ctx, "pg_catalog.pg_stat_database", nil)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Greater(t, len(result.Rows), 0)
+		
+		// Check column names
+		expectedColumns := []string{
+			"datid", "datname", "numbackends", "xact_commit", "xact_rollback",
+			"blks_read", "blks_hit", "tup_returned", "tup_fetched", "tup_inserted",
+			"tup_updated", "tup_deleted", "stats_reset",
+		}
+		assert.Equal(t, len(expectedColumns), len(result.Columns))
+		for i, col := range result.Columns {
+			assert.Equal(t, expectedColumns[i], col.Name)
+		}
+		
+		// Check that we have database statistics
+		assert.Greater(t, len(result.Rows), 0)
+		row := result.Rows[0]
+		assert.Equal(t, "pglitedb", row[1]) // datname should be "pglitedb"
+	})
+	
+	t.Run("QueryPgStatDatabaseWithFilter", func(t *testing.T) {
+		filter := map[string]interface{}{"datname": "pglitedb"}
+		result, err := manager.QuerySystemTable(ctx, "pg_catalog.pg_stat_database", filter)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Greater(t, len(result.Rows), 0)
+		
+		// Check that we get the filtered result
+		row := result.Rows[0]
+		assert.Equal(t, "pglitedb", row[1])
+	})
+	
+	t.Run("QueryPgStatDatabaseWithNonMatchingFilter", func(t *testing.T) {
+		filter := map[string]interface{}{"datname": "nonexistent"}
+		result, err := manager.QuerySystemTable(ctx, "pg_catalog.pg_stat_database", filter)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		// Should return empty result for non-matching filter
+		assert.Equal(t, 0, len(result.Rows))
+	})
+	
+	t.Run("QueryPgStatBgWriter", func(t *testing.T) {
+		result, err := manager.QuerySystemTable(ctx, "pg_catalog.pg_stat_bgwriter", nil)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		
+		// Check column names
+		expectedColumns := []string{
+			"checkpoints_timed", "checkpoints_req", "checkpoint_write_time",
+			"checkpoint_sync_time", "buffers_checkpoint", "buffers_clean",
+			"maxwritten_clean", "buffers_backend", "buffers_backend_fsync",
+			"buffers_alloc", "stats_reset",
+		}
+		assert.Equal(t, len(expectedColumns), len(result.Columns))
+		for i, col := range result.Columns {
+			assert.Equal(t, expectedColumns[i], col.Name)
+		}
+		
+		// Check that we have bgwriter statistics
+		assert.Greater(t, len(result.Rows), 0)
+	})
+	
+	t.Run("QueryPgIndex", func(t *testing.T) {
+		result, err := manager.QuerySystemTable(ctx, "pg_catalog.pg_index", nil)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		
+		// Check column names
+		expectedColumns := []string{
+			"indexrelid", "indrelid", "indnatts", "indisunique", "indisprimary",
+			"indisclustered", "indisvalid", "indkey", "indcollation", "indclass",
+			"indoption", "indexpred",
+		}
+		assert.Equal(t, len(expectedColumns), len(result.Columns))
+		for i, col := range result.Columns {
+			assert.Equal(t, expectedColumns[i], col.Name)
+		}
+	})
+	
+	t.Run("QueryPgInherits", func(t *testing.T) {
+		result, err := manager.QuerySystemTable(ctx, "pg_catalog.pg_inherits", nil)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		
+		// Check column names
+		expectedColumns := []string{"inhrelid", "inhparent", "inhseqno"}
+		assert.Equal(t, len(expectedColumns), len(result.Columns))
+		for i, col := range result.Columns {
+			assert.Equal(t, expectedColumns[i], col.Name)
+		}
+		
+		// Should return empty result since we don't have inheritance
+		assert.Equal(t, 0, len(result.Rows))
+	})
 }

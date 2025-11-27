@@ -13,6 +13,14 @@ type SchemaManager interface {
 	AlterTable(ctx context.Context, tenantID int64, tableName string, changes *AlterTableChanges) error
 	ListTables(ctx context.Context, tenantID int64) ([]*types.TableDefinition, error)
 	LoadSchemas(ctx context.Context) error
+	
+	// View management
+	CreateView(ctx context.Context, tenantID int64, viewName string, query string, replace bool) error
+	DropView(ctx context.Context, tenantID int64, viewName string) error
+	GetViewDefinition(ctx context.Context, tenantID int64, viewName string) (*types.ViewDefinition, error)
+	
+	// Constraint validation
+	ValidateConstraint(ctx context.Context, tenantID int64, tableName string, constraint *types.ConstraintDef) error
 }
 
 type DataManager interface {
@@ -48,12 +56,17 @@ type Manager interface {
 	InsertRow(ctx context.Context, tenantID int64, tableName string, values map[string]interface{}) (int64, error)
 	UpdateRows(ctx context.Context, tenantID int64, tableName string, values map[string]interface{}, conditions map[string]interface{}) (int64, error)
 	DeleteRows(ctx context.Context, tenantID int64, tableName string, conditions map[string]interface{}) (int64, error)
+	
+	// Statistics collector access
+	GetStatsCollector() StatsCollector
 }
 
 type AlterTableChanges struct {
-	AddColumns    []types.ColumnDefinition
-	DropColumns   []string
-	ModifyColumns []types.ColumnDefinition
-	AddIndexes    []types.IndexDefinition
-	DropIndexes   []string
+	AddColumns      []types.ColumnDefinition
+	DropColumns     []string
+	ModifyColumns   []types.ColumnDefinition
+	AddIndexes      []types.IndexDefinition
+	DropIndexes     []string
+	AddConstraints  []types.ConstraintDef
+	DropConstraints []string
 }
