@@ -53,6 +53,46 @@ func (p *PGParser) getStatementType(stmt *pg_query.Node) StatementType {
 		return UpdateStatement
 	case stmt.GetDeleteStmt() != nil:
 		return DeleteStatement
+	case stmt.GetTransactionStmt() != nil:
+		// Handle transaction statements
+		transStmt := stmt.GetTransactionStmt()
+		switch transStmt.GetKind() {
+		case pg_query.TransactionStmtKind_TRANS_STMT_BEGIN:
+			return BeginStatement
+		case pg_query.TransactionStmtKind_TRANS_STMT_START:
+			return BeginStatement
+		case pg_query.TransactionStmtKind_TRANS_STMT_COMMIT:
+			return CommitStatement
+		case pg_query.TransactionStmtKind_TRANS_STMT_ROLLBACK:
+			return RollbackStatement
+		default:
+			return UnknownStatement
+		}
+	case stmt.GetCreateStmt() != nil:
+		return CreateTableStatement
+	case stmt.GetDropStmt() != nil:
+		// Check if it's DROP INDEX or DROP VIEW
+		dropStmt := stmt.GetDropStmt()
+		if dropStmt != nil {
+			// For now, we'll assume it's DROP TABLE
+			// A more complete implementation would check the object type
+			return DropTableStatement
+		}
+		return DropTableStatement
+	case stmt.GetAlterTableStmt() != nil:
+		return AlterTableStatement
+	case stmt.GetIndexStmt() != nil:
+		return CreateIndexStatement
+	case stmt.GetViewStmt() != nil:
+		return CreateViewStatement
+	case stmt.GetVacuumStmt() != nil:
+		// ANALYZE statements are parsed as VacuumStmt with IsVacuumcmd = false
+		vacuumStmt := stmt.GetVacuumStmt()
+		if !vacuumStmt.GetIsVacuumcmd() {
+			return AnalyzeStatementType
+		}
+		// Handle VACUUM statements if needed
+		return UnknownStatement
 	default:
 		return SelectStatement
 	}

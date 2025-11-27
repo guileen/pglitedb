@@ -45,7 +45,27 @@ func TestDDLParser(t *testing.T) {
 		stmt, err := parser.Parse(query)
 		require.NoError(t, err)
 		assert.Equal(t, DropTableStatement, stmt.Type)
-		// Table name extraction is not fully implemented yet
+		assert.Equal(t, "users", stmt.TableName)
+	})
+	
+	t.Run("DropTableIfExists", func(t *testing.T) {
+		query := "DROP TABLE IF EXISTS users"
+
+		stmt, err := parser.Parse(query)
+		require.NoError(t, err)
+		assert.Equal(t, DropTableStatement, stmt.Type)
+		assert.Equal(t, "users", stmt.TableName)
+		assert.True(t, stmt.IfExists)
+	})
+	
+	t.Run("DropTableCascade", func(t *testing.T) {
+		query := "DROP TABLE users CASCADE"
+
+		stmt, err := parser.Parse(query)
+		require.NoError(t, err)
+		assert.Equal(t, DropTableStatement, stmt.Type)
+		assert.Equal(t, "users", stmt.TableName)
+		assert.True(t, stmt.Cascade)
 	})
 
 	t.Run("AlterTable", func(t *testing.T) {

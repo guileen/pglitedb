@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"strings"
 	"sync"
 
@@ -62,13 +63,17 @@ func NewPostgreSQLServer(executor executor.QueryExecutor) *PostgreSQLServer {
 }
 
 func (s *PostgreSQLServer) Start(port string) error {
+	return s.StartTCP(port)
+}
+
+func (s *PostgreSQLServer) StartTCP(port string) error {
 	var err error
 	s.listener, err = net.Listen("tcp", ":"+port)
 	if err != nil {
-		return fmt.Errorf("failed to start listener: %w", err)
+		return fmt.Errorf("failed to start TCP listener: %w", err)
 	}
 	
-	log.Printf("PostgreSQL server listening on port %s", port)
+	log.Printf("PostgreSQL server listening on TCP port %s", port)
 	
 	for {
 		conn, err := s.listener.Accept()
@@ -80,7 +85,38 @@ func (s *PostgreSQLServer) Start(port string) error {
 			if closed {
 				return nil
 			}
-			return fmt.Errorf("failed to accept connection: %w", err)
+			return fmt.Errorf("failed to accept TCP connection: %w", err)
+		}
+		
+		go s.handleConnection(conn)
+	}
+}
+
+func (s *PostgreSQLServer) StartUnix(socketPath string) error {
+	// Remove existing socket file if it exists
+	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+		log.Printf("Warning: failed to remove existing socket file: %v", err)
+	}
+	
+	var err error
+	s.listener, err = net.Listen("unix", socketPath)
+	if err != nil {
+		return fmt.Errorf("failed to start Unix socket listener: %w", err)
+	}
+	
+	log.Printf("PostgreSQL server listening on Unix socket %s", socketPath)
+	
+	for {
+		conn, err := s.listener.Accept()
+		if err != nil {
+			s.mu.Lock()
+			closed := s.closed
+			s.mu.Unlock()
+			
+			if closed {
+				return nil
+			}
+			return fmt.Errorf("failed to accept Unix connection: %w", err)
 		}
 		
 		go s.handleConnection(conn)

@@ -136,6 +136,7 @@ type DDLStatement struct {
 	IndexOptions  map[string]string
 	Cascade       bool
 	Restrict      bool
+	IfExists      bool
 	
 	// View related fields
 	ViewName         string

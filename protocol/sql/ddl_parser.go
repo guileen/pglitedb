@@ -7,6 +7,38 @@ import (
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 )
 
+// mapPostgreSQLTypeToInternal maps PostgreSQL type names to internal column types
+func mapPostgreSQLTypeToInternal(pgType string) string {
+	switch pgType {
+	case "int4":
+		return "integer"
+	case "int2":
+		return "smallint"
+	case "int8":
+		return "bigint"
+	case "float4":
+		return "real"
+	case "float8":
+		return "double"
+	case "bool":
+		return "boolean"
+	case "varchar", "character varying":
+		return "varchar"
+	case "char", "character":
+		return "char"
+	case "timestamp", "timestamp without time zone":
+		return "timestamp"
+	case "serial":
+		return "serial"
+	case "bigserial":
+		return "bigserial"
+	case "smallserial":
+		return "smallserial"
+	default:
+		return pgType
+	}
+}
+
 // DDLParser handles parsing of Data Definition Language statements
 type DDLParser struct{}
 
@@ -92,6 +124,8 @@ func (p *DDLParser) parseCreateTable(stmt *pg_query.CreateStmt, ddlStmt *DDLStat
 						// Get the last part of the type name (e.g., "integer" from "pg_catalog.integer")
 						if str := names[len(names)-1].GetString_(); str != nil {
 							col.Type = strings.ToLower(str.GetSval())
+							// Map PostgreSQL type names to our internal type names
+							col.Type = mapPostgreSQLTypeToInternal(col.Type)
 						}
 					}
 				}
@@ -137,8 +171,34 @@ func (p *DDLParser) parseCreateTable(stmt *pg_query.CreateStmt, ddlStmt *DDLStat
 
 // parseDropTable parses a DROP TABLE statement
 func (p *DDLParser) parseDropTable(stmt *pg_query.DropStmt, ddlStmt *DDLStatement) {
-	// For now, we'll just set the statement type
-	// Full implementation would extract table names from the objects
+	// Parse table names from the objects
+	if objects := stmt.GetObjects(); objects != nil {
+		tableNames := make([]string, 0)
+		for _, obj := range objects {
+			if list := obj.GetList(); list != nil {
+				if items := list.GetItems(); items != nil {
+					// Get the last item which should be the table name
+					if len(items) > 0 {
+						if lastItem := items[len(items)-1]; lastItem != nil {
+							if str := lastItem.GetString_(); str != nil {
+								tableNames = append(tableNames, str.GetSval())
+							}
+						}
+					}
+				}
+			}
+		}
+		if len(tableNames) > 0 {
+			ddlStmt.TableName = tableNames[0] // For simplicity, we take the first table name
+		}
+	}
+	
+	// Parse CASCADE/RESTRICT options
+	ddlStmt.Cascade = stmt.GetBehavior() == pg_query.DropBehavior_DROP_CASCADE
+	ddlStmt.Restrict = stmt.GetBehavior() == pg_query.DropBehavior_DROP_RESTRICT
+	
+	// Parse IF EXISTS option
+	ddlStmt.IfExists = stmt.GetMissingOk()
 }
 
 // isDropIndexStatement checks if a DropStmt is for dropping an index

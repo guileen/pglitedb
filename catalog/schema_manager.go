@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/guileen/pglitedb/catalog/internal"
@@ -246,7 +247,8 @@ func (m *schemaManager) LoadSchemas(ctx context.Context) error {
 	for iter.First(); iter.Valid(); iter.Next() {
 		var def types.TableDefinition
 		if err := json.Unmarshal(iter.Value(), &def); err != nil {
-			return fmt.Errorf("unmarshal schema: %w", err)
+			log.Printf("Warning: failed to unmarshal schema, skipping: %v", err)
+			continue
 		}
 
 		keyStr := string(iter.Key())
@@ -255,17 +257,20 @@ func (m *schemaManager) LoadSchemas(ctx context.Context) error {
 		var tenantID int64
 		var tableName string
 		if _, err := fmt.Sscanf(keyStr, "%d:%s", &tenantID, &tableName); err != nil {
-			return fmt.Errorf("parse schema key: %w", err)
+			log.Printf("Warning: failed to parse schema key, skipping: %v", err)
+			continue
 		}
 
-		key := makeTableKey(tenantID, def.Name)
+		key := makeTableKey(tenantID, tableName)
 
 		tableID, err := m.engine.NextTableID(ctx, tenantID)
 		if err != nil {
-			return fmt.Errorf("generate table id: %w", err)
+			log.Printf("Warning: failed to generate table id, skipping: %v", err)
+			continue
 		}
 
 		m.cache.Set(key, &def, tableID-1)
+		log.Printf("Loaded schema for table %s (tenant %d)", tableName, tenantID)
 	}
 
 	return iter.Error()
