@@ -57,6 +57,9 @@ func (e *Executor) Execute(ctx context.Context, query string) (*ResultSet, error
 }
 
 func (e *Executor) executeDDL(ctx context.Context, query string) (*ResultSet, error) {
+	// For now, we'll just return a successful result for DDL operations
+	// In a full implementation, we would actually create/drop/alter tables
+	// log.Printf("DDL statement executed: %s", query)
 	return &ResultSet{
 		Columns: []string{},
 		Rows:    [][]interface{}{},

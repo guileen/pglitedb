@@ -73,7 +73,8 @@ func (e *queryExecutor) executeSelect(ctx context.Context, query *Query) (*Query
 		return nil, fmt.Errorf("query failed: %w", err)
 	}
 	return &QueryResult{
-		Rows:    convertRecordsToRows(result.Records),
+		Rows:    result.Rows,
+		Columns: result.Columns,
 		Count:   result.Count,
 		HasMore: result.HasMore,
 	}, nil
@@ -90,9 +91,24 @@ func (e *queryExecutor) executeInsert(ctx context.Context, query *Query) (*Query
 		return nil, fmt.Errorf("insert failed: %w", err)
 	}
 
+	// Convert record to row format
+	var columnNames []string
+	for key := range record.Data {
+		columnNames = append(columnNames, key)
+	}
+	
+	row := make([]interface{}, len(columnNames))
+	for j, colName := range columnNames {
+		if value, ok := record.Data[colName]; ok && value != nil {
+			row[j] = value.Data
+		} else {
+			row[j] = nil
+		}
+	}
+
 	return &QueryResult{
 		Count: 1,
-		Rows:  convertRecordsToRows([]*types.Record{record}),
+		Rows:  [][]interface{}{row},
 	}, nil
 }
 
@@ -146,42 +162,6 @@ func (e *queryExecutor) executeDelete(ctx context.Context, query *Query) (*Query
 	}, nil
 }
 
-// convertRecordsToRows converts []*types.Record to [][]interface{}
-func convertRecordsToRows(records interface{}) [][]interface{} {
-	if records == nil {
-		return [][]interface{}{}
-	}
-	
-	tableRecords, ok := records.([]*types.Record)
-	if !ok {
-		return [][]interface{}{}
-	}
-	
-	if len(tableRecords) == 0 {
-		return [][]interface{}{}
-	}
-	
-	// Extract column names from first record to maintain consistent column order
-	var columnNames []string
-	for key := range tableRecords[0].Data {
-		columnNames = append(columnNames, key)
-	}
-	
-	rows := make([][]interface{}, len(tableRecords))
-	for i, record := range tableRecords {
-		row := make([]interface{}, len(columnNames))
-		for j, colName := range columnNames {
-			if value, ok := record.Data[colName]; ok && value != nil {
-				row[j] = value.Data
-			} else {
-				row[j] = nil
-			}
-		}
-		rows[i] = row
-	}
-	
-	return rows
-}
 
 func (e *queryExecutor) Explain(ctx context.Context, query *Query) (*QueryPlan, error) {
 	if err := e.ValidateQuery(query); err != nil {

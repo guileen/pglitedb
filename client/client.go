@@ -197,7 +197,7 @@ func (c *Client) Select(ctx context.Context, tenantID int64, tableName string, o
 	if err != nil {
 		return nil, err
 	}
-
+	
 	return convertInternalToExternalResult(result), nil
 }
 
