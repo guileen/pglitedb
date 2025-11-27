@@ -33,21 +33,31 @@ func (m *tableManager) QuerySystemTable(ctx context.Context, fullTableName strin
 		return nil, fmt.Errorf("invalid system table name: %s", fullTableName)
 	}
 	
-	if query.schema != "information_schema" {
-		return nil, fmt.Errorf("unsupported system schema: %s", query.schema)
-	}
-	
 	if filter != nil {
 		query.filter = filter
 	}
 	
-	switch query.tableName {
-	case "tables":
-		return m.queryInformationSchemaTables(ctx, query.filter)
-	case "columns":
-		return m.queryInformationSchemaColumns(ctx, query.filter)
+	switch query.schema {
+	case "information_schema":
+		switch query.tableName {
+		case "tables":
+			return m.queryInformationSchemaTables(ctx, query.filter)
+		case "columns":
+			return m.queryInformationSchemaColumns(ctx, query.filter)
+		default:
+			return nil, fmt.Errorf("unsupported information_schema table: %s", query.tableName)
+		}
+	case "pg_catalog":
+		switch query.tableName {
+		case "pg_tables":
+			return m.queryPgTables(ctx, query.filter)
+		case "pg_columns":
+			return m.queryPgColumns(ctx, query.filter)
+		default:
+			return nil, fmt.Errorf("unsupported pg_catalog table: %s", query.tableName)
+		}
 	default:
-		return nil, fmt.Errorf("unsupported information_schema table: %s", query.tableName)
+		return nil, fmt.Errorf("unsupported system schema: %s", query.schema)
 	}
 }
 
@@ -200,4 +210,108 @@ func boolToYesNo(val bool) string {
 		return "YES"
 	}
 	return "NO"
+}
+
+func (m *tableManager) queryPgTables(ctx context.Context, filter map[string]interface{}) (*types.QueryResult, error) {
+	tenantID := int64(1)
+	
+	tables, err := m.ListTables(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	
+	rows := make([][]interface{}, 0)
+	for _, table := range tables {
+		// Apply filters
+		if filterTableName, ok := filter["tablename"].(string); ok {
+			if table.Name != filterTableName {
+				continue
+			}
+		}
+		
+		row := []interface{}{
+			table.Name,     // tablename
+			"public",       // schemaname
+			nil,            // tableowner
+			nil,            // hasindexes
+			nil,            // hasrules
+			nil,            // hastriggers
+			nil,            // rowsecurity
+		}
+		rows = append(rows, row)
+	}
+	
+	columns := []types.ColumnInfo{
+		{Name: "tablename", Type: types.ColumnTypeText},
+		{Name: "schemaname", Type: types.ColumnTypeText},
+		{Name: "tableowner", Type: types.ColumnTypeText},
+		{Name: "hasindexes", Type: types.ColumnTypeBoolean},
+		{Name: "hasrules", Type: types.ColumnTypeBoolean},
+		{Name: "hastriggers", Type: types.ColumnTypeBoolean},
+		{Name: "rowsecurity", Type: types.ColumnTypeBoolean},
+	}
+	
+	return &types.QueryResult{
+		Columns: columns,
+		Rows:    rows,
+	}, nil
+}
+
+func (m *tableManager) queryPgColumns(ctx context.Context, filter map[string]interface{}) (*types.QueryResult, error) {
+	tenantID := int64(1)
+	
+	filterTableName, hasTableFilter := filter["tablename"].(string)
+	
+	tables, err := m.ListTables(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	
+	rows := make([][]interface{}, 0)
+	for _, table := range tables {
+		if hasTableFilter && table.Name != filterTableName {
+			continue
+		}
+		
+		tableSchema, err := m.GetTableDefinition(ctx, tenantID, table.Name)
+		if err != nil {
+			continue
+		}
+		
+		for _, col := range tableSchema.Columns {
+			dataType := mapTypeToSQL(col.Type)
+			
+			row := []interface{}{
+				table.Name,     // tablename
+				col.Name,       // columnname
+				"public",       // schemaname
+				dataType,       // datatype
+				nil,            // ordinal_position
+				boolToYesNo(!col.Nullable), // notnull
+				col.Default,    // column_default
+				nil,            // is_primary_key
+				nil,            // is_unique
+				nil,            // is_serial
+			}
+			rows = append(rows, row)
+		}
+	}
+	
+	columns := []types.ColumnInfo{
+		{Name: "tablename", Type: types.ColumnTypeText},
+		{Name: "columnname", Type: types.ColumnTypeText},
+		{Name: "schemaname", Type: types.ColumnTypeText},
+		{Name: "datatype", Type: types.ColumnTypeText},
+		{Name: "ordinal_position", Type: types.ColumnTypeInteger},
+		{Name: "notnull", Type: types.ColumnTypeText},
+		{Name: "column_default", Type: types.ColumnTypeText},
+		{Name: "is_primary_key", Type: types.ColumnTypeBoolean},
+		{Name: "is_unique", Type: types.ColumnTypeBoolean},
+		{Name: "is_serial", Type: types.ColumnTypeBoolean},
+	}
+	
+	return &types.QueryResult{
+		Columns: columns,
+		Rows:    rows,
+	}, nil
 }

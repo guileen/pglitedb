@@ -320,6 +320,9 @@ func (p *Planner) extractConditionsFromExpr(expr *pg_query.Node) []Condition {
 						case aConst.GetBoolval() != nil:
 							value = aConst.GetBoolval().GetBoolval()
 						}
+					} else if paramRef := right.GetParamRef(); paramRef != nil {
+						// Handle parameter references in conditions
+						value = fmt.Sprintf("$%d", paramRef.GetNumber())
 					}
 					
 					// Only add condition if we have both field and operator
@@ -370,7 +373,7 @@ func (p *Planner) extractInsertInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 	}
 }
 
-// extractUpdateInfoFromPGNode extracts table name for UPDATE statements from pg_query AST
+// extractUpdateInfoFromPGNode extracts table name, values, and conditions for UPDATE statements from pg_query AST
 func (p *Planner) extractUpdateInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 	updateStmt := stmt.GetUpdateStmt()
 	if updateStmt == nil {
@@ -381,9 +384,47 @@ func (p *Planner) extractUpdateInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 	if relation := updateStmt.GetRelation(); relation != nil {
 		plan.Table = relation.GetRelname()
 	}
+	
+	// Extract SET values
+	if targetList := updateStmt.GetTargetList(); targetList != nil {
+		updates := make(map[string]interface{})
+		for _, target := range targetList {
+			if resTarget := target.GetResTarget(); resTarget != nil {
+				fieldName := resTarget.GetName()
+				if val := resTarget.GetVal(); val != nil {
+					// For parameter references, we'll store them as placeholders
+					// Actual parameter binding happens later in execution
+					if paramRef := val.GetParamRef(); paramRef != nil {
+						updates[fieldName] = fmt.Sprintf("$%d", paramRef.GetNumber())
+					} else if aConst := val.GetAConst(); aConst != nil {
+						// Extract constant values
+						switch {
+						case aConst.GetSval() != nil:
+							updates[fieldName] = aConst.GetSval().GetSval()
+						case aConst.GetIval() != nil:
+							updates[fieldName] = aConst.GetIval().GetIval()
+						case aConst.GetFval() != nil:
+							if f, err := strconv.ParseFloat(aConst.GetFval().GetFval(), 64); err == nil {
+								updates[fieldName] = f
+							}
+						case aConst.GetBoolval() != nil:
+							updates[fieldName] = aConst.GetBoolval().GetBoolval()
+						}
+					}
+				}
+			}
+		}
+		plan.Updates = updates
+	}
+	
+	// Extract WHERE conditions
+	if whereClause := updateStmt.GetWhereClause(); whereClause != nil {
+		conditions := p.extractConditionsFromExpr(whereClause)
+		plan.Conditions = conditions
+	}
 }
 
-// extractDeleteInfoFromPGNode extracts table name for DELETE statements from pg_query AST
+// extractDeleteInfoFromPGNode extracts table name and conditions for DELETE statements from pg_query AST
 func (p *Planner) extractDeleteInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 	deleteStmt := stmt.GetDeleteStmt()
 	if deleteStmt == nil {
@@ -393,5 +434,11 @@ func (p *Planner) extractDeleteInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 	// Extract table name
 	if relation := deleteStmt.GetRelation(); relation != nil {
 		plan.Table = relation.GetRelname()
+	}
+	
+	// Extract WHERE conditions
+	if whereClause := deleteStmt.GetWhereClause(); whereClause != nil {
+		conditions := p.extractConditionsFromExpr(whereClause)
+		plan.Conditions = conditions
 	}
 }

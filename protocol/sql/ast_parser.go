@@ -1,6 +1,9 @@
 package sql
 
 import (
+	"fmt"
+	"strconv"
+	
 	"github.com/pganalyze/pg_query_go/v6"
 )
 
@@ -202,6 +205,9 @@ func (p *ASTParser) extractConditionsFromExpr(expr *pg_query.Node) []Condition {
 					} else if aBool := aConst.GetBoolval(); aBool != nil {
 						value = aBool.GetBoolval()
 					}
+				} else if paramRef := right.GetParamRef(); paramRef != nil {
+					// Handle parameter references in conditions
+					value = fmt.Sprintf("$%d", paramRef.GetNumber())
 				}
 				
 				if columnName != "" && opName != "" {
@@ -241,6 +247,44 @@ func (p *ASTParser) extractUpdateDetails(stmt *pg_query.UpdateStmt, parsed *Pars
 	if relation := stmt.GetRelation(); relation != nil {
 		parsed.Table = relation.GetRelname()
 	}
+	
+	// Extract SET values
+	if targetList := stmt.GetTargetList(); targetList != nil {
+		updates := make(map[string]interface{})
+		for _, target := range targetList {
+			if resTarget := target.GetResTarget(); resTarget != nil {
+				fieldName := resTarget.GetName()
+				if val := resTarget.GetVal(); val != nil {
+					// For parameter references, we'll store them as placeholders
+					// Actual parameter binding happens later in execution
+					if paramRef := val.GetParamRef(); paramRef != nil {
+						updates[fieldName] = fmt.Sprintf("$%d", paramRef.GetNumber())
+					} else if aConst := val.GetAConst(); aConst != nil {
+						// Extract constant values
+						switch {
+						case aConst.GetSval() != nil:
+							updates[fieldName] = aConst.GetSval().GetSval()
+						case aConst.GetIval() != nil:
+							updates[fieldName] = aConst.GetIval().GetIval()
+						case aConst.GetFval() != nil:
+							if f, err := strconv.ParseFloat(aConst.GetFval().GetFval(), 64); err == nil {
+								updates[fieldName] = f
+							}
+						case aConst.GetBoolval() != nil:
+							updates[fieldName] = aConst.GetBoolval().GetBoolval()
+						}
+					}
+				}
+			}
+		}
+		parsed.Updates = updates
+	}
+	
+	// Extract WHERE conditions
+	if whereClause := stmt.GetWhereClause(); whereClause != nil {
+		conditions := p.extractConditionsFromExpr(whereClause)
+		parsed.Conditions = conditions
+	}
 }
 
 // extractDeleteDetails extracts details from a DELETE statement
@@ -248,5 +292,11 @@ func (p *ASTParser) extractDeleteDetails(stmt *pg_query.DeleteStmt, parsed *Pars
 	// Extract table name
 	if relation := stmt.GetRelation(); relation != nil {
 		parsed.Table = relation.GetRelname()
+	}
+	
+	// Extract WHERE conditions
+	if whereClause := stmt.GetWhereClause(); whereClause != nil {
+		conditions := p.extractConditionsFromExpr(whereClause)
+		parsed.Conditions = conditions
 	}
 }
