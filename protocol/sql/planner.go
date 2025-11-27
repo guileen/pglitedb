@@ -49,21 +49,24 @@ type Aggregate struct {
 
 // Planner is responsible for creating execution plans from parsed queries
 type Planner struct {
-	parser   Parser
-	executor *Executor
+	parser    Parser
+	executor  *Executor
+	optimizer *QueryOptimizer
 }
 
 // NewPlanner creates a new query planner
 func NewPlanner(parser Parser) *Planner {
 	return &Planner{
-		parser: parser,
+		parser:    parser,
+		optimizer: NewQueryOptimizer(),
 	}
 }
 
 // NewPlannerWithCatalog creates a new query planner with catalog
 func NewPlannerWithCatalog(parser Parser, catalogMgr catalog.Manager) *Planner {
 	planner := &Planner{
-		parser: parser,
+		parser:    parser,
+		optimizer: NewQueryOptimizerWithDataManager(catalogMgr),
 	}
 	// Create executor with this planner and catalog
 	planner.executor = NewExecutorWithCatalog(planner, catalogMgr)
@@ -176,6 +179,16 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 		plan.Operation = "unsupported"
 	}
 
+		// Apply query optimization if we have an optimizer
+	if p.optimizer != nil {
+		optimizedPlan, err := p.optimizer.OptimizePlan(plan)
+		if err != nil {
+			// If optimization fails, return the original plan
+			return plan, nil
+		}
+		return optimizedPlan, nil
+	}
+	
 	return plan, nil
 }
 

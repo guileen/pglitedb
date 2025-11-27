@@ -53,6 +53,10 @@ func (m *tableManager) QuerySystemTable(ctx context.Context, fullTableName strin
 			return m.queryPgTables(ctx, query.filter)
 		case "pg_columns":
 			return m.queryPgColumns(ctx, query.filter)
+		case "pg_indexes":
+			return m.queryPgIndexes(ctx, query.filter)
+		case "pg_constraint":
+			return m.queryPgConstraint(ctx, query.filter)
 		default:
 			return nil, fmt.Errorf("unsupported pg_catalog table: %s", query.tableName)
 		}
@@ -308,6 +312,116 @@ func (m *tableManager) queryPgColumns(ctx context.Context, filter map[string]int
 		{Name: "is_primary_key", Type: types.ColumnTypeBoolean},
 		{Name: "is_unique", Type: types.ColumnTypeBoolean},
 		{Name: "is_serial", Type: types.ColumnTypeBoolean},
+	}
+	
+	return &types.QueryResult{
+		Columns: columns,
+		Rows:    rows,
+	}, nil
+}
+
+func (m *tableManager) queryPgIndexes(ctx context.Context, filter map[string]interface{}) (*types.QueryResult, error) {
+	tenantID := int64(1)
+	
+	tables, err := m.ListTables(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	
+	rows := make([][]interface{}, 0)
+	for _, table := range tables {
+		// Apply table name filter
+		if filterTableName, ok := filter["tablename"].(string); ok {
+			if table.Name != filterTableName {
+				continue
+			}
+		}
+		
+		tableSchema, err := m.GetTableDefinition(ctx, tenantID, table.Name)
+		if err != nil {
+			continue
+		}
+		
+		// Add row for each index
+		for _, index := range tableSchema.Indexes {
+			row := []interface{}{
+				table.Name,        // tablename
+				index.Name,        // indexname
+				"public",          // schemaname
+				strings.Join(index.Columns, ","), // columnnames
+				index.Unique,      // unique
+				index.Type,        // indextype
+				nil,               // tablespace
+				nil,               // indisprimary
+			}
+			rows = append(rows, row)
+		}
+	}
+	
+	columns := []types.ColumnInfo{
+		{Name: "tablename", Type: types.ColumnTypeText},
+		{Name: "indexname", Type: types.ColumnTypeText},
+		{Name: "schemaname", Type: types.ColumnTypeText},
+		{Name: "columnnames", Type: types.ColumnTypeText},
+		{Name: "unique", Type: types.ColumnTypeBoolean},
+		{Name: "indextype", Type: types.ColumnTypeText},
+		{Name: "tablespace", Type: types.ColumnTypeText},
+		{Name: "indisprimary", Type: types.ColumnTypeBoolean},
+	}
+	
+	return &types.QueryResult{
+		Columns: columns,
+		Rows:    rows,
+	}, nil
+}
+
+func (m *tableManager) queryPgConstraint(ctx context.Context, filter map[string]interface{}) (*types.QueryResult, error) {
+	tenantID := int64(1)
+	
+	tables, err := m.ListTables(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	
+	rows := make([][]interface{}, 0)
+	for _, table := range tables {
+		// Apply table name filter
+		if filterTableName, ok := filter["tablename"].(string); ok {
+			if table.Name != filterTableName {
+				continue
+			}
+		}
+		
+		tableSchema, err := m.GetTableDefinition(ctx, tenantID, table.Name)
+		if err != nil {
+			continue
+		}
+		
+		// Add row for each constraint
+		for _, constraint := range tableSchema.Constraints {
+			row := []interface{}{
+				constraint.Name,              // conname
+				table.Name,                   // tablename
+				"public",                     // schemaname
+				constraint.Type,              // contype
+				strings.Join(constraint.Columns, ","), // columnnames
+				constraint.CheckExpression,   // check_expr
+				nil,                          // foreign_table
+				nil,                          // foreign_columns
+			}
+			rows = append(rows, row)
+		}
+	}
+	
+	columns := []types.ColumnInfo{
+		{Name: "conname", Type: types.ColumnTypeText},
+		{Name: "tablename", Type: types.ColumnTypeText},
+		{Name: "schemaname", Type: types.ColumnTypeText},
+		{Name: "contype", Type: types.ColumnTypeText},
+		{Name: "columnnames", Type: types.ColumnTypeText},
+		{Name: "check_expr", Type: types.ColumnTypeText},
+		{Name: "foreign_table", Type: types.ColumnTypeText},
+		{Name: "foreign_columns", Type: types.ColumnTypeText},
 	}
 	
 	return &types.QueryResult{

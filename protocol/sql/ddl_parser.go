@@ -122,7 +122,40 @@ func (p *DDLParser) parseAlterTable(stmt *pg_query.AlterTableStmt, ddlStmt *DDLS
 	if relation := stmt.GetRelation(); relation != nil {
 		ddlStmt.TableName = relation.GetRelname()
 	}
-
-	// For now, we'll just set the statement type
-	// Full implementation would parse the commands
+	
+	// Parse the commands
+	if cmds := stmt.GetCmds(); cmds != nil {
+		alterCommands := make([]AlterCommand, 0)
+		for _, cmdNode := range cmds {
+			if cmd := cmdNode.GetAlterTableCmd(); cmd != nil {
+				alterCmd := AlterCommand{
+					Action: cmd.GetSubtype(),
+				}
+				
+				// Extract column name if available
+				if name := cmd.GetName(); name != "" {
+					alterCmd.ColumnName = name
+				}
+				
+				// Extract column definition if available
+				if def := cmd.GetDef(); def != nil {
+					if columnDef := def.GetColumnDef(); columnDef != nil {
+						alterCmd.ColumnName = columnDef.GetColname()
+						
+						// Extract column type
+						if typeName := columnDef.GetTypeName(); typeName != nil {
+							if names := typeName.GetNames(); len(names) > 0 {
+								if str := names[len(names)-1].GetString_(); str != nil {
+									alterCmd.ColumnType = strings.ToLower(str.GetSval())
+								}
+							}
+						}
+					}
+				}
+				
+				alterCommands = append(alterCommands, alterCmd)
+			}
+		}
+		ddlStmt.AlterCommands = alterCommands
+	}
 }

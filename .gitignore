@@ -46,9 +46,9 @@ build
 _app
 admin-svelte/.svelte-kit/
 research/
-spec/
 *.tgz
 dist
 .qoder
 server
 vendor
+*.md
