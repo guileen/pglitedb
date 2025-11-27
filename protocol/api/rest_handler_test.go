@@ -12,7 +12,7 @@ import (
 	"github.com/guileen/pglitedb/codec"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/engine"
-	"github.com/guileen/pglitedb/protocol/executor"
+	"github.com/guileen/pglitedb/protocol/sql"
 	"github.com/guileen/pglitedb/catalog"
 	"github.com/guileen/pglitedb/types"
 	"github.com/stretchr/testify/assert"
@@ -28,8 +28,15 @@ func setupTestRESTHandler(t *testing.T) (*RESTHandler, func()) {
 	c := codec.NewMemComparableCodec()
 	eng := engine.NewPebbleEngine(kvStore, c)
 	mgr := catalog.NewTableManager(eng)
-	exec := executor.NewExecutor(mgr, eng)
-	handler := NewRESTHandler(exec)
+	
+	// Create SQL parser and planner with catalog
+	parser := sql.NewPGParser()
+	planner := sql.NewPlannerWithCatalog(parser, mgr)
+	
+	// Get executor from planner
+	exec := planner.Executor()
+	
+	handler := NewRESTHandler(exec, planner)
 
 	schema := &types.TableDefinition{
 		Name:        "users",
@@ -160,8 +167,14 @@ func BenchmarkRESTHandler_Insert(b *testing.B) {
 	c := codec.NewMemComparableCodec()
 	eng := engine.NewPebbleEngine(kvStore, c)
 	mgr := catalog.NewTableManager(eng)
-	exec := executor.NewExecutor(mgr, eng)
-	handler := NewRESTHandler(exec)
+	
+	// Create SQL parser and planner with catalog
+	parser := sql.NewPGParser()
+	planner := sql.NewPlannerWithCatalog(parser, mgr)
+	
+	// Get executor from planner
+	exec := planner.Executor()
+	handler := NewRESTHandler(exec, planner)
 
 	schema := &types.TableDefinition{
 		Name:        "users",
@@ -210,8 +223,14 @@ func BenchmarkRESTHandler_Query(b *testing.B) {
 	c := codec.NewMemComparableCodec()
 	eng := engine.NewPebbleEngine(kvStore, c)
 	mgr := catalog.NewTableManager(eng)
-	exec := executor.NewExecutor(mgr, eng)
-	handler := NewRESTHandler(exec)
+	
+	// Create SQL parser and planner with catalog
+	parser := sql.NewPGParser()
+	planner := sql.NewPlannerWithCatalog(parser, mgr)
+	
+	// Get executor from planner
+	exec := planner.Executor()
+	handler := NewRESTHandler(exec, planner)
 
 	schema := &types.TableDefinition{
 		Name:        "users",

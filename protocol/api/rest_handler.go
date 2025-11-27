@@ -5,19 +5,21 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/guileen/pglitedb/protocol/executor"
-	"github.com/guileen/pglitedb/types"
+	"github.com/guileen/pglitedb/protocol/sql"
 )
 
 type RESTHandler struct {
-	executor executor.QueryExecutor
+	executor *sql.Executor
+	planner  *sql.Planner
 }
 
-func NewRESTHandler(exec executor.QueryExecutor) *RESTHandler {
+func NewRESTHandler(exec *sql.Executor, planner *sql.Planner) *RESTHandler {
 	return &RESTHandler{
 		executor: exec,
+		planner:  planner,
 	}
 }
 
@@ -83,50 +85,84 @@ func (h *RESTHandler) QueryRecords(w http.ResponseWriter, r *http.Request) {
 		req.TenantID = getTenantID(r)
 	}
 
-	orderByClauses := make([]executor.OrderByClause, 0, len(req.OrderBy))
-	for _, field := range req.OrderBy {
-		orderByClauses = append(orderByClauses, executor.OrderByClause{
-			Column: field,
-		})
+	// Generate SQL query
+	var sb strings.Builder
+	sb.WriteString("SELECT ")
+	
+	if len(req.Select) == 0 {
+		sb.WriteString("*")
+	} else {
+		sb.WriteString(strings.Join(req.Select, ", "))
 	}
-
-	selectQuery := &executor.SelectQuery{
-		Columns: req.Select,
-		Where:   convertWhere(req.Where),
-		OrderBy: orderByClauses,
-		Limit:   req.Limit,
-		Offset:  req.Offset,
+	
+	sb.WriteString(fmt.Sprintf(" FROM %s", tableName))
+	
+	// Convert where conditions to SQL WHERE clause
+	if req.Where != nil && len(req.Where) > 0 {
+		sb.WriteString(" WHERE ")
+		whereClauses := make([]string, 0, len(req.Where))
+		for column, value := range req.Where {
+			switch v := value.(type) {
+			case string:
+				whereClauses = append(whereClauses, fmt.Sprintf("%s = '%s'", column, v))
+			case int, int32, int64:
+				whereClauses = append(whereClauses, fmt.Sprintf("%s = %v", column, v))
+			case float32, float64:
+				whereClauses = append(whereClauses, fmt.Sprintf("%s = %v", column, v))
+			case bool:
+				if v {
+					whereClauses = append(whereClauses, fmt.Sprintf("%s = true", column))
+				} else {
+					whereClauses = append(whereClauses, fmt.Sprintf("%s = false", column))
+				}
+			default:
+				whereClauses = append(whereClauses, fmt.Sprintf("%s = '%v'", column, v))
+			}
+		}
+		sb.WriteString(strings.Join(whereClauses, " AND "))
 	}
-
-	query := &executor.Query{
-		Type:      executor.QueryTypeSelect,
-		TableName: tableName,
-		TenantID:  req.TenantID,
-		Select:    selectQuery,
+	
+	// Add ORDER BY clause
+	if len(req.OrderBy) > 0 {
+		sb.WriteString(" ORDER BY ")
+		sb.WriteString(strings.Join(req.OrderBy, ", "))
 	}
-
-	result, err := h.executor.Execute(r.Context(), query)
+	
+	// Add LIMIT and OFFSET clauses
+	if req.Limit > 0 {
+		sb.WriteString(fmt.Sprintf(" LIMIT %d", req.Limit))
+	}
+	
+	if req.Offset > 0 {
+		sb.WriteString(fmt.Sprintf(" OFFSET %d", req.Offset))
+	}
+	
+	sqlQuery := sb.String()
+	
+	resultSet, err := h.executor.Execute(r.Context(), sqlQuery)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 
 	// Convert [][]interface{} to []map[string]interface{} for JSON response
-	rows := make([]map[string]interface{}, len(result.Rows))
-	for i, row := range result.Rows {
+	rows := make([]map[string]interface{}, len(resultSet.Rows))
+	for i, row := range resultSet.Rows {
 		rowMap := make(map[string]interface{})
-		for j, val := range row {
-			if j < len(result.Columns) {
-				rowMap[result.Columns[j].Name] = val
+		for j, col := range resultSet.Columns {
+			if j < len(row) {
+				rowMap[col] = row[j]
+			} else {
+				rowMap[col] = nil
 			}
 		}
 		rows[i] = rowMap
 	}
 
-	response := &QueryResponse{
+	response := QueryResponse{
 		Data:    rows,
-		Count:   int(result.Count),
-		HasMore: result.HasMore,
+		Count:   resultSet.Count,
+		HasMore: false, // Placeholder
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -145,30 +181,48 @@ func (h *RESTHandler) InsertRecord(w http.ResponseWriter, r *http.Request) {
 		req.TenantID = getTenantID(r)
 	}
 
-	convertedValues := make(map[string]*types.Value)
-	for k, v := range req.Data {
-		convertedValues[k] = &types.Value{Data: v}
+	// Convert data map to SQL INSERT statement
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("INSERT INTO %s (", tableName))
+	
+	columns := make([]string, 0, len(req.Data))
+	values := make([]string, 0, len(req.Data))
+	
+	for column, value := range req.Data {
+		columns = append(columns, column)
+		switch v := value.(type) {
+		case string:
+			values = append(values, fmt.Sprintf("'%s'", v))
+		case int, int32, int64:
+			values = append(values, fmt.Sprintf("%v", v))
+		case float32, float64:
+			values = append(values, fmt.Sprintf("%v", v))
+		case bool:
+			if v {
+				values = append(values, "true")
+			} else {
+				values = append(values, "false")
+			}
+		default:
+			values = append(values, fmt.Sprintf("'%v'", v))
+		}
 	}
-
-	insertQuery := &executor.InsertQuery{
-		Values: convertedValues,
-	}
-
-	query := &executor.Query{
-		Type:      executor.QueryTypeInsert,
-		TableName: tableName,
-		TenantID:  req.TenantID,
-		Insert:    insertQuery,
-	}
-
-	result, err := h.executor.Execute(r.Context(), query)
+	
+	sb.WriteString(strings.Join(columns, ", "))
+	sb.WriteString(") VALUES (")
+	sb.WriteString(strings.Join(values, ", "))
+	sb.WriteString(")")
+	
+	sqlQuery := sb.String()
+	
+	resultSet, err := h.executor.Execute(r.Context(), sqlQuery)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 
-	response := &InsertResponse{
-		RowID: result.Count,
+	response := InsertResponse{
+		RowID: resultSet.LastInsertID,
 		Data:  req.Data,
 	}
 
@@ -177,13 +231,7 @@ func (h *RESTHandler) InsertRecord(w http.ResponseWriter, r *http.Request) {
 
 func (h *RESTHandler) UpdateRecord(w http.ResponseWriter, r *http.Request) {
 	tableName := chi.URLParam(r, "table")
-	rowIDStr := chi.URLParam(r, "rowID")
-
-	rowID, err := strconv.ParseInt(rowIDStr, 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid row ID: %w", err))
-		return
-	}
+	rowID := chi.URLParam(r, "rowID")
 
 	var req UpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -195,156 +243,141 @@ func (h *RESTHandler) UpdateRecord(w http.ResponseWriter, r *http.Request) {
 		req.TenantID = getTenantID(r)
 	}
 
-	convertedValues := make(map[string]*types.Value)
-	for k, v := range req.Data {
-		convertedValues[k] = &types.Value{Data: v}
+	// Generate SQL UPDATE statement
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("UPDATE %s SET ", tableName))
+	
+	// Convert data map to SET clause
+	setClauses := make([]string, 0, len(req.Data))
+	for column, value := range req.Data {
+		switch v := value.(type) {
+		case string:
+			setClauses = append(setClauses, fmt.Sprintf("%s = '%s'", column, v))
+		case int, int32, int64:
+			setClauses = append(setClauses, fmt.Sprintf("%s = %v", column, v))
+		case float32, float64:
+			setClauses = append(setClauses, fmt.Sprintf("%s = %v", column, v))
+		case bool:
+			if v {
+				setClauses = append(setClauses, fmt.Sprintf("%s = true", column))
+			} else {
+				setClauses = append(setClauses, fmt.Sprintf("%s = false", column))
+			}
+		default:
+			setClauses = append(setClauses, fmt.Sprintf("%s = '%v'", column, v))
+		}
 	}
-
-	updateQuery := &executor.UpdateQuery{
-		Where: []executor.Filter{
-			{Column: "__rowid__", Operator: executor.OpEqual, Value: rowID},
-		},
-		Values: convertedValues,
-	}
-
-	query := &executor.Query{
-		Type:      executor.QueryTypeUpdate,
-		TableName: tableName,
-		TenantID:  req.TenantID,
-		Update:    updateQuery,
-	}
-
-	result, err := h.executor.Execute(r.Context(), query)
+	
+	sb.WriteString(strings.Join(setClauses, ", "))
+	sb.WriteString(fmt.Sprintf(" WHERE id = %s", rowID))
+	
+	sqlQuery := sb.String()
+	
+	resultSet, err := h.executor.Execute(r.Context(), sqlQuery)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"updated": result.Count,
-		"data":    req.Data,
-	})
+	response := map[string]interface{}{
+		"updated_rows": resultSet.Count,
+		"data":         req.Data,
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *RESTHandler) DeleteRecord(w http.ResponseWriter, r *http.Request) {
 	tableName := chi.URLParam(r, "table")
-	rowIDStr := chi.URLParam(r, "rowID")
+	rowID := chi.URLParam(r, "rowID")
 
-	rowID, err := strconv.ParseInt(rowIDStr, 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid row ID: %w", err))
-		return
+	var req DeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// If no body, use query params or default
+		req.TenantID = getTenantID(r)
 	}
 
-	tenantID := getTenantID(r)
-
-	deleteQuery := &executor.DeleteQuery{
-		Where: []executor.Filter{
-			{Column: "__rowid__", Operator: executor.OpEqual, Value: rowID},
-		},
+	if req.TenantID == 0 {
+		req.TenantID = getTenantID(r)
 	}
 
-	query := &executor.Query{
-		Type:      executor.QueryTypeDelete,
-		TableName: tableName,
-		TenantID:  tenantID,
-		Delete:    deleteQuery,
-	}
-
-	result, err := h.executor.Execute(r.Context(), query)
+	// Generate SQL DELETE statement
+	sqlQuery := fmt.Sprintf("DELETE FROM %s WHERE id = %s", tableName, rowID)
+	
+	resultSet, err := h.executor.Execute(r.Context(), sqlQuery)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"deleted": result.Count,
-	})
+	response := map[string]interface{}{
+		"deleted_rows": resultSet.Count,
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *RESTHandler) GetRecord(w http.ResponseWriter, r *http.Request) {
 	tableName := chi.URLParam(r, "table")
-	rowIDStr := chi.URLParam(r, "rowID")
+	rowID := chi.URLParam(r, "rowID")
 
-	rowID, err := strconv.ParseInt(rowIDStr, 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid row ID: %w", err))
-		return
-	}
-
-	tenantID := getTenantID(r)
-
-	selectQuery := &executor.SelectQuery{
-		Where: []executor.Filter{
-			{Column: "__rowid__", Operator: executor.OpEqual, Value: rowID},
-		},
-		Limit: 1,
-	}
-
-	query := &executor.Query{
-		Type:      executor.QueryTypeSelect,
-		TableName: tableName,
-		TenantID:  tenantID,
-		Select:    selectQuery,
-	}
-
-	result, err := h.executor.Execute(r.Context(), query)
+	// Generate SQL SELECT statement
+	sqlQuery := fmt.Sprintf("SELECT * FROM %s WHERE id = %s", tableName, rowID)
+	
+	resultSet, err := h.executor.Execute(r.Context(), sqlQuery)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 
-	if len(result.Rows) == 0 {
+	if len(resultSet.Rows) == 0 {
 		writeError(w, http.StatusNotFound, fmt.Errorf("record not found"))
 		return
 	}
 
-	recordData := result.Rows[0]
-
-	writeJSON(w, http.StatusOK, recordData)
-}
-
-func convertWhere(where map[string]interface{}) []executor.Filter {
-	if where == nil {
-		return nil
-	}
-
-	filters := make([]executor.Filter, 0, len(where))
-	for field, value := range where {
-		filters = append(filters, executor.Filter{
-			Column:   field,
-			Operator: executor.OpEqual,
-			Value:    value,
-		})
-	}
-	return filters
-}
-
-func getTenantID(r *http.Request) int64 {
-	if tenantIDStr := r.Header.Get("X-Tenant-ID"); tenantIDStr != "" {
-		if tenantID, err := strconv.ParseInt(tenantIDStr, 10, 64); err == nil {
-			return tenantID
+	// Convert first row to map
+	rowMap := make(map[string]interface{})
+	row := resultSet.Rows[0]
+	for j, col := range resultSet.Columns {
+		if j < len(row) {
+			rowMap[col] = row[j]
+		} else {
+			rowMap[col] = nil
 		}
 	}
 
-	return 1
+	writeJSON(w, http.StatusOK, rowMap)
 }
 
-func getIntQueryParam(r *http.Request, param string, defaultValue int) int {
-	if value := r.URL.Query().Get(param); value != "" {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
-		}
-	}
-	return defaultValue
-}
-
-func writeJSON(w http.ResponseWriter, status int, data interface{}) {
+// Helper functions
+func writeJSON(w http.ResponseWriter, statusCode int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
+	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(data)
 }
 
-func writeError(w http.ResponseWriter, status int, err error) {
-	writeJSON(w, status, &ErrorResponse{Error: err.Error()})
+func writeError(w http.ResponseWriter, statusCode int, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
+}
+
+func getTenantID(r *http.Request) int64 {
+	// In a real implementation, this would extract tenant ID from auth context
+	// For now, we'll use a default tenant ID
+	return 1
+}
+
+func getIntQueryParam(r *http.Request, key string, defaultValue int) int {
+	valueStr := r.URL.Query().Get(key)
+	if valueStr == "" {
+		return defaultValue
+	}
+	
+	value, err := strconv.Atoi(valueStr)
+	if err != nil {
+		return defaultValue
+	}
+	
+	return value
 }

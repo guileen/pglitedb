@@ -3,6 +3,7 @@ package engine
 
 import (
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	
@@ -21,7 +22,7 @@ type BufferPoolStats struct {
 	Acquired      uint64
 	Released      uint64
 	Allocated     uint64
-	HitRate       float64
+	HitRate       uint64  // Stored as integer scaled by 1000000 for atomic operations
 	AvgBufferSize uint64
 }
 
@@ -33,10 +34,10 @@ type ResultSetPool struct {
 
 // ResultSetPoolStats contains statistics about ResultSet pool usage
 type ResultSetPoolStats struct {
-	Acquired uint64
-	Released uint64
+	Acquired  uint64
+	Released  uint64
 	Allocated uint64
-	HitRate  float64
+	HitRate   uint64 // Stored as integer scaled by 1000000 for atomic operations
 }
 
 // NewBufferPool creates a new buffer pool with predefined size classes
@@ -79,7 +80,9 @@ func (bp *BufferPool) AcquireBuffer(size int) []byte {
 	allocated := atomic.LoadUint64(&bp.stats.Allocated)
 	if acquired > 0 {
 		hitRate := float64(acquired-allocated) / float64(acquired)
-		atomic.StoreUint64((*uint64)(&bp.stats.HitRate), uint64(hitRate*1000000)) // Store as integer for atomic operations
+		// Store hit rate as integer scaled by 1000000 for atomic operations
+		hitRateInt := uint64(hitRate * 1000000)
+		atomic.StoreUint64((*uint64)(&bp.stats.HitRate), hitRateInt)
 	}
 	
 	return buf
@@ -97,7 +100,8 @@ func (bp *BufferPool) ReleaseBuffer(buf []byte) {
 	acquired := atomic.LoadUint64(&bp.stats.Acquired)
 	if released%1000 == 0 && acquired > 0 {
 		// If hit rate is low, suggest GC
-		hitRate := float64(atomic.LoadUint64((*uint64)(&bp.stats.HitRate))) / 1000000.0
+		hitRateInt := atomic.LoadUint64(&bp.stats.HitRate)
+		hitRate := float64(hitRateInt) / 1000000.0
 		if hitRate < 0.7 { // Less than 70% hit rate
 			runtime.GC() // Proactive GC tuning
 		}
@@ -127,7 +131,7 @@ func (bp *BufferPool) Stats() BufferPoolStats {
 		Acquired:      atomic.LoadUint64(&bp.stats.Acquired),
 		Released:      atomic.LoadUint64(&bp.stats.Released),
 		Allocated:     atomic.LoadUint64(&bp.stats.Allocated),
-		HitRate:       float64(atomic.LoadUint64((*uint64)(&bp.stats.HitRate))) / 1000000.0,
+		HitRate:       atomic.LoadUint64(&bp.stats.HitRate),
 		AvgBufferSize: atomic.LoadUint64(&bp.stats.AvgBufferSize),
 	}
 }
@@ -168,7 +172,9 @@ func (rsp *ResultSetPool) AcquireResultSet() *types.ResultSet {
 	allocated := atomic.LoadUint64(&rsp.stats.Allocated)
 	if acquired > 0 {
 		hitRate := float64(acquired-allocated) / float64(acquired)
-		rsp.stats.HitRate = hitRate
+		// Store hit rate as integer scaled by 1000000 for atomic operations
+		hitRateInt := uint64(hitRate * 1000000)
+		atomic.StoreUint64(&rsp.stats.HitRate, hitRateInt)
 	}
 	
 	return rs
@@ -196,7 +202,7 @@ func (rsp *ResultSetPool) Stats() ResultSetPoolStats {
 		Acquired:  atomic.LoadUint64(&rsp.stats.Acquired),
 		Released:  atomic.LoadUint64(&rsp.stats.Released),
 		Allocated: atomic.LoadUint64(&rsp.stats.Allocated),
-		HitRate:   rsp.stats.HitRate,
+		HitRate:   atomic.LoadUint64(&rsp.stats.HitRate),
 	}
 }
 
@@ -270,16 +276,16 @@ func (mm *MemoryManager) TuneGC() {
 	bufferHitRate := mm.bufferPool.Stats().HitRate
 	resultSetHitRate := mm.resultSetPool.Stats().HitRate
 	
-	currentTarget := runtime.GCPercent()
+	currentTarget := debug.SetGCPercent(-1) // Get current setting
 	newTarget := currentTarget
 	
-	if bufferHitRate > 0.8 && resultSetHitRate > 0.8 {
+	if bufferHitRate > 800000 && resultSetHitRate > 800000 {
 		// High hit rates mean we're reusing objects well, can afford more aggressive GC
 		newTarget = currentTarget - 5
 		if newTarget < 20 {
 			newTarget = 20 // Minimum 20%
 		}
-	} else if bufferHitRate < 0.5 || resultSetHitRate < 0.5 {
+	} else if bufferHitRate < 500000 || resultSetHitRate < 500000 {
 		// Low hit rates mean we're allocating more, need to GC less frequently
 		newTarget = currentTarget + 10
 		if newTarget > 100 {
@@ -288,6 +294,6 @@ func (mm *MemoryManager) TuneGC() {
 	}
 	
 	if newTarget != currentTarget {
-		runtime.SetGCPercent(newTarget)
+		debug.SetGCPercent(newTarget)
 	}
 }

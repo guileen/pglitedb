@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/guileen/pglitedb/catalog"
 	"github.com/guileen/pglitedb/codec"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/engine"
@@ -63,9 +64,21 @@ func createTestSchema() *types.TableDefinition {
 }
 
 func TestIntegration_SQLWithIndexes(t *testing.T) {
+	eng, cleanup := setupTestEngine(t)
+	defer cleanup()
+	mgr := catalog.NewTableManager(eng)
+	
+	// Create test table
+	ctx := context.Background()
+	schema := createTestSchema()
+	err := mgr.CreateTable(ctx, 1, schema)
+	if err != nil {
+		t.Fatalf("Failed to create test table: %v", err)
+	}
+	
 	parser := NewPGParser()
-	planner := NewPlanner(parser)
-	executor := NewExecutor(planner)
+	planner := NewPlannerWithCatalog(parser, mgr)
+	executor := NewExecutorWithCatalog(planner, mgr)
 
 	// Test 1: Simple SELECT with index lookup (testing query parsing and planning)
 	t.Run("SelectWithIndex", func(t *testing.T) {
@@ -187,9 +200,21 @@ func TestIntegration_SQLWithIndexes(t *testing.T) {
 
 func TestIntegration_TransactionsWithIsolationLevels(t *testing.T) {
 	// Create SQL executor
+	eng, cleanup := setupTestEngine(t)
+	defer cleanup()
+	mgr := catalog.NewTableManager(eng)
+	
+	// Create test table
+	ctx := context.Background()
+	schema := createTestSchema()
+	err := mgr.CreateTable(ctx, 1, schema)
+	if err != nil {
+		t.Fatalf("Failed to create test table: %v", err)
+	}
+	
 	parser := NewPGParser()
-	planner := NewPlanner(parser)
-	executor := NewExecutor(planner)
+	planner := NewPlannerWithCatalog(parser, mgr)
+	executor := NewExecutorWithCatalog(planner, mgr)
 
 	// Test 1: Validate transaction-related SQL statements can be parsed
 	t.Run("TransactionStatements", func(t *testing.T) {
@@ -270,9 +295,21 @@ func TestIntegration_TransactionsWithIsolationLevels(t *testing.T) {
 
 func TestIntegration_AdvancedDataTypesInSQL(t *testing.T) {
 	// Create SQL executor
+	eng, cleanup := setupTestEngine(t)
+	defer cleanup()
+	mgr := catalog.NewTableManager(eng)
+	
+	// Create test table
+	ctx := context.Background()
+	schema := createTestSchema()
+	err := mgr.CreateTable(ctx, 1, schema)
+	if err != nil {
+		t.Fatalf("Failed to create test table: %v", err)
+	}
+	
 	parser := NewPGParser()
-	planner := NewPlanner(parser)
-	executor := NewExecutor(planner)
+	planner := NewPlannerWithCatalog(parser, mgr)
+	executor := NewExecutorWithCatalog(planner, mgr)
 
 	// Test 1: Query with JSON-like data in conditions
 	t.Run("QueryWithJSONData", func(t *testing.T) {
@@ -379,9 +416,21 @@ func TestIntegration_AdvancedDataTypesInSQL(t *testing.T) {
 
 func TestIntegration_ComplexScenarios(t *testing.T) {
 	// Create SQL executor
+	eng, cleanup := setupTestEngine(t)
+	defer cleanup()
+	mgr := catalog.NewTableManager(eng)
+	
+	// Create test table
+	ctx := context.Background()
+	schema := createTestSchema()
+	err := mgr.CreateTable(ctx, 1, schema)
+	if err != nil {
+		t.Fatalf("Failed to create test table: %v", err)
+	}
+	
 	parser := NewPGParser()
-	planner := NewPlanner(parser)
-	executor := NewExecutor(planner)
+	planner := NewPlannerWithCatalog(parser, mgr)
+	executor := NewExecutorWithCatalog(planner, mgr)
 
 	// Test 1: Multi-condition query with index usage
 	t.Run("MultiConditionWithIndex", func(t *testing.T) {

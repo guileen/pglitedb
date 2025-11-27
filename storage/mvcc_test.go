@@ -3,8 +3,6 @@ package storage
 import (
 	"testing"
 	"time"
-
-	"github.com/guileen/pglitedb/storage/shared"
 )
 
 func TestMVCCStorage_EncodeDecodeKey(t *testing.T) {

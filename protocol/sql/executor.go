@@ -17,13 +17,6 @@ type Executor struct {
 	pipeline *QueryPipeline
 }
 
-type ResultSet struct {
-	Columns      []string
-	Rows         [][]interface{}
-	Count        int
-	LastInsertID int64
-}
-
 // GetCatalog returns the catalog manager
 func (e *Executor) GetCatalog() catalog.Manager {
 	return e.catalog
@@ -47,7 +40,7 @@ func NewExecutorWithCatalog(planner *Planner, catalog catalog.Manager) *Executor
 	return exec
 }
 
-func (e *Executor) Execute(ctx context.Context, query string) (*ResultSet, error) {
+func (e *Executor) Execute(ctx context.Context, query string) (*types.ResultSet, error) {
 	// Use pooled ResultSet instead of allocating new one each time
 	// result := types.AcquireResultSet()
 	// defer func() {
@@ -100,7 +93,7 @@ func (e *Executor) Execute(ctx context.Context, query string) (*ResultSet, error
 	return nil, fmt.Errorf("unhandled statement type: %v", parsed.Type)
 }
 
-func (e *Executor) executeDDL(ctx context.Context, query string) (*ResultSet, error) {
+func (e *Executor) executeDDL(ctx context.Context, query string) (*types.ResultSet, error) {
 	// Parse the DDL statement
 	ddlParser := NewDDLParser()
 	ddlStmt, err := ddlParser.Parse(query)
@@ -128,7 +121,7 @@ func (e *Executor) executeDDL(ctx context.Context, query string) (*ResultSet, er
 		return e.executeAnalyze(ctx, query)
 	default:
 		// For unsupported DDL operations, return a successful result
-		return &ResultSet{
+		return &types.ResultSet{
 			Columns: []string{},
 			Rows:    [][]interface{}{},
 			Count:   0,
@@ -136,7 +129,7 @@ func (e *Executor) executeDDL(ctx context.Context, query string) (*ResultSet, er
 	}
 }
 
-func (e *Executor) executeSelect(ctx context.Context, plan *Plan) (*ResultSet, error) {
+func (e *Executor) executeSelect(ctx context.Context, plan *Plan) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -181,7 +174,7 @@ func (e *Executor) executeSelect(ctx context.Context, plan *Plan) (*ResultSet, e
 	}
 
 	// Use pooled ResultSet for better memory management
-	result := AcquireResultSet()
+	result := types.AcquireExecutorResultSet()
 	result.Columns = make([]string, len(plan.Fields))
 	copy(result.Columns, plan.Fields)
 	result.Rows = make([][]interface{}, len(queryResult.Rows))
@@ -191,7 +184,7 @@ func (e *Executor) executeSelect(ctx context.Context, plan *Plan) (*ResultSet, e
 	return result, nil
 }
 
-func (e *Executor) ExecuteParsed(ctx context.Context, parsed *ParsedQuery) (*ResultSet, error) {
+func (e *Executor) ExecuteParsed(ctx context.Context, parsed *ParsedQuery) (*types.ResultSet, error) {
 	plan, err := e.planner.CreatePlan(parsed.Query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create execution plan: %w", err)
@@ -241,7 +234,7 @@ func isSystemTable(tableName string) bool {
 	return false
 }
 
-func (e *Executor) executeSystemTableQuery(ctx context.Context, plan *Plan) (*ResultSet, error) {
+func (e *Executor) executeSystemTableQuery(ctx context.Context, plan *Plan) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -296,13 +289,15 @@ func (e *Executor) executeSystemTableQuery(ctx context.Context, plan *Plan) (*Re
 		}
 	}
 	
+	// Use QuerySystemTable with default tenant ID 1
+	// In a full implementation, the tenant ID should be extracted from context or request
 	queryResult, err := e.catalog.QuerySystemTable(ctx, fullTableName, filter)
 	if err != nil {
 		return nil, fmt.Errorf("system table query failed for '%s': %w", fullTableName, err)
 	}
 	
 	if len(queryResult.Columns) == 0 {
-		return &ResultSet{
+		return &types.ResultSet{
 			Columns: []string{},
 			Rows:    [][]interface{}{},
 			Count:   0,
@@ -314,7 +309,7 @@ func (e *Executor) executeSystemTableQuery(ctx context.Context, plan *Plan) (*Re
 		columnNames[i] = col.Name
 	}
 	
-	result := &ResultSet{
+	result := &types.ResultSet{
 		Columns: columnNames,
 		Rows:    queryResult.Rows,
 		Count:   len(queryResult.Rows),
@@ -323,7 +318,7 @@ func (e *Executor) executeSystemTableQuery(ctx context.Context, plan *Plan) (*Re
 	return result, nil
 }
 
-func (e *Executor) executeInsert(ctx context.Context, plan *Plan) (*ResultSet, error) {
+func (e *Executor) executeInsert(ctx context.Context, plan *Plan) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -337,7 +332,7 @@ func (e *Executor) executeInsert(ctx context.Context, plan *Plan) (*ResultSet, e
 		return nil, err
 	}
 	
-	return &ResultSet{
+	return &types.ResultSet{
 		Columns:      []string{},
 		Rows:         [][]interface{}{},
 		Count:        1,
@@ -345,7 +340,7 @@ func (e *Executor) executeInsert(ctx context.Context, plan *Plan) (*ResultSet, e
 	}, nil
 }
 
-func (e *Executor) executeUpdate(ctx context.Context, plan *Plan) (*ResultSet, error) {
+func (e *Executor) executeUpdate(ctx context.Context, plan *Plan) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -367,14 +362,14 @@ func (e *Executor) executeUpdate(ctx context.Context, plan *Plan) (*ResultSet, e
 		return nil, err
 	}
 	
-	return &ResultSet{
+	return &types.ResultSet{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
 		Count:   int(affected),
 	}, nil
 }
 
-func (e *Executor) executeDelete(ctx context.Context, plan *Plan) (*ResultSet, error) {
+func (e *Executor) executeDelete(ctx context.Context, plan *Plan) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -393,47 +388,47 @@ func (e *Executor) executeDelete(ctx context.Context, plan *Plan) (*ResultSet, e
 		return nil, err
 	}
 	
-	return &ResultSet{
+	return &types.ResultSet{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
 		Count:   int(affected),
 	}, nil
 }
 
-func (e *Executor) executeRollback(ctx context.Context) (*ResultSet, error) {
+func (e *Executor) executeRollback(ctx context.Context) (*types.ResultSet, error) {
 	// For now, we'll just update the transaction state
 	// In a full implementation, we would rollback the transaction in the storage engine
 	e.inTransaction = false
-	return &ResultSet{
+	return &types.ResultSet{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
 		Count:   0,
 	}, nil
 }
 
-func (e *Executor) executeCommit(ctx context.Context) (*ResultSet, error) {
+func (e *Executor) executeCommit(ctx context.Context) (*types.ResultSet, error) {
 	// For now, we'll just update the transaction state
 	// In a full implementation, we would commit the transaction in the storage engine
 	e.inTransaction = false
-	return &ResultSet{
+	return &types.ResultSet{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
 		Count:   0,
 	}, nil
 }
 
-func (e *Executor) executeBegin(ctx context.Context) (*ResultSet, error) {
+func (e *Executor) executeBegin(ctx context.Context) (*types.ResultSet, error) {
 	// For now, we'll just update the transaction state
 	// In a full implementation, we would begin a transaction in the storage engine
 	e.inTransaction = true
-	return &ResultSet{
+	return &types.ResultSet{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
 		Count:   0,
 	}, nil
 }
 
-func (e *Executor) executeAnalyze(ctx context.Context, query string) (*ResultSet, error) {
+func (e *Executor) executeAnalyze(ctx context.Context, query string) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -461,7 +456,7 @@ func (e *Executor) executeAnalyze(ctx context.Context, query string) (*ResultSet
 	if analyzeStmt.AllTables {
 		// For now, we'll return a success message
 		// In a full implementation, we would analyze all tables
-		return &ResultSet{
+		return &types.ResultSet{
 			Columns: []string{"message"},
 			Rows:    [][]interface{}{{"ANALYZE completed for all tables"}},
 			Count:   1,
@@ -521,14 +516,14 @@ func (e *Executor) executeAnalyze(ctx context.Context, query string) (*ResultSet
 			}
 		}
 		
-		return &ResultSet{
+		return &types.ResultSet{
 			Columns: []string{"message"},
 			Rows:    [][]interface{}{{fmt.Sprintf("ANALYZE completed for table %s", analyzeStmt.TableName)}},
 			Count:   1,
 		}, nil
 	}
 	
-	return &ResultSet{
+	return &types.ResultSet{
 		Columns: []string{"message"},
 		Rows:    [][]interface{}{{"ANALYZE completed"}},
 		Count:   1,
@@ -536,7 +531,7 @@ func (e *Executor) executeAnalyze(ctx context.Context, query string) (*ResultSet
 }
 
 // executeCreateTable handles CREATE TABLE statements
-func (e *Executor) executeCreateTable(ctx context.Context, ddlStmt *DDLStatement) (*ResultSet, error) {
+func (e *Executor) executeCreateTable(ctx context.Context, ddlStmt *DDLStatement) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -574,7 +569,7 @@ func (e *Executor) executeCreateTable(ctx context.Context, ddlStmt *DDLStatement
 		return nil, fmt.Errorf("failed to create table: %w", err)
 	}
 
-	return &ResultSet{
+	return &types.ResultSet{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
 		Count:   0,
@@ -582,7 +577,7 @@ func (e *Executor) executeCreateTable(ctx context.Context, ddlStmt *DDLStatement
 }
 
 // executeCreateIndex handles CREATE INDEX statements
-func (e *Executor) executeCreateIndex(ctx context.Context, ddlStmt *DDLStatement) (*ResultSet, error) {
+func (e *Executor) executeCreateIndex(ctx context.Context, ddlStmt *DDLStatement) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -600,7 +595,7 @@ func (e *Executor) executeCreateIndex(ctx context.Context, ddlStmt *DDLStatement
 		return nil, fmt.Errorf("failed to create index: %w", err)
 	}
 
-	return &ResultSet{
+	return &types.ResultSet{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
 		Count:   0,
@@ -608,7 +603,7 @@ func (e *Executor) executeCreateIndex(ctx context.Context, ddlStmt *DDLStatement
 }
 
 // executeDropTable handles DROP TABLE statements
-func (e *Executor) executeDropTable(ctx context.Context, ddlStmt *DDLStatement) (*ResultSet, error) {
+func (e *Executor) executeDropTable(ctx context.Context, ddlStmt *DDLStatement) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -619,7 +614,7 @@ func (e *Executor) executeDropTable(ctx context.Context, ddlStmt *DDLStatement) 
 		// If IF EXISTS is specified, ignore table not found errors
 		if ddlStmt.IfExists && err == types.ErrTableNotFound {
 			// Table doesn't exist, but IF EXISTS was specified, so this is not an error
-			return &ResultSet{
+			return &types.ResultSet{
 				Columns: []string{},
 				Rows:    [][]interface{}{},
 				Count:   0,
@@ -628,7 +623,7 @@ func (e *Executor) executeDropTable(ctx context.Context, ddlStmt *DDLStatement) 
 		return nil, fmt.Errorf("failed to drop table: %w", err)
 	}
 
-	return &ResultSet{
+	return &types.ResultSet{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
 		Count:   0,
@@ -636,7 +631,7 @@ func (e *Executor) executeDropTable(ctx context.Context, ddlStmt *DDLStatement) 
 }
 
 // executeDropIndex handles DROP INDEX statements
-func (e *Executor) executeDropIndex(ctx context.Context, ddlStmt *DDLStatement) (*ResultSet, error) {
+func (e *Executor) executeDropIndex(ctx context.Context, ddlStmt *DDLStatement) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -646,7 +641,7 @@ func (e *Executor) executeDropIndex(ctx context.Context, ddlStmt *DDLStatement) 
 		return nil, fmt.Errorf("failed to drop index: %w", err)
 	}
 
-	return &ResultSet{
+	return &types.ResultSet{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
 		Count:   0,
@@ -654,14 +649,14 @@ func (e *Executor) executeDropIndex(ctx context.Context, ddlStmt *DDLStatement) 
 }
 
 // executeAlterTable handles ALTER TABLE statements
-func (e *Executor) executeAlterTable(ctx context.Context, ddlStmt *DDLStatement) (*ResultSet, error) {
+func (e *Executor) executeAlterTable(ctx context.Context, ddlStmt *DDLStatement) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
 
 	// For now, we'll just return a successful result
 	// In a full implementation, we would handle the ALTER TABLE commands
-	return &ResultSet{
+	return &types.ResultSet{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
 		Count:   0,
@@ -669,7 +664,7 @@ func (e *Executor) executeAlterTable(ctx context.Context, ddlStmt *DDLStatement)
 }
 
 // executeCreateView handles CREATE VIEW statements
-func (e *Executor) executeCreateView(ctx context.Context, ddlStmt *DDLStatement) (*ResultSet, error) {
+func (e *Executor) executeCreateView(ctx context.Context, ddlStmt *DDLStatement) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -679,7 +674,7 @@ func (e *Executor) executeCreateView(ctx context.Context, ddlStmt *DDLStatement)
 		return nil, fmt.Errorf("failed to create view: %w", err)
 	}
 
-	return &ResultSet{
+	return &types.ResultSet{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
 		Count:   0,
@@ -687,7 +682,7 @@ func (e *Executor) executeCreateView(ctx context.Context, ddlStmt *DDLStatement)
 }
 
 // executeDropView handles DROP VIEW statements
-func (e *Executor) executeDropView(ctx context.Context, ddlStmt *DDLStatement) (*ResultSet, error) {
+func (e *Executor) executeDropView(ctx context.Context, ddlStmt *DDLStatement) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -697,7 +692,7 @@ func (e *Executor) executeDropView(ctx context.Context, ddlStmt *DDLStatement) (
 		return nil, fmt.Errorf("failed to drop view: %w", err)
 	}
 
-	return &ResultSet{
+	return &types.ResultSet{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
 		Count:   0,

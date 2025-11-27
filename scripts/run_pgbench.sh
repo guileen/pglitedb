@@ -2,29 +2,25 @@
 
 # Script to run pgbench tests with proper table initialization
 
+# Exit on any error
 set -e
 
 # Configuration
-PG_HOST="localhost"
-PG_PORT="${PG_PORT:-5666}"
-PG_USER="${USER}"
-DB_NAME="postgres"
-TEST_DURATION=3
-
-echo "Running pgbench tests..."
+DB_NAME="pgbench_test"
+DB_HOST="localhost"
+DB_PORT="5432"
+DB_USER="postgres"
 
 # Create database if it doesn't exist
-echo "Creating database if not exists..."
-createdb -h $PG_HOST -p $PG_PORT -U $PG_USER $DB_NAME 2>/dev/null || true
+echo "Creating database $DB_NAME if it doesn't exist..."
+createdb -h $DB_HOST -p $DB_PORT -U $DB_USER $DB_NAME || true
 
 # Initialize pgbench tables
 echo "Initializing pgbench tables..."
-pgbench -i -h $PG_HOST -p $PG_PORT -U $PG_USER $DB_NAME
+pgbench -h $DB_HOST -p $DB_PORT -U $DB_USER -i $DB_NAME
 
-# Run benchmark
-echo "Running benchmark for ${TEST_DURATION} seconds..."
-TIMESTAMP=$(date +%s)
-mkdir -p bench
-pgbench -h $PG_HOST -p $PG_PORT -U $PG_USER $DB_NAME -T $TEST_DURATION > bench/$TIMESTAMP.json 2>&1
+# Run pgbench test
+echo "Running pgbench test..."
+pgbench -h $DB_HOST -p $DB_PORT -U $DB_USER -c 10 -j 2 -t 1000 $DB_NAME
 
-echo "Benchmark completed. Results saved to bench/$TIMESTAMP.json"
+echo "pgbench test completed successfully!"

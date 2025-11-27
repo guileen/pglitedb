@@ -8,6 +8,7 @@ import (
 
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 	"github.com/guileen/pglitedb/catalog"
+	"github.com/guileen/pglitedb/types"
 )
 
 // Plan represents a query execution plan
@@ -74,11 +75,16 @@ func NewPlannerWithCatalog(parser Parser, catalogMgr catalog.Manager) *Planner {
 }
 
 // Execute executes a SQL query and returns the result
-func (p *Planner) Execute(ctx context.Context, query string) (*ResultSet, error) {
+func (p *Planner) Execute(ctx context.Context, query string) (*types.ResultSet, error) {
 	if p.executor != nil {
 		return p.executor.Execute(ctx, query)
 	}
 	return nil, fmt.Errorf("executor not initialized")
+}
+
+// Executor returns the executor associated with this planner
+func (p *Planner) Executor() *Executor {
+	return p.executor
 }
 
 // SetCatalog sets the catalog manager for the executor
@@ -389,18 +395,10 @@ func (p *Planner) extractConditionsFromExpr(expr *pg_query.Node) []Condition {
 	return conditions
 }
 
-// extractInsertInfoFromPGNode extracts table name for INSERT statements from pg_query AST
-func (p *Planner) extractInsertInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
-	insertStmt := stmt.GetInsertStmt()
-	if insertStmt == nil {
-		return
-	}
-	
-	// Extract table name
-	if relation := insertStmt.GetRelation(); relation != nil {
-		plan.Table = relation.GetRelname()
-	}
-}
+
+
+
+
 
 // extractUpdateInfoFromPGNode extracts table name, values, and conditions for UPDATE statements from pg_query AST
 func (p *Planner) extractUpdateInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
@@ -450,6 +448,70 @@ func (p *Planner) extractUpdateInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 	if whereClause := updateStmt.GetWhereClause(); whereClause != nil {
 		conditions := p.extractConditionsFromExpr(whereClause)
 		plan.Conditions = conditions
+	}
+}
+
+
+// extractInsertInfoFromPGNode extracts table name and values for INSERT statements from pg_query AST
+func (p *Planner) extractInsertInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
+	insertStmt := stmt.GetInsertStmt()
+	if insertStmt == nil {
+		return
+	}
+	
+	// Extract table name
+	if relation := insertStmt.GetRelation(); relation != nil {
+		plan.Table = relation.GetRelname()
+	}
+	
+	// Extract column names
+	var columns []string
+	if insertStmt.GetCols() != nil {
+		for _, col := range insertStmt.GetCols() {
+			if resTarget := col.GetResTarget(); resTarget != nil {
+				columns = append(columns, resTarget.GetName())
+			}
+		}
+	}
+	
+	// Extract values
+	if selectStmt := insertStmt.GetSelectStmt(); selectStmt != nil {
+		// Handle VALUES clause
+		if valuesLists := selectStmt.GetNode().(*pg_query.Node_SelectStmt).SelectStmt.GetValuesLists(); valuesLists != nil && len(valuesLists) > 0 {
+			if rows := valuesLists[0]; rows != nil {
+				values := make(map[string]interface{})
+				// Get the first row of values (assuming single row insert)
+				if list := rows.GetList(); list != nil {
+					if items := list.GetItems(); len(items) > 0 {
+						// Process each item in the first row directly
+						for i, item := range items {
+							if i < len(columns) {
+								columnName := columns[i]
+								// Handle parameter references
+								if paramRef := item.GetParamRef(); paramRef != nil {
+									values[columnName] = fmt.Sprintf("$%d", paramRef.GetNumber())
+								} else if aConst := item.GetAConst(); aConst != nil {
+									// Extract constant values
+									switch {
+									case aConst.GetSval() != nil:
+										values[columnName] = aConst.GetSval().GetSval()
+									case aConst.GetIval() != nil:
+										values[columnName] = aConst.GetIval().GetIval()
+									case aConst.GetFval() != nil:
+										if f, err := strconv.ParseFloat(aConst.GetFval().GetFval(), 64); err == nil {
+											values[columnName] = f
+										}
+									case aConst.GetBoolval() != nil:
+										values[columnName] = aConst.GetBoolval().GetBoolval()
+									}
+								}
+							}
+						}
+						plan.Values = values
+					}
+				}
+			}
+		}
 	}
 }
 

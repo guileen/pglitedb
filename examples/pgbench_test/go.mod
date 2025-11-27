@@ -1,8 +1,11 @@
-module pgbench_test
+module github.com/guileen/pglitedb/examples/pgbench_test
 
 go 1.25.3
 
-require github.com/guileen/pglitedb v0.0.0-20251127121002-5624d60264a6
+require (
+	github.com/guileen/pglitedb v0.0.0-20251127121002-5624d60264a6
+	github.com/lib/pq v1.10.9
+)
 
 require (
 	github.com/DataDog/zstd v1.4.5 // indirect

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/guileen/pglitedb/types"
 )
 
 // QueryPipeline manages batched query execution with advanced optimization
@@ -25,7 +27,7 @@ type QueryPipeline struct {
 type PipelineStats struct {
 	QueriesProcessed uint64
 	BatchesProcessed uint64
-	AverageBatchSize float64
+	AverageBatchSize uint64 // Store as uint64 for atomic operations
 	QueueLength      int64
 	WorkersActive    int64
 }
@@ -40,7 +42,7 @@ type PipelineQuery struct {
 
 // PipelineResult represents the result of a pipelined query
 type PipelineResult struct {
-	ResultSet *ResultSet
+	ResultSet *types.ResultSet
 	Error     error
 	Duration  time.Duration
 }
@@ -96,7 +98,7 @@ func NewQueryPipeline(executor *Executor, batchSize int) *QueryPipeline {
 }
 
 // Execute adds a query to the pipeline and returns the result
-func (p *QueryPipeline) Execute(ctx context.Context, query string) (*ResultSet, error) {
+func (p *QueryPipeline) Execute(ctx context.Context, query string) (*types.ResultSet, error) {
 	atomic.AddInt64(&p.stats.QueueLength, 1)
 	defer atomic.AddInt64(&p.stats.QueueLength, -1)
 	
@@ -182,8 +184,6 @@ func (p *QueryPipeline) flushLocked() {
 
 // processBatch executes a batch of queries concurrently with optimized resource usage
 func (p *QueryPipeline) processBatch(queries []*PipelineQuery) {
-	startTime := time.Now()
-	
 	// Use a semaphore to limit concurrent executions within the batch
 	// This prevents resource exhaustion when processing large batches
 	semaphore := make(chan struct{}, runtime.NumCPU())
@@ -213,7 +213,6 @@ func (p *QueryPipeline) processBatch(queries []*PipelineQuery) {
 	wg.Wait()
 	
 	// Update batch statistics
-	batchDuration := time.Since(startTime)
 	atomic.AddUint64(&p.stats.BatchesProcessed, 1)
 	
 	// Update average batch size (simplified moving average)
@@ -256,7 +255,7 @@ func (p *QueryPipeline) Stats() PipelineStats {
 	return PipelineStats{
 		QueriesProcessed: atomic.LoadUint64(&p.stats.QueriesProcessed),
 		BatchesProcessed: atomic.LoadUint64(&p.stats.BatchesProcessed),
-		AverageBatchSize: float64(atomic.LoadUint64((*uint64)(&p.stats.AverageBatchSize))),
+		AverageBatchSize: atomic.LoadUint64(&p.stats.AverageBatchSize),
 		QueueLength:      atomic.LoadInt64(&p.stats.QueueLength),
 		WorkersActive:    atomic.LoadInt64(&p.stats.WorkersActive),
 	}

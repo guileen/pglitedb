@@ -10,7 +10,7 @@ import (
 	"github.com/guileen/pglitedb/catalog"
 	"github.com/guileen/pglitedb/codec"
 	"github.com/guileen/pglitedb/engine"
-	"github.com/guileen/pglitedb/protocol/executor"
+	"github.com/guileen/pglitedb/protocol/sql"
 	"github.com/guileen/pglitedb/storage"
 )
 
@@ -40,22 +40,19 @@ func main() {
 	eng := engine.NewPebbleEngine(kvStore, c)
 	mgr := catalog.NewTableManagerWithKV(eng, kvStore)
 
-	// Create executor
-	exec := executor.NewExecutor(mgr, eng)
+	// Create SQL parser and planner with catalog
+	parser := sql.NewPGParser()
+	planner := sql.NewPlannerWithCatalog(parser, mgr)
+	
+	// Get executor from planner
+	exec := planner.Executor()
 
 	// Test querying system tables
-	ctx := context.Background()
+	// ctx := context.Background()
 
 	// Test pg_class
 	fmt.Println("Testing pg_class query...")
-	result, err := exec.Execute(ctx, &executor.Query{
-		Type:      executor.QueryTypeSelect,
-		TableName: "pg_catalog.pg_class",
-		TenantID:  1,
-		Select: &executor.SelectQuery{
-			Columns: []string{"relname", "relkind"},
-		},
-	})
+	result, err := exec.Execute(context.Background(), "SELECT relname, relkind FROM pg_catalog.pg_class")
 	if err != nil {
 		log.Printf("Warning: pg_class query failed: %v", err)
 	} else {
@@ -64,14 +61,7 @@ func main() {
 
 	// Test pg_type
 	fmt.Println("Testing pg_type query...")
-	result, err = exec.Execute(ctx, &executor.Query{
-		Type:      executor.QueryTypeSelect,
-		TableName: "pg_catalog.pg_type",
-		TenantID:  1,
-		Select: &executor.SelectQuery{
-			Columns: []string{"typname", "typoid"},
-		},
-	})
+	result, err = exec.Execute(context.Background(), "SELECT typname, typoid FROM pg_catalog.pg_type")
 	if err != nil {
 		log.Printf("Warning: pg_type query failed: %v", err)
 	} else {
@@ -80,14 +70,7 @@ func main() {
 
 	// Test pg_namespace
 	fmt.Println("Testing pg_namespace query...")
-	result, err = exec.Execute(ctx, &executor.Query{
-		Type:      executor.QueryTypeSelect,
-		TableName: "pg_catalog.pg_namespace",
-		TenantID:  1,
-		Select: &executor.SelectQuery{
-			Columns: []string{"nspname", "nspoid"},
-		},
-	})
+	result, err = exec.Execute(context.Background(), "SELECT nspname, nspoid FROM pg_catalog.pg_namespace")
 	if err != nil {
 		log.Printf("Warning: pg_namespace query failed: %v", err)
 	} else {
