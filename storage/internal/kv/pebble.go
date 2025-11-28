@@ -43,15 +43,15 @@ type PebbleConfig struct {
 func DefaultPebbleConfig(path string) *PebbleConfig {
 	return &PebbleConfig{
 		Path:                  path,
-		CacheSize:             1024 * 1024 * 1024, // 1GB cache size for better performance
-		MemTableSize:          64 * 1024 * 1024,   // 64MB memtables for write-heavy workloads
-		MaxOpenFiles:          50000,              // Increased max open files
-		CompactionConcurrency: 8,                  // Increased compaction concurrency
-		FlushInterval:         10 * time.Second,   // Less aggressive flushing
-		BlockSize:             64 << 10,           // 64KB block size for better sequential read performance
-		L0CompactionThreshold: 8,                  // Increased threshold to reduce write amplification
-		L0StopWritesThreshold: 32,                 // Increased threshold to reduce write stalls
-		CompressionEnabled:    true,               // Enable compression for better space efficiency
+		CacheSize:             2 * 1024 * 1024 * 1024, // Increase to 2GB for better read performance
+		MemTableSize:          128 * 1024 * 1024,       // Increase to 128MB for write-heavy workloads
+		MaxOpenFiles:          100000,                  // Increase further
+		CompactionConcurrency: 16,                      // Increase for better parallelism
+		FlushInterval:         5 * time.Second,         // More aggressive flushing
+		BlockSize:             32 << 10,                // Reduce to 32KB for better random read performance
+		L0CompactionThreshold: 4,                       // Reduce to trigger compaction earlier
+		L0StopWritesThreshold: 16,                      // Reduce to prevent write stalls
+		CompressionEnabled:    true,
 	}
 }
 
