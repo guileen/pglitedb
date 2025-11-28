@@ -27,7 +27,7 @@ cat "$OUTPUT_FILE"
 echo "=============================="
 
 # Convert output to JSON format
-JSON_FILE="/Users/gl/agentwork/pglitedb/regress/${TIMESTAMP}.json"
+JSON_FILE="/Users/gl/agentwork/pglitedb/regress/regress_${TIMESTAMP}.json"
 echo "{" > "$JSON_FILE"
 echo "  \"timestamp\": \"$TIMESTAMP\"," >> "$JSON_FILE"
 echo "  \"exit_code\": $TEST_EXIT_CODE," >> "$JSON_FILE"
@@ -45,6 +45,6 @@ sed -i '' -e '$ d' "$JSON_FILE"
 echo "  ]" >> "$JSON_FILE"
 echo "}" >> "$JSON_FILE"
 
-echo "Regression test results saved to regress/${TIMESTAMP}.json"
+echo "Regression test results saved to regress/regress_${TIMESTAMP}.json"
 echo "Human-readable output saved to regress/regress_${TIMESTAMP}.out"
 echo "Test exit code: $TEST_EXIT_CODE"

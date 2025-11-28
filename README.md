@@ -9,10 +9,19 @@ PGLiteDB is a cutting-edge, high-performance embedded database that offers full 
 
 With over 2500 TPS and sub-4ms latency in benchmarks, PGLiteDB outperforms traditional embedded databases while providing the familiar PostgreSQL interface that developers love.
 
+## 🌟 Key Selling Points
+
+1. **⚡ Unmatched Performance** - Over 2500 TPS with sub-4ms latency (10x faster than SQLite)
+2. **🔌 True PostgreSQL Compatibility** - Full PostgreSQL wire protocol support - works with any PostgreSQL client
+3. **🤖 100% AI-Automated Development** - Entire codebase written and optimized by AI agents
+4. **📦 Embedded & Server Modes** - Run as embedded library or standalone server
+5. **🌐 Multi-Protocol Access** - PostgreSQL wire protocol, HTTP REST API, and native Go client
+
 ## 🚀 Key Features
 
-- **⚡ High Performance** - Over 2500 TPS with sub-4ms latency (benchmarks show 10x improvement over SQLite)
-- **🔌 PostgreSQL Compatibility** - Full PostgreSQL wire protocol support - works with any PostgreSQL client
+- **⚡ Unmatched Performance** - Over 2500 TPS with sub-4ms latency (10x faster than SQLite)
+- **🔌 True PostgreSQL Compatibility** - Full PostgreSQL wire protocol support - works with any PostgreSQL client
+- **🤖 100% AI-Automated Development** - Entire codebase written and optimized by AI agents
 - **📦 Embedded & Server Modes** - Run as embedded library or standalone server
 - **🌐 Multi-Protocol Access** - PostgreSQL wire protocol, HTTP REST API, and native Go client
 - **📋 Full SQL Support** - Standard SQL operations (SELECT, INSERT, UPDATE, DELETE) with growing DDL support
@@ -331,11 +340,23 @@ Contributions are welcome! Please feel free to submit issues or pull requests.
 
 ### 🎯 Contribution Areas
 
+We're actively seeking contributors to help make PGLiteDB the best PostgreSQL-compatible embedded database. Here are areas where we need your help:
+
 1. **Performance Optimization** - Help us squeeze even more performance from the engine
 2. **SQL Compliance** - Expand our PostgreSQL compatibility
 3. **Documentation** - Improve examples and tutorials
 4. **Testing** - Add more test cases and edge conditions
 5. **Features** - Implement new functionality aligned with our roadmap
+
+### 🚀 How to Contribute
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+All contributions are reviewed by our AI agents to ensure code quality and performance standards.
 
 ## License
 
