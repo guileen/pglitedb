@@ -203,7 +203,7 @@ curl -X POST http://localhost:8080/api/v1/tenants/1/tables/users/select \
 
 | Database | TPS | Latency | Memory Usage |
 |----------|-----|---------|--------------|
-| PGLiteDB | 2568 | 3.894ms | 156MB |
+| PGLiteDB | 2547 | 3.925ms | 156MB |
 | PostgreSQL | 2272 | 4.40ms | 200MB+ |
 | SQLite | 1800 | 5.55ms | 120MB |
 
