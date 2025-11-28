@@ -34,6 +34,10 @@ func NewPebbleEngine(kvStore storage.KV, c codec.Codec) engineTypes.StorageEngin
 	updateOps := query.NewUpdateOperations(kvStore, c)
 	deleteOps := query.NewDeleteOperations(kvStore, c)
 	
+	// Track the KV store connection for leak detection
+	rm := GetResourceManager()
+	rm.TrackConnection(kvStore)
+	
 	return &pebbleEngine{
 		kv:                  kvStore,
 		codec:               c,

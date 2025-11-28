@@ -1,11 +1,13 @@
 package pebble
 
 import (
+	"context"
 	"sync"
 	"time"
 
 	"github.com/guileen/pglitedb/codec"
 	engineTypes "github.com/guileen/pglitedb/engine/types"
+	"github.com/guileen/pglitedb/engine/pebble/leak_detection"
 	"github.com/guileen/pglitedb/engine/pebble/operations/scan"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/types"
@@ -41,6 +43,9 @@ type ResourceManager struct {
 	poolAdjustmentMu sync.RWMutex   // Mutex for pool adjustment operations
 	
 	metrics          *ResourceMetricsCollector
+	
+	// Leak detection
+	leakDetector     engineTypes.LeakDetector
 }
 
 // NewResourceManager creates a new resource manager
@@ -138,6 +143,7 @@ func NewResourceManager() *ResourceManager {
 		poolSizes: make(map[string]int),
 		poolHitRates: make(map[string]float64),
 		metrics: NewResourceMetricsCollector(),
+		leakDetector: leak_detection.NewLeakDetector(),
 	}
 	
 	// Initialize default pool sizes
@@ -154,6 +160,9 @@ func NewResourceManager() *ResourceManager {
 	rm.poolSizes["tableKey"] = 100
 	rm.poolSizes["metaKey"] = 100
 	rm.poolSizes["compositeKey"] = 100
+	
+	// Start leak detection monitoring
+	rm.leakDetector.StartMonitoring(context.Background())
 	
 	return rm
 }
@@ -178,8 +187,17 @@ func (rm *ResourceManager) AcquireIterator() *scan.RowIterator {
 		iter = &scan.RowIterator{}
 	}
 	
+	// Track iterator for leak detection
+	rowIter := iter.(*scan.RowIterator)
+	if rm.leakDetector != nil {
+		stackTrace := leak_detection.GetStackTrace()
+		tracked := rm.leakDetector.TrackIterator(rowIter, stackTrace)
+		// Store the tracked resource in the iterator for later release
+		rowIter.SetTrackedResource(tracked)
+	}
+	
 	rm.metrics.RecordIteratorAcquire(start, fromPool)
-	return iter.(*scan.RowIterator)
+	return rowIter
 }
 
 // ReleaseIterator releases an iterator back to the pool
@@ -574,15 +592,55 @@ func (rm *ResourceManager) GetPoolHitRate(poolName string) float64 {
 	return 0.0
 }
 
-// GetPoolSize returns the current size for a specific pool
-func (rm *ResourceManager) GetPoolSize(poolName string) int {
-	rm.poolAdjustmentMu.RLock()
-	defer rm.poolAdjustmentMu.RUnlock()
-	
-	if size, exists := rm.poolSizes[poolName]; exists {
-		return size
+// TrackTransaction tracks a transaction for leak detection
+func (rm *ResourceManager) TrackTransaction(txn interface{}) {
+	if rm.leakDetector != nil {
+		stackTrace := leak_detection.GetStackTrace()
+		rm.leakDetector.TrackTransaction(txn, stackTrace)
 	}
-	return 0
+}
+
+// TrackConnection tracks a connection for leak detection
+func (rm *ResourceManager) TrackConnection(conn interface{}) {
+	if rm.leakDetector != nil {
+		stackTrace := leak_detection.GetStackTrace()
+		rm.leakDetector.TrackConnection(conn, stackTrace)
+	}
+}
+
+// TrackFileDescriptor tracks a file descriptor for leak detection
+func (rm *ResourceManager) TrackFileDescriptor(fd interface{}, path string) {
+	if rm.leakDetector != nil {
+		stackTrace := leak_detection.GetStackTrace()
+		rm.leakDetector.TrackFileDescriptor(fd, path, stackTrace)
+	}
+}
+
+// TrackGoroutine tracks a goroutine for leak detection
+func (rm *ResourceManager) TrackGoroutine(goroutineID uint64) {
+	if rm.leakDetector != nil {
+		stackTrace := leak_detection.GetStackTrace()
+		rm.leakDetector.TrackGoroutine(goroutineID, stackTrace)
+	}
+}
+
+// TrackCurrentGoroutine tracks the current goroutine for leak detection
+func (rm *ResourceManager) TrackCurrentGoroutine() {
+	goroutineID := leak_detection.GetCurrentGoroutineID()
+	rm.TrackGoroutine(goroutineID)
+}
+
+// CheckForLeaks checks for resource leaks and returns a report
+func (rm *ResourceManager) CheckForLeaks() *engineTypes.LeakReport {
+	if rm.leakDetector != nil {
+		return rm.leakDetector.CheckForLeaks()
+	}
+	return &engineTypes.LeakReport{}
+}
+
+// GetLeakDetector returns the leak detector
+func (rm *ResourceManager) GetLeakDetector() engineTypes.LeakDetector {
+	return rm.leakDetector
 }
 
 // SetPoolSize manually sets the size for a specific pool

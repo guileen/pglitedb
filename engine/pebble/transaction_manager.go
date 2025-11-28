@@ -41,6 +41,10 @@ func (e *pebbleEngine) BeginTx(ctx context.Context) (engineTypes.Transaction, er
 		codec:           e.codec,
 	}
 	
+	// Track transaction for leak detection
+	rm := GetResourceManager()
+	rm.TrackTransaction(tx)
+	
 	// Set the isolation level on the base transaction
 	if err := tx.SetIsolation(storage.ReadCommitted); err != nil {
 		kvTxn.Rollback()
@@ -73,6 +77,10 @@ func (e *pebbleEngine) BeginTxWithIsolation(ctx context.Context, level storage.I
 		codec:           e.codec,
 	}
 	
+	// Track transaction for leak detection
+	rm := GetResourceManager()
+	rm.TrackTransaction(tx)
+	
 	// Set the isolation level on the base transaction
 	tx.SetIsolation(level)
 	
@@ -95,6 +103,10 @@ func (e *pebbleEngine) newSnapshotTx(ctx context.Context, level storage.Isolatio
 		engine:          e,
 		closed:          false,
 	}
+	
+	// Track transaction for leak detection
+	rm := GetResourceManager()
+	rm.TrackTransaction(tx)
 	
 	return tx, nil
 }

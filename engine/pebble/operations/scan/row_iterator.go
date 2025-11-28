@@ -25,6 +25,20 @@ type RowIterator struct {
 	pool interface {
 		Put(interface{})
 	}
+	
+	// Leak detection tracking
+	trackedResource interface {
+		MarkReleased()
+		Close() error
+	}
+}
+
+// SetTrackedResource sets the tracked resource for leak detection
+func (ri *RowIterator) SetTrackedResource(tr interface {
+	MarkReleased()
+	Close() error
+}) {
+	ri.trackedResource = tr
 }
 
 // Reset resets the iterator state for reuse
@@ -38,6 +52,7 @@ func (ri *RowIterator) Reset() {
 	ri.count = 0
 	ri.started = false
 	ri.engine = nil
+	// Don't reset trackedResource here as it's managed by the ResourceManager
 }
 
 // NewRowIterator creates a new RowIterator
@@ -139,6 +154,14 @@ func (ri *RowIterator) Error() error {
 
 func (ri *RowIterator) Close() error {
 	err := ri.iter.Close()
+	
+	// Mark the tracked resource as released for leak detection
+	if ri.trackedResource != nil {
+		ri.trackedResource.MarkReleased()
+		ri.trackedResource.Close()
+		ri.trackedResource = nil
+	}
+	
 	if ri.pool != nil {
 		ri.pool.Put(ri)
 	}
