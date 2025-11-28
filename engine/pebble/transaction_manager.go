@@ -200,45 +200,8 @@ func (t *transaction) UpdateRowBatch(ctx context.Context, tenantID, tableID int6
 
 // UpdateRows updates multiple rows that match the given conditions
 func (t *transaction) UpdateRows(ctx context.Context, tenantID, tableID int64, updates map[string]*dbTypes.Value, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
-	// Create a scan options with the conditions as filter
-	scanOpts := &engineTypes.ScanOptions{
-		Filter: t.engine.buildFilterExpression(conditions),
-	}
-	
-	// Scan for matching rows
-	iter, err := t.engine.ScanRows(ctx, tenantID, tableID, schemaDef, scanOpts)
-	if err != nil {
-		return 0, fmt.Errorf("scan rows: %w", err)
-	}
-	defer iter.Close()
-	
-	// Update each matching row
-	var count int64
-	for iter.Next() {
-		record := iter.Row()
-		// Extract row ID from the record's _rowid field
-		rowIDVal, ok := record.Data["_rowid"]
-		if !ok {
-			return count, fmt.Errorf("missing _rowid in record")
-		}
-		rowID, ok := rowIDVal.Data.(int64)
-		if !ok {
-			return count, fmt.Errorf("_rowid is not an int64")
-		}
-		
-		// Update the row using the existing UpdateRow method
-		if err := t.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
-			return count, fmt.Errorf("update row %d: %w", rowID, err)
-		}
-		
-		count++
-	}
-	
-	if err := iter.Error(); err != nil {
-		return count, fmt.Errorf("iterator error: %w", err)
-	}
-	
-	return count, nil
+	handler := NewRowHandler(t.engine.buildFilterExpression)
+	return handler.UpdateRows(ctx, tenantID, tableID, updates, conditions, schemaDef, t.engine.ScanRows, t.updateRowImpl)
 }
 
 func (t *transaction) DeleteRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) error {
@@ -252,45 +215,8 @@ func (t *transaction) DeleteRowBatch(ctx context.Context, tenantID, tableID int6
 
 // DeleteRows deletes multiple rows that match the given conditions
 func (t *transaction) DeleteRows(ctx context.Context, tenantID, tableID int64, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
-	// Create a scan options with the conditions as filter
-	scanOpts := &engineTypes.ScanOptions{
-		Filter: t.engine.buildFilterExpression(conditions),
-	}
-	
-	// Scan for matching rows
-	iter, err := t.engine.ScanRows(ctx, tenantID, tableID, schemaDef, scanOpts)
-	if err != nil {
-		return 0, fmt.Errorf("scan rows: %w", err)
-	}
-	defer iter.Close()
-	
-	// Delete each matching row
-	var count int64
-	for iter.Next() {
-		record := iter.Row()
-		// Extract row ID from the record's _rowid field
-		rowIDVal, ok := record.Data["_rowid"]
-		if !ok {
-			return count, fmt.Errorf("missing _rowid in record")
-		}
-		rowID, ok := rowIDVal.Data.(int64)
-		if !ok {
-			return count, fmt.Errorf("_rowid is not an int64")
-		}
-		
-		// Delete the row using the existing DeleteRow method
-		if err := t.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
-			return count, fmt.Errorf("delete row %d: %w", rowID, err)
-		}
-		
-		count++
-	}
-	
-	if err := iter.Error(); err != nil {
-		return count, fmt.Errorf("iterator error: %w", err)
-	}
-	
-	return count, nil
+	handler := NewRowHandler(t.engine.buildFilterExpression)
+	return handler.DeleteRows(ctx, tenantID, tableID, conditions, schemaDef, t.engine.ScanRows, t.deleteRowImpl)
 }
 
 func (t *transaction) Isolation() storage.IsolationLevel {
@@ -509,45 +435,8 @@ func (tx *snapshotTransaction) UpdateRows(ctx context.Context, tenantID, tableID
 		return 0, storage.ErrClosed
 	}
 
-	// Create a scan options with the conditions as filter
-	scanOpts := &engineTypes.ScanOptions{
-		Filter: tx.engine.buildFilterExpression(conditions),
-	}
-	
-	// Scan for matching rows
-	iter, err := tx.engine.ScanRows(ctx, tenantID, tableID, schemaDef, scanOpts)
-	if err != nil {
-		return 0, fmt.Errorf("scan rows: %w", err)
-	}
-	defer iter.Close()
-	
-	// Update each matching row
-	var count int64
-	for iter.Next() {
-		record := iter.Row()
-		// Extract row ID from the record's _rowid field
-		rowIDVal, ok := record.Data["_rowid"]
-		if !ok {
-			return count, fmt.Errorf("missing _rowid in record")
-		}
-		rowID, ok := rowIDVal.Data.(int64)
-		if !ok {
-			return count, fmt.Errorf("_rowid is not an int64")
-		}
-		
-		// Update the row using the existing UpdateRow method
-		if err := tx.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
-			return count, fmt.Errorf("update row %d: %w", rowID, err)
-		}
-		
-		count++
-	}
-	
-	if err := iter.Error(); err != nil {
-		return count, fmt.Errorf("iterator error: %w", err)
-	}
-	
-	return count, nil
+	handler := NewRowHandler(tx.engine.buildFilterExpression)
+	return handler.UpdateRows(ctx, tenantID, tableID, updates, conditions, schemaDef, tx.engine.ScanRows, tx.updateRowImpl)
 }
 
 // DeleteRows deletes multiple rows that match the given conditions for snapshot transactions
@@ -556,45 +445,8 @@ func (tx *snapshotTransaction) DeleteRows(ctx context.Context, tenantID, tableID
 		return 0, storage.ErrClosed
 	}
 
-	// Create a scan options with the conditions as filter
-	scanOpts := &engineTypes.ScanOptions{
-		Filter: tx.engine.buildFilterExpression(conditions),
-	}
-	
-	// Scan for matching rows
-	iter, err := tx.engine.ScanRows(ctx, tenantID, tableID, schemaDef, scanOpts)
-	if err != nil {
-		return 0, fmt.Errorf("scan rows: %w", err)
-	}
-	defer iter.Close()
-	
-	// Delete each matching row
-	var count int64
-	for iter.Next() {
-		record := iter.Row()
-		// Extract row ID from the record's _rowid field
-		rowIDVal, ok := record.Data["_rowid"]
-		if !ok {
-			return count, fmt.Errorf("missing _rowid in record")
-		}
-		rowID, ok := rowIDVal.Data.(int64)
-		if !ok {
-			return count, fmt.Errorf("_rowid is not an int64")
-		}
-		
-		// Delete the row using the existing DeleteRow method
-		if err := tx.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
-			return count, fmt.Errorf("delete row %d: %w", rowID, err)
-		}
-		
-		count++
-	}
-	
-	if err := iter.Error(); err != nil {
-		return count, fmt.Errorf("iterator error: %w", err)
-	}
-	
-	return count, nil
+	handler := NewRowHandler(tx.engine.buildFilterExpression)
+	return handler.DeleteRows(ctx, tenantID, tableID, conditions, schemaDef, tx.engine.ScanRows, tx.deleteRowImpl)
 }
 
 

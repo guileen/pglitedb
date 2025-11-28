@@ -153,15 +153,17 @@ func (ii *IndexIterator) Next() bool {
 			}
 
 			// Fetch batch
-			rowCache, err := ii.engine.GetRowBatch(context.Background(), ii.tenantID, ii.tableID, ii.rowIDBuffer, ii.schemaDef)
-			if err != nil {
-				ii.err = fmt.Errorf("fetch row batch: %w", err)
-				return false
-			}
-			
-			// Efficiently copy results to reuse map
-			for k, v := range rowCache {
-				ii.rowCache[k] = v
+			if ii.engine != nil {
+				rowCache, err := ii.engine.GetRowBatch(context.Background(), ii.tenantID, ii.tableID, ii.rowIDBuffer, ii.schemaDef)
+				if err != nil {
+					ii.err = fmt.Errorf("fetch row batch: %w", err)
+					return false
+				}
+				
+				// Efficiently copy results to reuse map
+				for k, v := range rowCache {
+					ii.rowCache[k] = v
+				}
 			}
 		}
 
@@ -178,7 +180,7 @@ func (ii *IndexIterator) Next() bool {
 			
 			// Apply filter evaluation
 			if ii.opts != nil && ii.opts.Filter != nil {
-				if !ii.engine.EvaluateFilter(ii.opts.Filter, row) {
+				if ii.engine != nil && !ii.engine.EvaluateFilter(ii.opts.Filter, row) {
 					// Filter doesn't match, continue to next row
 					continue
 				}

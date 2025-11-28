@@ -12,6 +12,7 @@ import (
 type BaseTransaction struct {
 	engine    *pebbleEngine
 	isolation storage.IsolationLevel
+	txHandler *TxHandler
 }
 
 // NewBaseTransaction creates a new base transaction
@@ -19,6 +20,7 @@ func NewBaseTransaction(engine *pebbleEngine, isolation storage.IsolationLevel) 
 	return &BaseTransaction{
 		engine:    engine,
 		isolation: isolation,
+		txHandler: NewTxHandler(),
 	}
 }
 
@@ -58,18 +60,4 @@ func (bt *BaseTransaction) SetIsolation(level storage.IsolationLevel) error {
 	}
 	
 	return nil
-}
-
-// updateRowImpl must be implemented by concrete transaction types
-func (bt *BaseTransaction) updateRowImpl(ctx context.Context, tenantID, tableID, rowID int64, updates map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
-	// This method should be implemented by concrete transaction types
-	// For now, we'll return an error to indicate it's not implemented
-	return fmt.Errorf("updateRowImpl not implemented for this transaction type")
-}
-
-// deleteRowImpl must be implemented by concrete transaction types
-func (bt *BaseTransaction) deleteRowImpl(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *dbTypes.TableDefinition) error {
-	// This method should be implemented by concrete transaction types
-	// For now, we'll return an error to indicate it's not implemented
-	return fmt.Errorf("deleteRowImpl not implemented for this transaction type")
 }

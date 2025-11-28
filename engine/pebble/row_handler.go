@@ -1,0 +1,122 @@
+package pebble
+
+import (
+	"context"
+	"fmt"
+
+	engineTypes "github.com/guileen/pglitedb/engine/types"
+	dbTypes "github.com/guileen/pglitedb/types"
+)
+
+// RowHandler handles row operations
+type RowHandler struct {
+	buildFilterExpression func(map[string]interface{}) *engineTypes.FilterExpression
+}
+
+// NewRowHandler creates a new RowHandler
+func NewRowHandler(buildFilterExpression func(map[string]interface{}) *engineTypes.FilterExpression) *RowHandler {
+	return &RowHandler{
+		buildFilterExpression: buildFilterExpression,
+	}
+}
+
+// UpdateRows updates multiple rows that match the given conditions
+func (rh *RowHandler) UpdateRows(
+	ctx context.Context,
+	tenantID, tableID int64,
+	updates map[string]*dbTypes.Value,
+	conditions map[string]interface{},
+	schemaDef *dbTypes.TableDefinition,
+	scanRows func(context.Context, int64, int64, *dbTypes.TableDefinition, *engineTypes.ScanOptions) (engineTypes.RowIterator, error),
+	updateRowImpl func(context.Context, int64, int64, int64, map[string]*dbTypes.Value, *dbTypes.TableDefinition) error,
+) (int64, error) {
+	// Create a scan options with the conditions as filter
+	scanOpts := &engineTypes.ScanOptions{
+		Filter: rh.buildFilterExpression(conditions),
+	}
+	
+	// Scan for matching rows
+	iter, err := scanRows(ctx, tenantID, tableID, schemaDef, scanOpts)
+	if err != nil {
+		return 0, fmt.Errorf("scan rows: %w", err)
+	}
+	defer iter.Close()
+	
+	// Update each matching row
+	var count int64
+	for iter.Next() {
+		record := iter.Row()
+		// Extract row ID from the record's _rowid field
+		rowIDVal, ok := record.Data["_rowid"]
+		if !ok {
+			return count, fmt.Errorf("missing _rowid in record")
+		}
+		rowID, ok := rowIDVal.Data.(int64)
+		if !ok {
+			return count, fmt.Errorf("_rowid is not an int64")
+		}
+		
+		// Update the row using the provided implementation
+		if err := updateRowImpl(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
+			return count, fmt.Errorf("update row %d: %w", rowID, err)
+		}
+		
+		count++
+	}
+	
+	if err := iter.Error(); err != nil {
+		return count, fmt.Errorf("iterator error: %w", err)
+	}
+	
+	return count, nil
+}
+
+// DeleteRows deletes multiple rows that match the given conditions
+func (rh *RowHandler) DeleteRows(
+	ctx context.Context,
+	tenantID, tableID int64,
+	conditions map[string]interface{},
+	schemaDef *dbTypes.TableDefinition,
+	scanRows func(context.Context, int64, int64, *dbTypes.TableDefinition, *engineTypes.ScanOptions) (engineTypes.RowIterator, error),
+	deleteRowImpl func(context.Context, int64, int64, int64, *dbTypes.TableDefinition) error,
+) (int64, error) {
+	// Create a scan options with the conditions as filter
+	scanOpts := &engineTypes.ScanOptions{
+		Filter: rh.buildFilterExpression(conditions),
+	}
+	
+	// Scan for matching rows
+	iter, err := scanRows(ctx, tenantID, tableID, schemaDef, scanOpts)
+	if err != nil {
+		return 0, fmt.Errorf("scan rows: %w", err)
+	}
+	defer iter.Close()
+	
+	// Delete each matching row
+	var count int64
+	for iter.Next() {
+		record := iter.Row()
+		// Extract row ID from the record's _rowid field
+		rowIDVal, ok := record.Data["_rowid"]
+		if !ok {
+			return count, fmt.Errorf("missing _rowid in record")
+		}
+		rowID, ok := rowIDVal.Data.(int64)
+		if !ok {
+			return count, fmt.Errorf("_rowid is not an int64")
+		}
+		
+		// Delete the row using the provided implementation
+		if err := deleteRowImpl(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
+			return count, fmt.Errorf("delete row %d: %w", rowID, err)
+		}
+		
+		count++
+	}
+	
+	if err := iter.Error(); err != nil {
+		return count, fmt.Errorf("iterator error: %w", err)
+	}
+	
+	return count, nil
+}
