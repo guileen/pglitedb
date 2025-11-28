@@ -6,6 +6,7 @@ import (
 
 	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/storage"
+	"github.com/guileen/pglitedb/codec"
 	dbTypes "github.com/guileen/pglitedb/types"
 )
 
@@ -15,15 +16,20 @@ type SnapshotTransaction struct {
 	snapshot   storage.Snapshot
 	mutations  map[string][]byte
 	closed     bool
+	codec      codec.Codec
 }
 
 // NewSnapshotTransaction creates a new snapshot transaction
 func NewSnapshotTransaction(engine engineTypes.StorageEngine, snapshot storage.Snapshot) *SnapshotTransaction {
+	// Get the codec from the engine
+	codec := engine.GetCodec()
+	
 	return &SnapshotTransaction{
 		engine:    engine,
 		snapshot:  snapshot,
 		mutations: make(map[string][]byte),
 		closed:    false,
+		codec:     codec,
 	}
 }
 
@@ -33,9 +39,36 @@ func (tx *SnapshotTransaction) GetRow(ctx context.Context, tenantID, tableID, ro
 		return nil, storage.ErrClosed
 	}
 
-	// In a real implementation, we would use the codec from the engine
-	// For now, we'll return an error indicating this is not fully implemented
-	return nil, fmt.Errorf("GetRow not implemented")
+	key := tx.codec.EncodeTableKey(tenantID, tableID, rowID)
+
+	// First check mutations
+	if value, exists := tx.mutations[string(key)]; exists {
+		if value == nil {
+			// Row was deleted in this transaction
+			return nil, dbTypes.ErrRecordNotFound
+		}
+		
+		record, err := tx.codec.DecodeRow(value, schemaDef)
+		if err != nil {
+			return nil, fmt.Errorf("decode row: %w", err)
+		}
+		return record, nil
+	}
+
+	// Then check snapshot
+	value, err := tx.snapshot.Get(key)
+	if err != nil {
+		if storage.IsNotFound(err) {
+			return nil, dbTypes.ErrRecordNotFound
+		}
+		return nil, fmt.Errorf("get row from snapshot: %w", err)
+	}
+
+	record, err := tx.codec.DecodeRow(value, schemaDef)
+	if err != nil {
+		return nil, fmt.Errorf("decode row: %w", err)
+	}
+	return record, nil
 }
 
 // InsertRow inserts a new row
@@ -44,9 +77,19 @@ func (tx *SnapshotTransaction) InsertRow(ctx context.Context, tenantID, tableID 
 		return 0, storage.ErrClosed
 	}
 
-	// In a real implementation, we would use the codec from the engine
-	// For now, we'll return an error indicating this is not fully implemented
-	return 0, fmt.Errorf("InsertRow not implemented")
+	rowID, err := tx.engine.NextRowID(ctx, tenantID, tableID)
+	if err != nil {
+		return 0, fmt.Errorf("generate row id: %w", err)
+	}
+
+	key := tx.codec.EncodeTableKey(tenantID, tableID, rowID)
+	value, err := tx.codec.EncodeRow(row, schemaDef)
+	if err != nil {
+		return 0, fmt.Errorf("encode row: %w", err)
+	}
+
+	tx.mutations[string(key)] = value
+	return rowID, nil
 }
 
 // UpdateRow updates an existing row
@@ -55,9 +98,26 @@ func (tx *SnapshotTransaction) UpdateRow(ctx context.Context, tenantID, tableID,
 		return storage.ErrClosed
 	}
 
-	// In a real implementation, we would use the codec from the engine
-	// For now, we'll return an error indicating this is not fully implemented
-	return fmt.Errorf("UpdateRow not implemented")
+	// Get the existing row
+	oldRow, err := tx.GetRow(ctx, tenantID, tableID, rowID, schemaDef)
+	if err != nil {
+		return fmt.Errorf("get old row: %w", err)
+	}
+
+	// Apply updates
+	for k, v := range updates {
+		oldRow.Data[k] = v
+	}
+
+	// Encode and store in mutations
+	key := tx.codec.EncodeTableKey(tenantID, tableID, rowID)
+	value, err := tx.codec.EncodeRow(oldRow, schemaDef)
+	if err != nil {
+		return fmt.Errorf("encode row: %w", err)
+	}
+
+	tx.mutations[string(key)] = value
+	return nil
 }
 
 // DeleteRow deletes a row by its ID
@@ -66,9 +126,9 @@ func (tx *SnapshotTransaction) DeleteRow(ctx context.Context, tenantID, tableID,
 		return storage.ErrClosed
 	}
 
-	// In a real implementation, we would use the codec from the engine
-	// For now, we'll return an error indicating this is not fully implemented
-	return fmt.Errorf("DeleteRow not implemented")
+	key := tx.codec.EncodeTableKey(tenantID, tableID, rowID)
+	tx.mutations[string(key)] = nil // nil indicates deletion
+	return nil
 }
 
 // UpdateRowBatch updates multiple rows in batch
@@ -77,9 +137,12 @@ func (tx *SnapshotTransaction) UpdateRowBatch(ctx context.Context, tenantID, tab
 		return storage.ErrClosed
 	}
 
-	// In a real implementation, we would use the codec from the engine
-	// For now, we'll return an error indicating this is not fully implemented
-	return fmt.Errorf("UpdateRowBatch not implemented")
+	for _, update := range updates {
+		if err := tx.UpdateRow(ctx, tenantID, tableID, update.RowID, update.Updates, schemaDef); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // DeleteRowBatch deletes multiple rows in batch
@@ -88,9 +151,12 @@ func (tx *SnapshotTransaction) DeleteRowBatch(ctx context.Context, tenantID, tab
 		return storage.ErrClosed
 	}
 
-	// In a real implementation, we would use the codec from the engine
-	// For now, we'll return an error indicating this is not fully implemented
-	return fmt.Errorf("DeleteRowBatch not implemented")
+	for _, rowID := range rowIDs {
+		if err := tx.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // UpdateRows updates multiple rows that match the given conditions for snapshot transactions
@@ -99,8 +165,8 @@ func (tx *SnapshotTransaction) UpdateRows(ctx context.Context, tenantID, tableID
 		return 0, storage.ErrClosed
 	}
 
-	// In a real implementation, we would use the codec from the engine
-	// For now, we'll return an error indicating this is not fully implemented
+	// This would need to be implemented with a proper row handler
+	// For now, we'll return an error indicating it's not implemented
 	return 0, fmt.Errorf("UpdateRows not implemented")
 }
 
@@ -110,8 +176,8 @@ func (tx *SnapshotTransaction) DeleteRows(ctx context.Context, tenantID, tableID
 		return 0, storage.ErrClosed
 	}
 
-	// In a real implementation, we would use the codec from the engine
-	// For now, we'll return an error indicating this is not fully implemented
+	// This would need to be implemented with a proper row handler
+	// For now, we'll return an error indicating it's not implemented
 	return 0, fmt.Errorf("DeleteRows not implemented")
 }
 
@@ -121,9 +187,13 @@ func (tx *SnapshotTransaction) DeleteRowsBatch(ctx context.Context, tenantID, ta
 		return storage.ErrClosed
 	}
 
-	// In a real implementation, we would use the codec from the engine
-	// For now, we'll return an error indicating this is not fully implemented
-	return fmt.Errorf("DeleteRowsBatch not implemented")
+	// Process all deletions in a single batch to minimize transaction overhead
+	for _, rowID := range rowIDs {
+		if err := tx.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
+			return fmt.Errorf("delete row %d: %w", rowID, err)
+		}
+	}
+	return nil
 }
 
 // UpdateRowsBatch updates multiple rows in a single batch operation for snapshot transactions
