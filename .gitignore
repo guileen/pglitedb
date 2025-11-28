@@ -52,7 +52,7 @@ dist
 .qoder
 server
 vendor
-*.md
+#*.md
 !docs/**/*.md
 *.js
 *.json
@@ -132,3 +132,4 @@ pglitedb-server
 
 # Build artifacts
 pglitedb-server
+
