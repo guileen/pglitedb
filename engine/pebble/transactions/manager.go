@@ -7,6 +7,7 @@ import (
 	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/codec"
+	"github.com/guileen/pglitedb/engine/pebble/resources"
 )
 
 // TransactionManager manages transaction creation and lifecycle
@@ -35,7 +36,8 @@ func (tm *TransactionManager) BeginTx(ctx context.Context) (engineTypes.Transact
 	tx := NewRegularTransaction(tm.engine, kvTxn, tm.codec)
 
 	// Track transaction for leak detection
-	// TODO: Implement resource manager tracking
+	rm := resources.GetResourceManager()
+	rm.TrackTransaction(tx)
 
 	// Set the isolation level on the transaction
 	if err := tx.SetIsolation(storage.ReadCommitted); err != nil {
@@ -65,7 +67,8 @@ func (tm *TransactionManager) BeginTxWithIsolation(ctx context.Context, level st
 	tx := NewRegularTransaction(tm.engine, kvTxn, tm.codec)
 
 	// Track transaction for leak detection
-	// TODO: Implement resource manager tracking
+	rm := resources.GetResourceManager()
+	rm.TrackTransaction(tx)
 
 	// Set the isolation level on the transaction
 	tx.SetIsolation(level)
@@ -83,7 +86,8 @@ func (tm *TransactionManager) newSnapshotTx(ctx context.Context, level storage.I
 	tx := NewSnapshotTransaction(tm.engine, snapshot)
 
 	// Track transaction for leak detection
-	// TODO: Implement resource manager tracking
+	rm := resources.GetResourceManager()
+	rm.TrackTransaction(tx)
 
 	return tx, nil
 }

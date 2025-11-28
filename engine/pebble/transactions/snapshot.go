@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	engineTypes "github.com/guileen/pglitedb/engine/types"
+	"github.com/guileen/pglitedb/engine/pebble/utils"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/codec"
 	dbTypes "github.com/guileen/pglitedb/types"
@@ -33,7 +34,7 @@ func NewSnapshotTransaction(engine engineTypes.StorageEngine, snapshot storage.S
 	}
 }
 
-// GetRow retrieves a row by its ID
+// GetRow retrieves a row by its ID using snapshot semantics
 func (tx *SnapshotTransaction) GetRow(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *dbTypes.TableDefinition) (*dbTypes.Record, error) {
 	if tx.closed {
 		return nil, storage.ErrClosed
@@ -41,37 +42,38 @@ func (tx *SnapshotTransaction) GetRow(ctx context.Context, tenantID, tableID, ro
 
 	key := tx.codec.EncodeTableKey(tenantID, tableID, rowID)
 
-	// First check mutations
+	// Check mutations first (writes in this transaction)
 	if value, exists := tx.mutations[string(key)]; exists {
 		if value == nil {
-			// Row was deleted in this transaction
+			// Deleted in this transaction
 			return nil, dbTypes.ErrRecordNotFound
 		}
-		
+		// Updated/inserted in this transaction
 		record, err := tx.codec.DecodeRow(value, schemaDef)
 		if err != nil {
-			return nil, fmt.Errorf("decode row: %w", err)
+			return nil, fmt.Errorf("decode row from mutation: %w", err)
 		}
 		return record, nil
 	}
 
-	// Then check snapshot
+	// Not in mutations, check snapshot
 	value, err := tx.snapshot.Get(key)
 	if err != nil {
 		if storage.IsNotFound(err) {
 			return nil, dbTypes.ErrRecordNotFound
 		}
-		return nil, fmt.Errorf("get row from snapshot: %w", err)
+		return nil, fmt.Errorf("get from snapshot: %w", err)
 	}
 
 	record, err := tx.codec.DecodeRow(value, schemaDef)
 	if err != nil {
-		return nil, fmt.Errorf("decode row: %w", err)
+		return nil, fmt.Errorf("decode row from snapshot: %w", err)
 	}
+
 	return record, nil
 }
 
-// InsertRow inserts a new row
+// InsertRow inserts a new row in the snapshot transaction
 func (tx *SnapshotTransaction) InsertRow(ctx context.Context, tenantID, tableID int64, row *dbTypes.Record, schemaDef *dbTypes.TableDefinition) (int64, error) {
 	if tx.closed {
 		return 0, storage.ErrClosed
@@ -83,25 +85,28 @@ func (tx *SnapshotTransaction) InsertRow(ctx context.Context, tenantID, tableID 
 	}
 
 	key := tx.codec.EncodeTableKey(tenantID, tableID, rowID)
+
 	value, err := tx.codec.EncodeRow(row, schemaDef)
 	if err != nil {
 		return 0, fmt.Errorf("encode row: %w", err)
 	}
 
+	// Store in mutations
 	tx.mutations[string(key)] = value
+
 	return rowID, nil
 }
 
-// UpdateRow updates an existing row
+// UpdateRow updates an existing row in the snapshot transaction
 func (tx *SnapshotTransaction) UpdateRow(ctx context.Context, tenantID, tableID, rowID int64, updates map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
 	if tx.closed {
 		return storage.ErrClosed
 	}
 
-	// Get the existing row
+	// Get the current row (could be from snapshot or previous mutations)
 	oldRow, err := tx.GetRow(ctx, tenantID, tableID, rowID, schemaDef)
 	if err != nil {
-		return fmt.Errorf("get old row: %w", err)
+		return fmt.Errorf("get row: %w", err)
 	}
 
 	// Apply updates
@@ -109,37 +114,58 @@ func (tx *SnapshotTransaction) UpdateRow(ctx context.Context, tenantID, tableID,
 		oldRow.Data[k] = v
 	}
 
-	// Encode and store in mutations
 	key := tx.codec.EncodeTableKey(tenantID, tableID, rowID)
+
 	value, err := tx.codec.EncodeRow(oldRow, schemaDef)
 	if err != nil {
 		return fmt.Errorf("encode row: %w", err)
 	}
 
+	// Store in mutations
 	tx.mutations[string(key)] = value
+
 	return nil
 }
 
-// DeleteRow deletes a row by its ID
+// DeleteRow deletes a row in the snapshot transaction
 func (tx *SnapshotTransaction) DeleteRow(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *dbTypes.TableDefinition) error {
 	if tx.closed {
 		return storage.ErrClosed
 	}
 
 	key := tx.codec.EncodeTableKey(tenantID, tableID, rowID)
-	tx.mutations[string(key)] = nil // nil indicates deletion
+
+	// Mark as deleted in mutations (nil value indicates deletion)
+	tx.mutations[string(key)] = nil
+
 	return nil
 }
 
-// UpdateRowBatch updates multiple rows in batch
-func (tx *SnapshotTransaction) UpdateRowBatch(ctx context.Context, tenantID, tableID int64, updates []engineTypes.RowUpdate, schemaDef *dbTypes.TableDefinition) error {
+// UpdateRowsBatch updates multiple rows in a single batch operation
+func (tx *SnapshotTransaction) UpdateRowsBatch(ctx context.Context, tenantID, tableID int64, rowUpdates map[int64]map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
 	if tx.closed {
 		return storage.ErrClosed
 	}
 
-	for _, update := range updates {
-		if err := tx.UpdateRow(ctx, tenantID, tableID, update.RowID, update.Updates, schemaDef); err != nil {
-			return err
+	// Process all updates in a single batch to minimize transaction overhead
+	for rowID, updates := range rowUpdates {
+		if err := tx.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
+			return fmt.Errorf("update row %d: %w", rowID, err)
+		}
+	}
+	return nil
+}
+
+// DeleteRowsBatch deletes multiple rows in a single batch operation
+func (tx *SnapshotTransaction) DeleteRowsBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) error {
+	if tx.closed {
+		return storage.ErrClosed
+	}
+
+	// Process all deletions in a single batch to minimize transaction overhead
+	for _, rowID := range rowIDs {
+		if err := tx.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
+			return fmt.Errorf("delete row %d: %w", rowID, err)
 		}
 	}
 	return nil
@@ -159,47 +185,60 @@ func (tx *SnapshotTransaction) DeleteRowBatch(ctx context.Context, tenantID, tab
 	return nil
 }
 
-// UpdateRows updates multiple rows that match the given conditions for snapshot transactions
+// UpdateRowBatch updates multiple rows in batch
+func (tx *SnapshotTransaction) UpdateRowBatch(ctx context.Context, tenantID, tableID int64, updates []engineTypes.RowUpdate, schemaDef *dbTypes.TableDefinition) error {
+	if tx.closed {
+		return storage.ErrClosed
+	}
+
+	for _, update := range updates {
+		if err := tx.UpdateRow(ctx, tenantID, tableID, update.RowID, update.Updates, schemaDef); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// UpdateRows updates multiple rows that match the given conditions
 func (tx *SnapshotTransaction) UpdateRows(ctx context.Context, tenantID, tableID int64, updates map[string]*dbTypes.Value, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
 	if tx.closed {
 		return 0, storage.ErrClosed
 	}
 
-	// For snapshot transactions, we need to scan through all data to find matching rows
-	// This is a simplified implementation that checks all rows in the table
-	// A more efficient implementation would use indexes where available
-	
-	// Collect all matching row IDs
+	// Collect all matching row IDs by scanning through the table
 	var matchingRowIDs []int64
 	
-	// First check existing data through snapshot iterator
+	// Create iterator options to scan the entire table
 	iterOpts := &storage.IteratorOptions{
 		LowerBound: tx.codec.EncodeTableKey(tenantID, tableID, 0),
 		UpperBound: tx.codec.EncodeTableKey(tenantID, tableID, int64(^uint64(0)>>1)),
 	}
 	
-	snapshotIter := tx.snapshot.NewIterator(iterOpts)
-	if snapshotIter == nil {
-		return 0, fmt.Errorf("failed to create snapshot iterator")
+	iter := tx.snapshot.NewIterator(iterOpts)
+	if iter == nil {
+		return 0, fmt.Errorf("failed to create iterator")
 	}
-	defer snapshotIter.Close()
+	defer iter.Close()
 	
-	// Iterate through all rows in the snapshot
-	for snapshotIter.First(); snapshotIter.Valid(); snapshotIter.Next() {
-		_, _, rowID, err := tx.codec.DecodeTableKey(snapshotIter.Key())
+	// Call First() and check if it succeeded
+	if !iter.First() {
+		// Check if there was an error
+		if err := iter.Error(); err != nil {
+			return 0, fmt.Errorf("iterator error: %w", err)
+		}
+		// No rows to iterate over, which is fine
+		return 0, nil
+	}
+	
+	// Continue with the iteration
+	for iter.Valid() {
+		_, _, rowID, err := tx.codec.DecodeTableKey(iter.Key())
 		if err != nil {
 			return 0, fmt.Errorf("decode table key: %w", err)
 		}
 		
-		// Check if this row has been deleted in mutations
-		key := string(snapshotIter.Key())
-		if value, exists := tx.mutations[key]; exists && value == nil {
-			// Row was deleted, skip it
-			continue
-		}
-		
 		// Decode the row
-		value := snapshotIter.Value()
+		value := iter.Value()
 		record, err := tx.codec.DecodeRow(value, schemaDef)
 		if err != nil {
 			return 0, fmt.Errorf("decode row: %w", err)
@@ -209,48 +248,10 @@ func (tx *SnapshotTransaction) UpdateRows(ctx context.Context, tenantID, tableID
 		if tx.matchesConditions(record, conditions) {
 			matchingRowIDs = append(matchingRowIDs, rowID)
 		}
-	}
-	
-	// Check for iterator errors
-	if err := snapshotIter.Error(); err != nil {
-		return 0, fmt.Errorf("snapshot iterator error: %w", err)
-	}
-	
-	// Then check mutations for newly inserted rows
-	for key, value := range tx.mutations {
-		if value == nil {
-			// Deleted row, skip
-			continue
-		}
 		
-		// Decode the key to check if it's for this table
-		tID, tTableID, rowID, err := tx.codec.DecodeTableKey([]byte(key))
-		if err != nil {
-			// Not a table key, skip
-			continue
-		}
-		
-		if tID == tenantID && tTableID == tableID {
-			// Decode the row
-			record, err := tx.codec.DecodeRow(value, schemaDef)
-			if err != nil {
-				return 0, fmt.Errorf("decode row: %w", err)
-			}
-			
-			// Check conditions
-			if tx.matchesConditions(record, conditions) {
-				// Check if we already added this row ID (to avoid duplicates)
-				found := false
-				for _, id := range matchingRowIDs {
-					if id == rowID {
-						found = true
-						break
-					}
-				}
-				if !found {
-					matchingRowIDs = append(matchingRowIDs, rowID)
-				}
-			}
+		// Move to next row
+		if !iter.Next() {
+			break
 		}
 	}
 	
@@ -283,47 +284,46 @@ func (tx *SnapshotTransaction) UpdateRows(ctx context.Context, tenantID, tableID
 	return count, nil
 }
 
-// DeleteRows deletes multiple rows that match the given conditions for snapshot transactions
+// DeleteRows deletes multiple rows that match the given conditions
 func (tx *SnapshotTransaction) DeleteRows(ctx context.Context, tenantID, tableID int64, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
 	if tx.closed {
 		return 0, storage.ErrClosed
 	}
 
-	// For snapshot transactions, we need to scan through all data to find matching rows
-	// This is a simplified implementation that checks all rows in the table
-	// A more efficient implementation would use indexes where available
-	
-	// Collect all matching row IDs
+	// Collect all matching row IDs by scanning through the table
 	var matchingRowIDs []int64
 	
-	// First check existing data through snapshot iterator
+	// Create iterator options to scan the entire table
 	iterOpts := &storage.IteratorOptions{
 		LowerBound: tx.codec.EncodeTableKey(tenantID, tableID, 0),
 		UpperBound: tx.codec.EncodeTableKey(tenantID, tableID, int64(^uint64(0)>>1)),
 	}
 	
-	snapshotIter := tx.snapshot.NewIterator(iterOpts)
-	if snapshotIter == nil {
-		return 0, fmt.Errorf("failed to create snapshot iterator")
+	iter := tx.snapshot.NewIterator(iterOpts)
+	if iter == nil {
+		return 0, fmt.Errorf("failed to create iterator")
 	}
-	defer snapshotIter.Close()
+	defer iter.Close()
 	
-	// Iterate through all rows in the snapshot
-	for snapshotIter.First(); snapshotIter.Valid(); snapshotIter.Next() {
-		_, _, rowID, err := tx.codec.DecodeTableKey(snapshotIter.Key())
+	// Call First() and check if it succeeded
+	if !iter.First() {
+		// Check if there was an error
+		if err := iter.Error(); err != nil {
+			return 0, fmt.Errorf("iterator error: %w", err)
+		}
+		// No rows to iterate over, which is fine
+		return 0, nil
+	}
+	
+	// Continue with the iteration
+	for iter.Valid() {
+		_, _, rowID, err := tx.codec.DecodeTableKey(iter.Key())
 		if err != nil {
 			return 0, fmt.Errorf("decode table key: %w", err)
 		}
 		
-		// Check if this row has been deleted in mutations
-		key := string(snapshotIter.Key())
-		if value, exists := tx.mutations[key]; exists && value == nil {
-			// Row was deleted, skip it
-			continue
-		}
-		
 		// Decode the row
-		value := snapshotIter.Value()
+		value := iter.Value()
 		record, err := tx.codec.DecodeRow(value, schemaDef)
 		if err != nil {
 			return 0, fmt.Errorf("decode row: %w", err)
@@ -333,48 +333,10 @@ func (tx *SnapshotTransaction) DeleteRows(ctx context.Context, tenantID, tableID
 		if tx.matchesConditions(record, conditions) {
 			matchingRowIDs = append(matchingRowIDs, rowID)
 		}
-	}
-	
-	// Check for iterator errors
-	if err := snapshotIter.Error(); err != nil {
-		return 0, fmt.Errorf("snapshot iterator error: %w", err)
-	}
-	
-	// Then check mutations for newly inserted rows
-	for key, value := range tx.mutations {
-		if value == nil {
-			// Deleted row, skip
-			continue
-		}
 		
-		// Decode the key to check if it's for this table
-		tID, tTableID, rowID, err := tx.codec.DecodeTableKey([]byte(key))
-		if err != nil {
-			// Not a table key, skip
-			continue
-		}
-		
-		if tID == tenantID && tTableID == tableID {
-			// Decode the row
-			record, err := tx.codec.DecodeRow(value, schemaDef)
-			if err != nil {
-				return 0, fmt.Errorf("decode row: %w", err)
-			}
-			
-			// Check conditions
-			if tx.matchesConditions(record, conditions) {
-				// Check if we already added this row ID (to avoid duplicates)
-				found := false
-				for _, id := range matchingRowIDs {
-					if id == rowID {
-						found = true
-						break
-					}
-				}
-				if !found {
-					matchingRowIDs = append(matchingRowIDs, rowID)
-				}
-			}
+		// Move to next row
+		if !iter.Next() {
+			break
 		}
 	}
 	
@@ -403,64 +365,6 @@ func (tx *SnapshotTransaction) DeleteRows(ctx context.Context, tenantID, tableID
 	return count, nil
 }
 
-// DeleteRowsBatch deletes multiple rows in batch for snapshot transactions
-func (tx *SnapshotTransaction) DeleteRowsBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) error {
-	if tx.closed {
-		return storage.ErrClosed
-	}
-
-	// Process all deletions in a single batch to minimize transaction overhead
-	for _, rowID := range rowIDs {
-		if err := tx.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
-			return fmt.Errorf("delete row %d: %w", rowID, err)
-		}
-	}
-	return nil
-}
-
-// UpdateRowsBatch updates multiple rows in a single batch operation for snapshot transactions
-func (tx *SnapshotTransaction) UpdateRowsBatch(ctx context.Context, tenantID, tableID int64, rowUpdates map[int64]map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
-	// Process all updates in a single batch to minimize transaction overhead
-	for rowID, updates := range rowUpdates {
-		if err := tx.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
-			return fmt.Errorf("update row %d: %w", rowID, err)
-		}
-	}
-	return nil
-}
-
-// buildFilterExpression converts a simple map filter to a complex FilterExpression
-func (tx *SnapshotTransaction) buildFilterExpression(conditions map[string]interface{}) *engineTypes.FilterExpression {
-	if len(conditions) == 0 {
-		return nil
-	}
-	if len(conditions) == 1 {
-		// Single condition
-		for col, val := range conditions {
-			return &engineTypes.FilterExpression{
-				Type:     "simple",
-				Column:   col,
-				Operator: "=",
-				Value:    val,
-			}
-		}
-	}
-	// Multiple conditions - combine with AND
-	children := make([]*engineTypes.FilterExpression, 0, len(conditions))
-	for col, val := range conditions {
-		children = append(children, &engineTypes.FilterExpression{
-			Type:     "simple",
-			Column:   col,
-			Operator: "=",
-			Value:    val,
-		})
-	}
-	return &engineTypes.FilterExpression{
-		Type:     "and",
-		Children: children,
-	}
-}
-
 // matchesConditions checks if a record matches the given conditions
 func (tx *SnapshotTransaction) matchesConditions(record *dbTypes.Record, conditions map[string]interface{}) bool {
 	for col, val := range conditions {
@@ -468,9 +372,21 @@ func (tx *SnapshotTransaction) matchesConditions(record *dbTypes.Record, conditi
 		if !exists {
 			return false
 		}
-		if field.Data != val {
-			return false
+		
+		// Direct comparison first
+		if field.Data == val {
+			continue
 		}
+		
+		// Handle numeric type mismatches (e.g., int vs int64)
+		// This is a common issue when data is encoded/decoded
+		if utils.IsNumeric(field.Data) && utils.IsNumeric(val) {
+			if utils.CompareNumerics(field.Data, val) == 0 {
+				continue
+			}
+		}
+		
+		return false
 	}
 	return true
 }
@@ -525,6 +441,9 @@ func (tx *SnapshotTransaction) SetIsolation(level storage.IsolationLevel) error 
 
 // Isolation returns the isolation level of the transaction
 func (tx *SnapshotTransaction) Isolation() storage.IsolationLevel {
+	if tx.closed {
+		return storage.SnapshotIsolation // Still return the expected isolation level even when closed
+	}
 	// Snapshot transactions typically run at snapshot isolation level
 	return storage.SnapshotIsolation
 }

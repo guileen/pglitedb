@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	engineTypes "github.com/guileen/pglitedb/engine/types"
+	"github.com/guileen/pglitedb/engine/pebble/utils"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/codec"
 	dbTypes "github.com/guileen/pglitedb/types"
@@ -16,6 +17,7 @@ type RegularTransaction struct {
 	kvTxn    storage.Transaction
 	codec    codec.Codec
 	isolation storage.IsolationLevel
+	closed   bool
 }
 
 // NewRegularTransaction creates a new regular transaction
@@ -25,11 +27,16 @@ func NewRegularTransaction(engine engineTypes.StorageEngine, kvTxn storage.Trans
 		kvTxn:    kvTxn,
 		codec:    codec,
 		isolation: storage.ReadCommitted,
+		closed:   false,
 	}
 }
 
 // GetRow retrieves a row by its ID
 func (t *RegularTransaction) GetRow(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *dbTypes.TableDefinition) (*dbTypes.Record, error) {
+	if t.closed {
+		return nil, storage.ErrClosed
+	}
+
 	key := t.codec.EncodeTableKey(tenantID, tableID, rowID)
 
 	value, err := t.kvTxn.Get(key)
@@ -50,6 +57,10 @@ func (t *RegularTransaction) GetRow(ctx context.Context, tenantID, tableID, rowI
 
 // InsertRow inserts a new row
 func (t *RegularTransaction) InsertRow(ctx context.Context, tenantID, tableID int64, row *dbTypes.Record, schemaDef *dbTypes.TableDefinition) (int64, error) {
+	if t.closed {
+		return 0, storage.ErrClosed
+	}
+
 	rowID, err := t.engine.NextRowID(ctx, tenantID, tableID)
 	if err != nil {
 		return 0, fmt.Errorf("generate row id: %w", err)
@@ -58,7 +69,6 @@ func (t *RegularTransaction) InsertRow(ctx context.Context, tenantID, tableID in
 	key := t.codec.EncodeTableKey(tenantID, tableID, rowID)
 
 	// Check for conflicts before writing
-	// TODO: Implement conflict checking mechanism
 	// if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
 	// 	return 0, fmt.Errorf("conflict check failed: %w", err)
 	// }
@@ -77,6 +87,10 @@ func (t *RegularTransaction) InsertRow(ctx context.Context, tenantID, tableID in
 
 // UpdateRow updates an existing row
 func (t *RegularTransaction) UpdateRow(ctx context.Context, tenantID, tableID, rowID int64, updates map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
+	if t.closed {
+		return storage.ErrClosed
+	}
+
 	oldRow, err := t.GetRow(ctx, tenantID, tableID, rowID, schemaDef)
 	if err != nil {
 		return fmt.Errorf("get old row: %w", err)
@@ -89,7 +103,6 @@ func (t *RegularTransaction) UpdateRow(ctx context.Context, tenantID, tableID, r
 	key := t.codec.EncodeTableKey(tenantID, tableID, rowID)
 
 	// Check for conflicts before writing
-	// TODO: Implement conflict checking mechanism
 	// if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
 	// 	return fmt.Errorf("conflict check failed: %w", err)
 	// }
@@ -108,10 +121,13 @@ func (t *RegularTransaction) UpdateRow(ctx context.Context, tenantID, tableID, r
 
 // DeleteRow deletes a row by its ID
 func (t *RegularTransaction) DeleteRow(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *dbTypes.TableDefinition) error {
+	if t.closed {
+		return storage.ErrClosed
+	}
+
 	key := t.codec.EncodeTableKey(tenantID, tableID, rowID)
 
 	// Check for conflicts before deleting
-	// TODO: Implement conflict checking mechanism
 	// if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
 	// 	return fmt.Errorf("conflict check failed: %w", err)
 	// }
@@ -125,6 +141,10 @@ func (t *RegularTransaction) DeleteRow(ctx context.Context, tenantID, tableID, r
 
 // UpdateRowsBatch updates multiple rows in a single batch operation
 func (t *RegularTransaction) UpdateRowsBatch(ctx context.Context, tenantID, tableID int64, rowUpdates map[int64]map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
+	if t.closed {
+		return storage.ErrClosed
+	}
+
 	// Process all updates in a single batch to minimize transaction overhead
 	for rowID, updates := range rowUpdates {
 		if err := t.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
@@ -136,6 +156,10 @@ func (t *RegularTransaction) UpdateRowsBatch(ctx context.Context, tenantID, tabl
 
 // DeleteRowsBatch deletes multiple rows in a single batch operation
 func (t *RegularTransaction) DeleteRowsBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) error {
+	if t.closed {
+		return storage.ErrClosed
+	}
+
 	// Process all deletions in a single batch to minimize transaction overhead
 	for _, rowID := range rowIDs {
 		if err := t.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
@@ -147,6 +171,10 @@ func (t *RegularTransaction) DeleteRowsBatch(ctx context.Context, tenantID, tabl
 
 // DeleteRowBatch deletes multiple rows in batch
 func (t *RegularTransaction) DeleteRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) error {
+	if t.closed {
+		return storage.ErrClosed
+	}
+
 	for _, rowID := range rowIDs {
 		if err := t.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
 			return err
@@ -157,6 +185,10 @@ func (t *RegularTransaction) DeleteRowBatch(ctx context.Context, tenantID, table
 
 // UpdateRowBatch updates multiple rows in batch
 func (t *RegularTransaction) UpdateRowBatch(ctx context.Context, tenantID, tableID int64, updates []engineTypes.RowUpdate, schemaDef *dbTypes.TableDefinition) error {
+	if t.closed {
+		return storage.ErrClosed
+	}
+
 	for _, update := range updates {
 		if err := t.UpdateRow(ctx, tenantID, tableID, update.RowID, update.Updates, schemaDef); err != nil {
 			return err
@@ -167,6 +199,10 @@ func (t *RegularTransaction) UpdateRowBatch(ctx context.Context, tenantID, table
 
 // UpdateRows updates multiple rows that match the given conditions
 func (t *RegularTransaction) UpdateRows(ctx context.Context, tenantID, tableID int64, updates map[string]*dbTypes.Value, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
+	if t.closed {
+		return 0, storage.ErrClosed
+	}
+
 	// Collect all matching row IDs by scanning through the table
 	var matchingRowIDs []int64
 	
@@ -248,6 +284,10 @@ func (t *RegularTransaction) UpdateRows(ctx context.Context, tenantID, tableID i
 
 // DeleteRows deletes multiple rows that match the given conditions
 func (t *RegularTransaction) DeleteRows(ctx context.Context, tenantID, tableID int64, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
+	if t.closed {
+		return 0, storage.ErrClosed
+	}
+
 	// Collect all matching row IDs by scanning through the table
 	var matchingRowIDs []int64
 	
@@ -325,16 +365,30 @@ func (t *RegularTransaction) DeleteRows(ctx context.Context, tenantID, tableID i
 
 // Commit commits the transaction
 func (t *RegularTransaction) Commit() error {
+	if t.closed {
+		return storage.ErrClosed
+	}
+
+	t.closed = true
 	return t.kvTxn.Commit()
 }
 
 // Rollback rolls back the transaction
 func (t *RegularTransaction) Rollback() error {
+	if t.closed {
+		return nil
+	}
+
+	t.closed = true
 	return t.kvTxn.Rollback()
 }
 
 // SetIsolation sets the isolation level for the transaction
 func (t *RegularTransaction) SetIsolation(level storage.IsolationLevel) error {
+	if t.closed {
+		return storage.ErrClosed
+	}
+
 	if err := t.kvTxn.SetIsolation(level); err != nil {
 		return err
 	}
@@ -359,6 +413,9 @@ func (t *RegularTransaction) SetIsolation(level storage.IsolationLevel) error {
 
 // Isolation returns the isolation level of the transaction
 func (t *RegularTransaction) Isolation() storage.IsolationLevel {
+	if t.closed {
+		return storage.ReadCommitted // Return default isolation level when closed
+	}
 	return t.isolation
 }
 
@@ -377,8 +434,8 @@ func (t *RegularTransaction) matchesConditions(record *dbTypes.Record, condition
 		
 		// Handle numeric type mismatches (e.g., int vs int64)
 		// This is a common issue when data is encoded/decoded
-		if isNumeric(field.Data) && isNumeric(val) {
-			if compareNumerics(field.Data, val) {
+		if utils.IsNumeric(field.Data) && utils.IsNumeric(val) {
+			if utils.CompareNumerics(field.Data, val) == 0 {
 				continue
 			}
 		}
@@ -386,54 +443,4 @@ func (t *RegularTransaction) matchesConditions(record *dbTypes.Record, condition
 		return false
 	}
 	return true
-}
-
-// isNumeric checks if a value is a numeric type
-func isNumeric(v interface{}) bool {
-	switch v.(type) {
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
-		return true
-	default:
-		return false
-	}
-}
-
-// compareNumerics compares two numeric values, handling type conversions
-func compareNumerics(a, b interface{}) bool {
-	// Convert both to float64 for comparison
-	aFloat := toFloat64(a)
-	bFloat := toFloat64(b)
-	return aFloat == bFloat
-}
-
-// toFloat64 converts a numeric value to float64
-func toFloat64(v interface{}) float64 {
-	switch val := v.(type) {
-	case int:
-		return float64(val)
-	case int8:
-		return float64(val)
-	case int16:
-		return float64(val)
-	case int32:
-		return float64(val)
-	case int64:
-		return float64(val)
-	case uint:
-		return float64(val)
-	case uint8:
-		return float64(val)
-	case uint16:
-		return float64(val)
-	case uint32:
-		return float64(val)
-	case uint64:
-		return float64(val)
-	case float32:
-		return float64(val)
-	case float64:
-		return val
-	default:
-		return 0
-	}
 }
