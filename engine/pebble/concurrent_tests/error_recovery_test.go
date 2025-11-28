@@ -1,40 +1,18 @@
 package concurrent_tests
 
 import (
-	"context"
 	"fmt"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/pebble"
-	"github.com/cockroachdb/pebble/vfs"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/guileen/pglitedb/engine/pebble/resources"
-	"github.com/guileen/pglitedb/storage"
 )
 
 // TestErrorRecovery tests various error recovery scenarios in concurrent environments
 func TestErrorRecovery(t *testing.T) {
-	// Create a simple schema for testing
-	schemaDef := &types.TableDefinition{
-		ID:   "test_table_1",
-		Name: "test_table",
-		Columns: []types.ColumnDefinition{
-			{
-				Name:       "id",
-				Type:       types.ColumnTypeNumber,
-				PrimaryKey: true,
-			},
-			{
-				Name: "data",
-				Type: types.ColumnTypeString,
-			},
-		},
-	}
 
 	// Test various error recovery scenarios
 	t.Run("ConcurrentTransactionErrorRecovery", func(t *testing.T) {
