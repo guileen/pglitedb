@@ -50,5 +50,5 @@ func (ts *TableScanner) ScanRows(ctx context.Context, tenantID, tableID int64, s
 
 	iter := ts.kv.NewIterator(iterOpts)
 
-	return NewRowIterator(iter, ts.codec, schemaDef, opts, nil), nil
+	return NewRowIterator(iter, ts.codec, schemaDef, opts, nil, nil), nil
 }

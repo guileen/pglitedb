@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"fmt"
+	"time"
 
 	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/storage"
@@ -38,9 +39,12 @@ func (u *UpdateOperations) UpdateRow(ctx context.Context, tenantID, tableID, row
 		return fmt.Errorf("delete old indexes in batch: %w", err)
 	}
 
+	// Apply updates efficiently by reusing the existing record
 	for k, v := range updates {
 		oldRow.Data[k] = v
 	}
+	// Update timestamps
+	oldRow.UpdatedAt = time.Now()
 
 	key := u.codec.EncodeTableKey(tenantID, tableID, rowID)
 	value, err := u.codec.EncodeRow(oldRow, schemaDef)

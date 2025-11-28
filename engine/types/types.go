@@ -55,9 +55,11 @@ type Transaction interface {
 	UpdateRow(ctx context.Context, tenantID, tableID, rowID int64, updates map[string]*types.Value, schemaDef *types.TableDefinition) error
 	UpdateRowBatch(ctx context.Context, tenantID, tableID int64, updates []RowUpdate, schemaDef *types.TableDefinition) error
 	UpdateRows(ctx context.Context, tenantID, tableID int64, updates map[string]*types.Value, conditions map[string]interface{}, schemaDef *types.TableDefinition) (int64, error)
+	UpdateRowsBatch(ctx context.Context, tenantID, tableID int64, rowUpdates map[int64]map[string]*types.Value, schemaDef *types.TableDefinition) error
 	DeleteRow(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *types.TableDefinition) error
 	DeleteRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *types.TableDefinition) error
 	DeleteRows(ctx context.Context, tenantID, tableID int64, conditions map[string]interface{}, schemaDef *types.TableDefinition) (int64, error)
+	DeleteRowsBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *types.TableDefinition) error
 	Commit() error
 	Rollback() error
 

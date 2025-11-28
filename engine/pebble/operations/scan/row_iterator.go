@@ -20,6 +20,11 @@ type RowIterator struct {
 	count     int
 	started   bool
 	engine    interface{ EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool }
+	
+	// Reference to the pool for returning the iterator when closed
+	pool interface {
+		Put(interface{})
+	}
 }
 
 // Reset resets the iterator state for reuse
@@ -36,15 +41,36 @@ func (ri *RowIterator) Reset() {
 }
 
 // NewRowIterator creates a new RowIterator
-func NewRowIterator(iter storage.Iterator, codec codec.Codec, schemaDef *dbTypes.TableDefinition, opts *engineTypes.ScanOptions, engine interface{ EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool }) *RowIterator {
-	return &RowIterator{
+func NewRowIterator(iter storage.Iterator, codec codec.Codec, schemaDef *dbTypes.TableDefinition, opts *engineTypes.ScanOptions, engine interface{ EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool }, pool interface {
+	Put(interface{})
+}) *RowIterator {
+	iterator := &RowIterator{
 		iter:      iter,
 		codec:     codec,
 		schemaDef: schemaDef,
 		opts:      opts,
 		engine:    engine,
 		count:     0,
+		pool:      pool,
 	}
+	return iterator
+}
+
+// Initialize sets up an existing RowIterator with the provided parameters
+// This is used by the pool to reuse iterators
+func (ri *RowIterator) Initialize(iter storage.Iterator, codec codec.Codec, schemaDef *dbTypes.TableDefinition, opts *engineTypes.ScanOptions, engine interface{ EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool }, pool interface {
+	Put(interface{})
+}) {
+	ri.iter = iter
+	ri.codec = codec
+	ri.schemaDef = schemaDef
+	ri.opts = opts
+	ri.engine = engine
+	ri.count = 0
+	ri.started = false
+	ri.err = nil
+	ri.current = nil
+	ri.pool = pool
 }
 
 func (ri *RowIterator) Next() bool {
@@ -112,5 +138,9 @@ func (ri *RowIterator) Error() error {
 }
 
 func (ri *RowIterator) Close() error {
-	return ri.iter.Close()
+	err := ri.iter.Close()
+	if ri.pool != nil {
+		ri.pool.Put(ri)
+	}
+	return err
 }

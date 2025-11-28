@@ -261,6 +261,7 @@ func (is *IndexScanner) ScanIndex(ctx context.Context, tenantID, tableID, indexI
 			tableID,
 			indexID,
 			nil, // engine will be set by caller
+			nil, // pool
 		), nil
 	}
 
@@ -273,6 +274,7 @@ func (is *IndexScanner) ScanIndex(ctx context.Context, tenantID, tableID, indexI
 		tenantID,
 		tableID,
 		nil, // engine will be set by caller
+		nil, // pool
 	), nil
 }
 

@@ -1,10 +1,11 @@
 package pebble
 
 import (
+	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"context"
 	"fmt"
 
-	engineTypes "github.com/guileen/pglitedb/engine/types"
+	
 	"github.com/guileen/pglitedb/storage"
 	dbTypes "github.com/guileen/pglitedb/types"
 )
@@ -101,11 +102,23 @@ func (t *transaction) DeleteRow(ctx context.Context, tenantID, tableID, rowID in
 	return nil
 }
 
-// UpdateRowBatch updates multiple rows in batch
-func (t *transaction) UpdateRowBatch(ctx context.Context, tenantID, tableID int64, updates []engineTypes.RowUpdate, schemaDef *dbTypes.TableDefinition) error {
-	for _, update := range updates {
-		if err := t.UpdateRow(ctx, tenantID, tableID, update.RowID, update.Updates, schemaDef); err != nil {
-			return err
+// UpdateRowsBatch updates multiple rows in a single batch operation
+func (t *transaction) UpdateRowsBatch(ctx context.Context, tenantID, tableID int64, rowUpdates map[int64]map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
+	// Process all updates in a single batch to minimize transaction overhead
+	for rowID, updates := range rowUpdates {
+		if err := t.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
+			return fmt.Errorf("update row %d: %w", rowID, err)
+		}
+	}
+	return nil
+}
+
+// DeleteRowsBatch deletes multiple rows in a single batch operation
+func (t *transaction) DeleteRowsBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) error {
+	// Process all deletions in a single batch to minimize transaction overhead
+	for _, rowID := range rowIDs {
+		if err := t.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
+			return fmt.Errorf("delete row %d: %w", rowID, err)
 		}
 	}
 	return nil
@@ -121,16 +134,26 @@ func (t *transaction) DeleteRowBatch(ctx context.Context, tenantID, tableID int6
 	return nil
 }
 
+// UpdateRowBatch updates multiple rows in batch
+func (t *transaction) UpdateRowBatch(ctx context.Context, tenantID, tableID int64, updates []engineTypes.RowUpdate, schemaDef *dbTypes.TableDefinition) error {
+	for _, update := range updates {
+		if err := t.UpdateRow(ctx, tenantID, tableID, update.RowID, update.Updates, schemaDef); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // UpdateRows updates multiple rows that match the given conditions
 func (t *transaction) UpdateRows(ctx context.Context, tenantID, tableID int64, updates map[string]*dbTypes.Value, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
 	handler := NewRowHandler(t.engine.buildFilterExpression)
-	return handler.UpdateRows(ctx, tenantID, tableID, updates, conditions, schemaDef, t.engine.ScanRows, t.updateRowImpl)
+	return handler.UpdateRows(ctx, tenantID, tableID, updates, conditions, schemaDef, t.engine.ScanRows, t.updateRowImpl, t.updateRowsBatchImpl)
 }
 
 // DeleteRows deletes multiple rows that match the given conditions
 func (t *transaction) DeleteRows(ctx context.Context, tenantID, tableID int64, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
 	handler := NewRowHandler(t.engine.buildFilterExpression)
-	return handler.DeleteRows(ctx, tenantID, tableID, conditions, schemaDef, t.engine.ScanRows, t.deleteRowImpl)
+	return handler.DeleteRows(ctx, tenantID, tableID, conditions, schemaDef, t.engine.ScanRows, t.deleteRowImpl, t.deleteRowsBatchImpl)
 }
 
 // Commit commits the transaction
@@ -175,4 +198,14 @@ func (t *transaction) updateRowImpl(ctx context.Context, tenantID, tableID, rowI
 // deleteRowImpl implements the delete row functionality for regular transactions
 func (t *transaction) deleteRowImpl(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *dbTypes.TableDefinition) error {
 	return t.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef)
+}
+
+// updateRowsBatchImpl implements the batch update rows functionality for regular transactions
+func (t *transaction) updateRowsBatchImpl(ctx context.Context, tenantID, tableID int64, rowUpdates map[int64]map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
+	return t.UpdateRowsBatch(ctx, tenantID, tableID, rowUpdates, schemaDef)
+}
+
+// deleteRowsBatchImpl implements the batch delete rows functionality for regular transactions
+func (t *transaction) deleteRowsBatchImpl(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) error {
+	return t.DeleteRowsBatch(ctx, tenantID, tableID, rowIDs, schemaDef)
 }

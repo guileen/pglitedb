@@ -28,6 +28,10 @@ func NewDeleteOperations(kv storage.KV, codec Codec) *DeleteOperations {
 func (d *DeleteOperations) DeleteRow(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *dbTypes.TableDefinition, getRowFunc func(context.Context, int64, int64, int64, *dbTypes.TableDefinition) (*dbTypes.Record, error), deleteIndexesInBatchFunc func(storage.Batch, int64, int64, int64, *dbTypes.Record, *dbTypes.TableDefinition) error, commitBatchFunc func(context.Context, storage.Batch) error) error {
 	oldRow, err := getRowFunc(ctx, tenantID, tableID, rowID, schemaDef)
 	if err != nil {
+		// If the row doesn't exist, that's fine for a delete operation
+		if err == dbTypes.ErrRecordNotFound {
+			return nil
+		}
 		return fmt.Errorf("get row: %w", err)
 	}
 

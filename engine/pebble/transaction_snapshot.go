@@ -194,7 +194,7 @@ func (tx *snapshotTransaction) UpdateRows(ctx context.Context, tenantID, tableID
 	}
 
 	handler := NewRowHandler(tx.engine.buildFilterExpression)
-	return handler.UpdateRows(ctx, tenantID, tableID, updates, conditions, schemaDef, tx.engine.ScanRows, tx.updateRowImpl)
+	return handler.UpdateRows(ctx, tenantID, tableID, updates, conditions, schemaDef, tx.engine.ScanRows, tx.updateRowImpl, tx.updateRowsBatchImpl)
 }
 
 // DeleteRows deletes multiple rows that match the given conditions for snapshot transactions
@@ -204,7 +204,7 @@ func (tx *snapshotTransaction) DeleteRows(ctx context.Context, tenantID, tableID
 	}
 
 	handler := NewRowHandler(tx.engine.buildFilterExpression)
-	return handler.DeleteRows(ctx, tenantID, tableID, conditions, schemaDef, tx.engine.ScanRows, tx.deleteRowImpl)
+	return handler.DeleteRows(ctx, tenantID, tableID, conditions, schemaDef, tx.engine.ScanRows, tx.deleteRowImpl, tx.deleteRowsBatchImpl)
 }
 
 // Commit commits the transaction
@@ -253,4 +253,48 @@ func (tx *snapshotTransaction) updateRowImpl(ctx context.Context, tenantID, tabl
 // deleteRowImpl implements the delete row functionality for snapshot transactions
 func (tx *snapshotTransaction) deleteRowImpl(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *dbTypes.TableDefinition) error {
 	return tx.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef)
+}
+
+// updateRowsBatchImpl implements the batch update rows functionality for snapshot transactions
+func (tx *snapshotTransaction) updateRowsBatchImpl(ctx context.Context, tenantID, tableID int64, rowUpdates map[int64]map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
+	// Process all updates in a single batch to minimize transaction overhead
+	for rowID, updates := range rowUpdates {
+		if err := tx.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
+			return fmt.Errorf("update row %d: %w", rowID, err)
+		}
+	}
+	return nil
+}
+
+// deleteRowsBatchImpl implements the batch delete rows functionality for snapshot transactions
+func (tx *snapshotTransaction) deleteRowsBatchImpl(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) error {
+	// Process all deletions in a single batch to minimize transaction overhead
+	for _, rowID := range rowIDs {
+		if err := tx.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
+			return fmt.Errorf("delete row %d: %w", rowID, err)
+		}
+	}
+	return nil
+}
+
+// UpdateRowsBatch updates multiple rows in a single batch operation for snapshot transactions
+func (tx *snapshotTransaction) UpdateRowsBatch(ctx context.Context, tenantID, tableID int64, rowUpdates map[int64]map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
+	// Process all updates in a single batch to minimize transaction overhead
+	for rowID, updates := range rowUpdates {
+		if err := tx.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
+			return fmt.Errorf("update row %d: %w", rowID, err)
+		}
+	}
+	return nil
+}
+
+// DeleteRowsBatch deletes multiple rows in a single batch operation for snapshot transactions
+func (tx *snapshotTransaction) DeleteRowsBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) error {
+	// Process all deletions in a single batch to minimize transaction overhead
+	for _, rowID := range rowIDs {
+		if err := tx.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
+			return fmt.Errorf("delete row %d: %w", rowID, err)
+		}
+	}
+	return nil
 }

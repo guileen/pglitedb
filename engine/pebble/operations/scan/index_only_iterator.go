@@ -23,6 +23,11 @@ type IndexOnlyIterator struct {
 	err         error
 	count       int
 	started     bool
+	
+	// Reference to the pool for returning the iterator when closed
+	pool interface {
+		Put(interface{})
+	}
 }
 
 // Reset resets the iterator state for reuse
@@ -55,8 +60,11 @@ func NewIndexOnlyIterator(
 	tableID int64,
 	indexID int64,
 	engine interface{ EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool },
+	pool interface {
+		Put(interface{})
+	},
 ) *IndexOnlyIterator {
-	return &IndexOnlyIterator{
+	iterator := &IndexOnlyIterator{
 		iter:        iter,
 		codec:       codec,
 		indexDef:    indexDef,
@@ -68,7 +76,43 @@ func NewIndexOnlyIterator(
 		indexID:     indexID,
 		engine:      engine,
 		count:       0,
+		pool:        pool,
 	}
+	return iterator
+}
+
+// Initialize sets up an existing IndexOnlyIterator with the provided parameters
+// This is used by the pool to reuse iterators
+func (io *IndexOnlyIterator) Initialize(
+	iter storage.Iterator,
+	codec codec.Codec,
+	indexDef *dbTypes.IndexDefinition,
+	projection []string,
+	opts *engineTypes.ScanOptions,
+	columnTypes []dbTypes.ColumnType,
+	tenantID int64,
+	tableID int64,
+	indexID int64,
+	engine interface{ EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool },
+	pool interface {
+		Put(interface{})
+	},
+) {
+	io.iter = iter
+	io.codec = codec
+	io.indexDef = indexDef
+	io.projection = projection
+	io.opts = opts
+	io.columnTypes = columnTypes
+	io.tenantID = tenantID
+	io.tableID = tableID
+	io.indexID = indexID
+	io.engine = engine
+	io.count = 0
+	io.started = false
+	io.err = nil
+	io.current = nil
+	io.pool = pool
 }
 
 func (io *IndexOnlyIterator) Next() bool {
@@ -159,5 +203,9 @@ func (io *IndexOnlyIterator) Error() error {
 }
 
 func (io *IndexOnlyIterator) Close() error {
-	return io.iter.Close()
+	err := io.iter.Close()
+	if io.pool != nil {
+		io.pool.Put(io)
+	}
+	return err
 }

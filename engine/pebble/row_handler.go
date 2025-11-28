@@ -29,6 +29,7 @@ func (rh *RowHandler) UpdateRows(
 	schemaDef *dbTypes.TableDefinition,
 	scanRows func(context.Context, int64, int64, *dbTypes.TableDefinition, *engineTypes.ScanOptions) (engineTypes.RowIterator, error),
 	updateRowImpl func(context.Context, int64, int64, int64, map[string]*dbTypes.Value, *dbTypes.TableDefinition) error,
+	updateRowsBatchImpl func(context.Context, int64, int64, map[int64]map[string]*dbTypes.Value, *dbTypes.TableDefinition) error,
 ) (int64, error) {
 	// Create a scan options with the conditions as filter
 	scanOpts := &engineTypes.ScanOptions{
@@ -42,30 +43,46 @@ func (rh *RowHandler) UpdateRows(
 	}
 	defer iter.Close()
 	
-	// Update each matching row
-	var count int64
+	// Collect all matching row IDs and their updates
+	rowUpdates := make(map[int64]map[string]*dbTypes.Value)
 	for iter.Next() {
 		record := iter.Row()
 		// Extract row ID from the record's _rowid field
 		rowIDVal, ok := record.Data["_rowid"]
 		if !ok {
-			return count, fmt.Errorf("missing _rowid in record")
+			return 0, fmt.Errorf("missing _rowid in record")
 		}
 		rowID, ok := rowIDVal.Data.(int64)
 		if !ok {
-			return count, fmt.Errorf("_rowid is not an int64")
+			return 0, fmt.Errorf("_rowid is not an int64")
 		}
-		
-		// Update the row using the provided implementation
-		if err := updateRowImpl(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
-			return count, fmt.Errorf("update row %d: %w", rowID, err)
-		}
-		
-		count++
+		rowUpdates[rowID] = updates
 	}
 	
 	if err := iter.Error(); err != nil {
-		return count, fmt.Errorf("iterator error: %w", err)
+		return 0, fmt.Errorf("iterator error: %w", err)
+	}
+	
+	// If no rows match, return early
+	if len(rowUpdates) == 0 {
+		return 0, nil
+	}
+	
+	// Use batch update if available and there are multiple rows
+	if updateRowsBatchImpl != nil && len(rowUpdates) > 1 {
+		if err := updateRowsBatchImpl(ctx, tenantID, tableID, rowUpdates, schemaDef); err != nil {
+			return 0, fmt.Errorf("batch update rows: %w", err)
+		}
+		return int64(len(rowUpdates)), nil
+	}
+	
+	// Fallback to individual updates
+	var count int64
+	for rowID, rowUpdates := range rowUpdates {
+		if err := updateRowImpl(ctx, tenantID, tableID, rowID, rowUpdates, schemaDef); err != nil {
+			return count, fmt.Errorf("update row %d: %w", rowID, err)
+		}
+		count++
 	}
 	
 	return count, nil
@@ -79,6 +96,7 @@ func (rh *RowHandler) DeleteRows(
 	schemaDef *dbTypes.TableDefinition,
 	scanRows func(context.Context, int64, int64, *dbTypes.TableDefinition, *engineTypes.ScanOptions) (engineTypes.RowIterator, error),
 	deleteRowImpl func(context.Context, int64, int64, int64, *dbTypes.TableDefinition) error,
+	deleteRowsBatchImpl func(context.Context, int64, int64, []int64, *dbTypes.TableDefinition) error,
 ) (int64, error) {
 	// Create a scan options with the conditions as filter
 	scanOpts := &engineTypes.ScanOptions{
@@ -92,30 +110,46 @@ func (rh *RowHandler) DeleteRows(
 	}
 	defer iter.Close()
 	
-	// Delete each matching row
-	var count int64
+	// Collect all matching row IDs
+	var rowIDs []int64
 	for iter.Next() {
 		record := iter.Row()
 		// Extract row ID from the record's _rowid field
 		rowIDVal, ok := record.Data["_rowid"]
 		if !ok {
-			return count, fmt.Errorf("missing _rowid in record")
+			return 0, fmt.Errorf("missing _rowid in record")
 		}
 		rowID, ok := rowIDVal.Data.(int64)
 		if !ok {
-			return count, fmt.Errorf("_rowid is not an int64")
+			return 0, fmt.Errorf("_rowid is not an int64")
 		}
-		
-		// Delete the row using the provided implementation
-		if err := deleteRowImpl(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
-			return count, fmt.Errorf("delete row %d: %w", rowID, err)
-		}
-		
-		count++
+		rowIDs = append(rowIDs, rowID)
 	}
 	
 	if err := iter.Error(); err != nil {
-		return count, fmt.Errorf("iterator error: %w", err)
+		return 0, fmt.Errorf("iterator error: %w", err)
+	}
+	
+	// If no rows match, return early
+	if len(rowIDs) == 0 {
+		return 0, nil
+	}
+	
+	// Use batch delete if available and there are multiple rows
+	if deleteRowsBatchImpl != nil && len(rowIDs) > 1 {
+		if err := deleteRowsBatchImpl(ctx, tenantID, tableID, rowIDs, schemaDef); err != nil {
+			return 0, fmt.Errorf("batch delete rows: %w", err)
+		}
+		return int64(len(rowIDs)), nil
+	}
+	
+	// Fallback to individual deletions
+	var count int64
+	for _, rowID := range rowIDs {
+		if err := deleteRowImpl(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
+			return count, fmt.Errorf("delete row %d: %w", rowID, err)
+		}
+		count++
 	}
 	
 	return count, nil

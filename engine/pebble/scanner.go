@@ -6,7 +6,7 @@ import (
 
 	"github.com/guileen/pglitedb/codec"
 	engineTypes "github.com/guileen/pglitedb/engine/types"
-	"github.com/guileen/pglitedb/engine/pebble/operations/scan"
+	"github.com/guileen/pglitedb/engine/pebble/pools"
 	"github.com/guileen/pglitedb/engine/pebble/utils"
 	"github.com/guileen/pglitedb/storage"
 	dbTypes "github.com/guileen/pglitedb/types"
@@ -20,6 +20,7 @@ type Scanner struct {
 		EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool
 		GetRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) (map[int64]*dbTypes.Record, error)
 	}
+	iteratorPool *pools.IteratorPool
 }
 
 // NewScanner creates a new Scanner
@@ -31,6 +32,7 @@ func NewScanner(kv storage.KV, c codec.Codec, engine interface {
 		kv:    kv,
 		codec: c,
 		engine: engine,
+		iteratorPool: pools.NewIteratorPool(),
 	}
 }
 
@@ -61,7 +63,8 @@ func (s *Scanner) ScanRows(ctx context.Context, tenantID, tableID int64, schemaD
 
 	iter := s.kv.NewIterator(iterOpts)
 
-	return scan.NewRowIterator(iter, s.codec, schemaDef, opts, s.engine), nil
+	// Use the pool to get a RowIterator
+	return s.iteratorPool.GetRowIterator(iter, s.codec, schemaDef, opts, s.engine, s.iteratorPool), nil
 }
 
 // ScanIndex performs an index scan
@@ -129,7 +132,8 @@ func (s *Scanner) ScanIndex(ctx context.Context, tenantID, tableID, indexID int6
 	}
 	
 	if isCovering {
-		return scan.NewIndexOnlyIterator(
+		// Use the pool to get an IndexOnlyIterator
+		return s.iteratorPool.GetIndexOnlyIterator(
 			iter,
 			s.codec,
 			indexDef,
@@ -140,10 +144,12 @@ func (s *Scanner) ScanIndex(ctx context.Context, tenantID, tableID, indexID int6
 			tableID,
 			indexID,
 			s.engine,
+			s.iteratorPool,
 		), nil
 	}
 
-	return scan.NewIndexIterator(
+	// Use the pool to get an IndexIterator
+	return s.iteratorPool.GetIndexIterator(
 		iter,
 		s.codec,
 		schemaDef,
@@ -152,6 +158,7 @@ func (s *Scanner) ScanIndex(ctx context.Context, tenantID, tableID, indexID int6
 		tenantID,
 		tableID,
 		s.engine,
+		s.iteratorPool,
 	), nil
 }
 
