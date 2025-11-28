@@ -83,6 +83,8 @@ func (c *Catalog) QuerySystemTable(ctx context.Context, fullTableName string, fi
 			return c.pgCatalogProvider.QueryPgNamespace(ctx, query.Filter)
 		case "pg_proc":
 			return c.pgCatalogProvider.QueryPgProc(ctx, query.Filter)
+		case "pg_database":
+			return c.pgCatalogProvider.QueryPgDatabase(ctx, query.Filter)
 		default:
 			return nil, fmt.Errorf("unsupported pg_catalog table: %s", query.TableName)
 		}
