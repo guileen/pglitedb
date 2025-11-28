@@ -60,3 +60,5 @@ pglitedb
 test.db
 main
 test_mem_pool
+*.prof
+pglitedb-server
