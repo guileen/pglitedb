@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"io"
 	"log/slog"
 	"os"
 	"strconv"
@@ -12,6 +13,7 @@ type Config struct {
 	Format     string // "json" or "text"
 	AddSource  bool   // Whether to add source code information
 	AddContext bool   // Whether to add context information
+	Writer     io.Writer // Custom writer for output
 }
 
 // DefaultConfig returns the default logger configuration
@@ -21,6 +23,7 @@ func DefaultConfig() Config {
 		Format:     "json",
 		AddSource:  true,
 		AddContext: true,
+		Writer:     os.Stdout,
 	}
 }
 

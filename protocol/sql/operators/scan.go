@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/guileen/pglitedb/catalog"
-	"github.com/guileen/pglitedb/engine"
-	"github.com/guileen/pglitedb/types"
+	"github.com/guileen/pglitedb/engine/types"
+	dbTypes "github.com/guileen/pglitedb/types"
 )
 
 type TableScanOperator struct {
@@ -13,13 +13,13 @@ type TableScanOperator struct {
 	catalog   catalog.Manager
 	tenantID  int64
 	tableName string
-	opts      *types.QueryOptions
+	opts      *dbTypes.QueryOptions
 
-	iter   engine.RowIterator
-	schema *types.TableDefinition
+	iter   types.RowIterator
+	schema *dbTypes.TableDefinition
 }
 
-func NewTableScan(ctx context.Context, catalog catalog.Manager, tenantID int64, tableName string, opts *types.QueryOptions) *TableScanOperator {
+func NewTableScan(ctx context.Context, catalog catalog.Manager, tenantID int64, tableName string, opts *dbTypes.QueryOptions) *TableScanOperator {
 	return &TableScanOperator{
 		ctx:       ctx,
 		catalog:   catalog,
@@ -33,7 +33,7 @@ func (op *TableScanOperator) Open() error {
 	return nil
 }
 
-func (op *TableScanOperator) Next() (*types.Record, error) {
+func (op *TableScanOperator) Next() (*dbTypes.Record, error) {
 	result, err := op.catalog.Query(op.ctx, op.tenantID, op.tableName, op.opts)
 	if err != nil {
 		return nil, err
@@ -43,8 +43,8 @@ func (op *TableScanOperator) Next() (*types.Record, error) {
 		return nil, EOF
 	}
 
-	record := &types.Record{
-		Data: make(map[string]*types.Value),
+	record := &dbTypes.Record{
+		Data: make(map[string]*dbTypes.Value),
 	}
 
 	// result.Rows is now [][]interface{}, need to use result.Columns
@@ -52,7 +52,7 @@ func (op *TableScanOperator) Next() (*types.Record, error) {
 	for i, v := range firstRow {
 		if i < len(result.Columns) {
 			colName := result.Columns[i].Name
-			record.Data[colName] = &types.Value{Data: v}
+			record.Data[colName] = &dbTypes.Value{Data: v}
 		}
 	}
 

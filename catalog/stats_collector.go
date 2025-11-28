@@ -8,137 +8,98 @@ import (
 	"sync"
 	"time"
 
+	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/engine"
+	"github.com/guileen/pglitedb/catalog/system/interfaces"
 	"github.com/guileen/pglitedb/types"
 )
 
-// TableStatistics represents table-level statistics
-// These statistics are used by the query optimizer to make cost-based decisions
-type TableStatistics struct {
-	RelID        uint64    // Table ID
-	RelName      string    // Table name
-	SeqScan      int64     // Sequential scans
-	SeqTupRead   int64     // Tuples read via sequential scans
-	IdxScan      int64     // Index scans
-	IdxTupFetch  int64     // Tuples fetched via index scans
-	NTupIns      int64     // Tuples inserted
-	NTupUpd      int64     // Tuples updated
-	NTupDel      int64     // Tuples deleted
-	NTupHotUpd   int64     // HOT updates
-	NLiveTup     int64     // Live tuples
-	NDeadTup     int64     // Dead tuples
-	HeapBlksRead int64     // Heap blocks read
-	HeapBlksHit  int64     // Heap blocks hit in buffer cache
-	IdxBlksRead  int64     // Index blocks read
-	IdxBlksHit   int64     // Index blocks hit in buffer cache
-	LastUpdated  time.Time // Last update timestamp
-}
 
-// ColumnStatistics represents column-level statistics
-// These statistics help the query optimizer understand data distribution for better planning
-type ColumnStatistics struct {
-	RelID           uint64    // Table ID
-	AttNum          int       // Column number
-	AttName         string    // Column name
-	NDistinct       int64     // Number of distinct values
-	NullFrac        float64   // Fraction of null values
-	AvgWidth        int       // Average width in bytes
-	MostCommonVals  []string  // Most common values
-	MostCommonFreqs []float64 // Frequencies of most common values
-	HistogramBounds []string  // Histogram boundary values
-}
 
-// DatabaseStatistics represents database-wide statistics
-// These statistics provide insights into overall database performance and usage
-type DatabaseStatistics struct {
-	DatID           uint64    // Database ID
-	DatName         string    // Database name
-	NumBackends     int64     // Number of backends currently connected to this database
-	XactCommit      int64     // Number of transactions in this database that have been committed
-	XactRollback    int64     // Number of transactions in this database that have been rolled back
-	BlksRead        int64     // Number of disk blocks read in this database
-	BlksHit         int64     // Number of times disk blocks were found already in the buffer cache
-	TupReturned     int64     // Number of rows returned by queries in this database
-	TupFetched      int64     // Number of rows fetched by queries in this database
-	TupInserted     int64     // Number of rows inserted by queries in this database
-	TupUpdated      int64     // Number of rows updated by queries in this database
-	TupDeleted      int64     // Number of rows deleted by queries in this database
-	StatsReset      time.Time // Time at which these statistics were last reset
-}
 
-// StatsCollector defines the interface for statistics collection
-// It provides methods to collect, retrieve, and manage both table and column level statistics
-type StatsCollector interface {
-	// CollectTableStats collects comprehensive table statistics from the storage engine
-	CollectTableStats(ctx context.Context, tableID uint64) (*TableStatistics, error)
 
-	// CollectColumnStats collects detailed column statistics using sampling techniques
-	CollectColumnStats(ctx context.Context, tableID uint64, columnID int) (*ColumnStatistics, error)
 
-	// UpdateStats updates existing table statistics
-	UpdateStats(ctx context.Context, tableID uint64, stats *TableStatistics) error
 
-	// GetTableStats retrieves previously collected table statistics
-	GetTableStats(ctx context.Context, tableID uint64) (*TableStatistics, error)
 
-	// GetColumnStats retrieves previously collected column statistics
-	GetColumnStats(ctx context.Context, tableID uint64, columnID int) (*ColumnStatistics, error)
-
-	// DeleteStats deletes all statistics for a table
-	DeleteStats(ctx context.Context, tableID uint64) error
-
-	// GetDatabaseStats retrieves database-wide statistics
-	GetDatabaseStats(ctx context.Context) (*DatabaseStatistics, error)
-
-	// UpdateDatabaseStats updates database-wide statistics
-	UpdateDatabaseStats(ctx context.Context, stats *DatabaseStatistics) error
-}
 
 // statsCollector implements the StatsCollector interface
 type statsCollector struct {
-	manager Manager
+	manager interfaces.TableManager
 	mu      sync.RWMutex
 	stats   map[uint64]*tableStatsEntry // Map of tableID to table stats
-	dbStats *DatabaseStatistics         // Database-wide statistics
+	dbStats *interfaces.DatabaseStatistics         // Database-wide statistics
 }
 
 // tableStatsEntry holds table stats and associated column stats
 type tableStatsEntry struct {
-	tableStats  *TableStatistics
-	columnStats map[int]*ColumnStatistics
+	tableStats  *interfaces.TableStatistics
+	columnStats map[string]*interfaces.ColumnStatistics
 }
 
 // NewStatsCollector creates a new statistics collector
-func NewStatsCollector(manager Manager) StatsCollector {
+func NewStatsCollector(manager interfaces.TableManager) interfaces.StatsManager {
 	return &statsCollector{
 		manager: manager,
 		stats:   make(map[uint64]*tableStatsEntry),
-		dbStats: &DatabaseStatistics{
-			DatID:      1,
-			DatName:    "pglitedb",
-			StatsReset: time.Now(),
+		dbStats: &interfaces.DatabaseStatistics{
+			DBName:               "pglitedb",
+			NumBackends:          0,
+			XactCommit:           0,
+			XactRollback:         0,
+			BlksRead:             0,
+			BlksHit:              0,
+			TupReturned:          0,
+			TupFetched:           0,
+			TupInserted:          0,
+			TupUpdated:           0,
+			TupDeleted:           0,
+			Conflicts:            0,
+			TempFiles:            0,
+			TempBytes:            0,
+			Deadlocks:            0,
+			BlkReadTime:          0,
+			BlkWriteTime:         0,
+			StatsReset:           time.Now(),
 		},
 	}
 }
 
 // CollectTableStats implements StatsCollector
-func (sc *statsCollector) CollectTableStats(ctx context.Context, tableID uint64) (*TableStatistics, error) {
+func (sc *statsCollector) CollectTableStats(ctx context.Context, tableID uint64) (*interfaces.TableStatistics, error) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 
 	// Initialize stats entry if not exists
 	if _, exists := sc.stats[tableID]; !exists {
 		sc.stats[tableID] = &tableStatsEntry{
-			tableStats:  &TableStatistics{},
-			columnStats: make(map[int]*ColumnStatistics),
+			tableStats:  &interfaces.TableStatistics{},
+			columnStats: make(map[string]*interfaces.ColumnStatistics),
 		}
 	}
 
 	// Create table stats
-	stats := &TableStatistics{
-		RelID:       tableID,
-		RelName:     fmt.Sprintf("table_%d", tableID),
-		LastUpdated: time.Now(),
+	stats := &interfaces.TableStatistics{
+		RelID:                tableID,
+		RelName:              fmt.Sprintf("table_%d", tableID),
+		SeqScan:              0,
+		SeqTupRead:           0,
+		IdxScan:              0,
+		IdxTupFetch:          0,
+		NScan:                0,
+		NUpdate:              0,
+		NDelete:              0,
+		NLiveTup:             0,
+		NDeadTup:             0,
+		NModSinceAnalyze:     0,
+		LastVacuum:           time.Time{},
+		LastAutovacuum:       time.Time{},
+		LastAnalyze:          time.Time{},
+		LastAutoanalyze:      time.Time{},
+		VacuumCount:          0,
+		AutovacuumCount:      0,
+		AnalyzeCount:         0,
+		AutoanalyzeCount:     0,
+		LastUpdated:          time.Now(),
 	}
 
 	// If we have a manager, try to get actual table definition
@@ -161,59 +122,112 @@ func (sc *statsCollector) CollectTableStats(ctx context.Context, tableID uint64)
 }
 
 // CollectColumnStats implements StatsCollector
-func (sc *statsCollector) CollectColumnStats(ctx context.Context, tableID uint64, columnID int) (*ColumnStatistics, error) {
+func (sc *statsCollector) CollectColumnStats(ctx context.Context, tableID uint64, columnName string) (*interfaces.ColumnStatistics, error) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 
 	// Initialize stats entry if not exists
 	if _, exists := sc.stats[tableID]; !exists {
 		sc.stats[tableID] = &tableStatsEntry{
-			tableStats:  &TableStatistics{},
-			columnStats: make(map[int]*ColumnStatistics),
+			tableStats: &interfaces.TableStatistics{
+				RelID:                0,
+				RelName:              "",
+				SeqScan:              0,
+				SeqTupRead:           0,
+				IdxScan:              0,
+				IdxTupFetch:          0,
+				NScan:                0,
+				NUpdate:              0,
+				NDelete:              0,
+				NLiveTup:             0,
+				NDeadTup:             0,
+				NModSinceAnalyze:     0,
+				LastVacuum:           time.Time{},
+				LastAutovacuum:       time.Time{},
+				LastAnalyze:          time.Time{},
+				LastAutoanalyze:      time.Time{},
+				VacuumCount:          0,
+				AutovacuumCount:      0,
+				AnalyzeCount:         0,
+				AutoanalyzeCount:     0,
+				LastUpdated:          time.Time{},
+			},
+			columnStats: make(map[string]*interfaces.ColumnStatistics),
 		}
 	}
 
 	// Create column stats
-	stats := &ColumnStatistics{
-		RelID:   tableID,
-		AttNum:  columnID,
-		AttName: fmt.Sprintf("column_%d", columnID),
+	stats := &interfaces.ColumnStatistics{
+		TableID:         tableID,
+		ColumnName:      columnName,
+		NullFrac:        0,
+		AvgWidth:        0,
+		NDistinct:       0,
+		Correlation:     0,
+		MostCommonVals:  []string{},
+		MostCommonFreqs: []float64{},
+		HistogramBounds: []string{},
+		LastUpdated:     time.Now(),
 	}
 
 	// If we have a manager, try to get actual table definition
 	if sc.manager != nil {
 		tableDef, err := sc.manager.GetTableDefinition(ctx, 0, fmt.Sprintf("%d", tableID))
 		if err == nil {
-			// Validate column ID
-			if columnID > 0 && columnID <= len(tableDef.Columns) {
-				columnDef := tableDef.Columns[columnID-1]
-				stats.AttName = columnDef.Name
-				
-				// Collect actual column statistics from storage engine
-				err = sc.collectActualColumnStats(ctx, tableID, tableDef, columnID, stats)
-				if err != nil {
-					return nil, fmt.Errorf("failed to collect actual column stats: %w", err)
+			// Find the column by name
+			for i, columnDef := range tableDef.Columns {
+				if columnDef.Name == columnName {
+					stats.ColumnName = columnDef.Name
+
+					// Collect actual column statistics from storage engine
+					err = sc.collectActualColumnStats(ctx, tableID, tableDef, i+1, stats)
+					if err != nil {
+						return nil, fmt.Errorf("failed to collect actual column stats: %w", err)
+					}
+					break
 				}
 			}
 		}
 	}
 
 	// Store the collected stats
-	sc.stats[tableID].columnStats[columnID] = stats
+	sc.stats[tableID].columnStats[columnName] = stats
 
 	return stats, nil
 }
 
 // UpdateStats implements StatsCollector
-func (sc *statsCollector) UpdateStats(ctx context.Context, tableID uint64, stats *TableStatistics) error {
+func (sc *statsCollector) UpdateStats(ctx context.Context, tableID uint64, stats *interfaces.TableStatistics) error {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 
 	// Initialize stats entry if not exists
 	if _, exists := sc.stats[tableID]; !exists {
 		sc.stats[tableID] = &tableStatsEntry{
-			tableStats:  &TableStatistics{},
-			columnStats: make(map[int]*ColumnStatistics),
+			tableStats: &interfaces.TableStatistics{
+				RelID:                0,
+				RelName:              "",
+				SeqScan:              0,
+				SeqTupRead:           0,
+				IdxScan:              0,
+				IdxTupFetch:          0,
+				NScan:                0,
+				NUpdate:              0,
+				NDelete:              0,
+				NLiveTup:             0,
+				NDeadTup:             0,
+				NModSinceAnalyze:     0,
+				LastVacuum:           time.Time{},
+				LastAutovacuum:       time.Time{},
+				LastAnalyze:          time.Time{},
+				LastAutoanalyze:      time.Time{},
+				VacuumCount:          0,
+				AutovacuumCount:      0,
+				AnalyzeCount:         0,
+				AutoanalyzeCount:     0,
+				LastUpdated:          time.Time{},
+			},
+			columnStats: make(map[string]*interfaces.ColumnStatistics),
 		}
 	}
 
@@ -224,7 +238,7 @@ func (sc *statsCollector) UpdateStats(ctx context.Context, tableID uint64, stats
 }
 
 // GetTableStats implements StatsCollector
-func (sc *statsCollector) GetTableStats(ctx context.Context, tableID uint64) (*TableStatistics, error) {
+func (sc *statsCollector) GetTableStats(ctx context.Context, tableID uint64) (*interfaces.TableStatistics, error) {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 
@@ -233,11 +247,12 @@ func (sc *statsCollector) GetTableStats(ctx context.Context, tableID uint64) (*T
 		return nil, fmt.Errorf("statistics not found for table %d", tableID)
 	}
 
+	// Return the table statistics directly
 	return entry.tableStats, nil
 }
 
 // GetColumnStats implements StatsCollector
-func (sc *statsCollector) GetColumnStats(ctx context.Context, tableID uint64, columnID int) (*ColumnStatistics, error) {
+func (sc *statsCollector) GetColumnStats(ctx context.Context, tableID uint64, columnName string) (*interfaces.ColumnStatistics, error) {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 
@@ -246,11 +261,12 @@ func (sc *statsCollector) GetColumnStats(ctx context.Context, tableID uint64, co
 		return nil, fmt.Errorf("statistics not found for table %d", tableID)
 	}
 
-	colStats, exists := entry.columnStats[columnID]
+	colStats, exists := entry.columnStats[columnName]
 	if !exists {
-		return nil, fmt.Errorf("column statistics not found for table %d, column %d", tableID, columnID)
+		return nil, fmt.Errorf("column statistics not found for table %d, column %s", tableID, columnName)
 	}
 
+	// Return the column statistics directly
 	return colStats, nil
 }
 
@@ -264,37 +280,20 @@ func (sc *statsCollector) DeleteStats(ctx context.Context, tableID uint64) error
 }
 
 // GetDatabaseStats implements StatsCollector
-func (sc *statsCollector) GetDatabaseStats(ctx context.Context) (*DatabaseStatistics, error) {
+func (sc *statsCollector) GetDatabaseStats(ctx context.Context) (*interfaces.DatabaseStatistics, error) {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	
-	// Return a copy of the database statistics
+	// Return the database statistics directly
 	if sc.dbStats == nil {
 		return nil, fmt.Errorf("database statistics not available")
 	}
 	
-	// Create a copy to avoid race conditions
-	stats := &DatabaseStatistics{
-		DatID:           sc.dbStats.DatID,
-		DatName:         sc.dbStats.DatName,
-		NumBackends:     sc.dbStats.NumBackends,
-		XactCommit:      sc.dbStats.XactCommit,
-		XactRollback:    sc.dbStats.XactRollback,
-		BlksRead:        sc.dbStats.BlksRead,
-		BlksHit:         sc.dbStats.BlksHit,
-		TupReturned:     sc.dbStats.TupReturned,
-		TupFetched:      sc.dbStats.TupFetched,
-		TupInserted:     sc.dbStats.TupInserted,
-		TupUpdated:      sc.dbStats.TupUpdated,
-		TupDeleted:      sc.dbStats.TupDeleted,
-		StatsReset:      sc.dbStats.StatsReset,
-	}
-	
-	return stats, nil
+	return sc.dbStats, nil
 }
 
 // UpdateDatabaseStats implements StatsCollector
-func (sc *statsCollector) UpdateDatabaseStats(ctx context.Context, stats *DatabaseStatistics) error {
+func (sc *statsCollector) UpdateDatabaseStats(ctx context.Context, stats *interfaces.DatabaseStatistics) error {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 	
@@ -306,24 +305,23 @@ func (sc *statsCollector) UpdateDatabaseStats(ctx context.Context, stats *Databa
 // collectActualTableStats collects actual table statistics from the storage engine
 // This method scans through all rows in the table to gather comprehensive table-level statistics
 // including tuple counts, page counts, and other table-level metrics.
-func (sc *statsCollector) collectActualTableStats(ctx context.Context, tableID uint64, tableDef *types.TableDefinition, stats *TableStatistics) error {
+func (sc *statsCollector) collectActualTableStats(ctx context.Context, tableID uint64, tableDef *types.TableDefinition, stats *interfaces.TableStatistics) error {
 	// Cast manager to access storage engine
-	tableManager, ok := sc.manager.(*tableManager)
+	tableManager, ok := sc.manager.(interfaces.TableManager)
 	if !ok {
-		return fmt.Errorf("manager is not of type *tableManager")
+		return fmt.Errorf("manager is not of type TableManager")
 	}
 
 	// Get storage engine
-	eng := tableManager.engine
+	eng := tableManager.(interface{ GetEngine() engine.StorageEngine }).GetEngine()
 
 	// Scan all rows to collect statistics
-	scanOpts := &engine.ScanOptions{
+	scanOpts := &engineTypes.ScanOptions{
 		Limit: 1000, // Process in batches to avoid memory issues
 	}
 
 	// Initialize counters
 	var pageCount, tupleCount int64
-	var heapBlksRead, heapBlksHit int64
 	offset := 0
 	
 	// For sampling, we'll scan all data for now
@@ -360,8 +358,6 @@ func (sc *statsCollector) collectActualTableStats(ctx context.Context, tableID u
 
 		// Update page count estimate (simplified)
 		pageCount += int64((batchCount + 999) / 1000) // Rough estimate
-		heapBlksRead += pageCount
-		heapBlksHit += pageCount // Simplified assumption
 
 		// Break if we've processed all rows
 		if batchCount < scanOpts.Limit {
@@ -374,8 +370,6 @@ func (sc *statsCollector) collectActualTableStats(ctx context.Context, tableID u
 
 	// Update statistics
 	stats.NLiveTup = tupleCount
-	stats.HeapBlksRead = heapBlksRead
-	stats.HeapBlksHit = heapBlksHit
 	stats.LastUpdated = time.Now()
 
 	return nil
@@ -385,22 +379,22 @@ func (sc *statsCollector) collectActualTableStats(ctx context.Context, tableID u
 // This method implements a basic sampling algorithm to efficiently gather column statistics
 // without scanning the entire table. It calculates null fraction, average width, distinct values,
 // most common values, and histogram bounds.
-func (sc *statsCollector) collectActualColumnStats(ctx context.Context, tableID uint64, tableDef *types.TableDefinition, columnID int, stats *ColumnStatistics) error {
+func (sc *statsCollector) collectActualColumnStats(ctx context.Context, tableID uint64, tableDef *types.TableDefinition, columnID int, stats *interfaces.ColumnStatistics) error {
 	// Cast manager to access storage engine
-	tableManager, ok := sc.manager.(*tableManager)
+	tableManager, ok := sc.manager.(interfaces.TableManager)
 	if !ok {
-		return fmt.Errorf("manager is not of type *tableManager")
+		return fmt.Errorf("manager is not of type TableManager")
 	}
 
 	// Get storage engine
-	eng := tableManager.engine
+	eng := tableManager.(interface{ GetEngine() engine.StorageEngine }).GetEngine()
 
 	// Get column definition
 	if columnID <= 0 || columnID > len(tableDef.Columns) {
 		return fmt.Errorf("invalid column ID: %d", columnID)
 	}
 	columnDef := tableDef.Columns[columnID-1]
-	stats.AttName = columnDef.Name
+	stats.ColumnName = columnDef.Name
 
 	// Sample data to collect statistics
 	// For demonstration, we'll use a simple random sampling approach
@@ -410,7 +404,7 @@ func (sc *statsCollector) collectActualColumnStats(ctx context.Context, tableID 
 	totalCount := 0
 
 	// Scan rows with limit for sampling
-	scanOpts := &engine.ScanOptions{
+	scanOpts := &engineTypes.ScanOptions{
 		Limit: sampleSize,
 	}
 
@@ -471,7 +465,7 @@ func (sc *statsCollector) collectActualColumnStats(ctx context.Context, tableID 
 				totalWidth += 16 // Default estimate
 			}
 		}
-		stats.AvgWidth = totalWidth / len(values)
+		stats.AvgWidth = int32(totalWidth / len(values))
 	}
 
 	// Calculate distinct values and most common values
@@ -481,7 +475,7 @@ func (sc *statsCollector) collectActualColumnStats(ctx context.Context, tableID 
 		distinctValues[strVal]++
 	}
 
-	stats.NDistinct = int64(len(distinctValues))
+	stats.NDistinct = float64(len(distinctValues))
 
 	// Find most common values (top 10)
 	type freqPair struct {
@@ -552,7 +546,7 @@ func (sc *statsCollector) collectActualColumnStats(ctx context.Context, tableID 
 // sampling approach would be more appropriate.
 func (sc *statsCollector) simpleRandomSample(ctx context.Context, eng engine.StorageEngine, tableID uint64, tableDef *types.TableDefinition, sampleSize int) ([]*types.Record, error) {
 	// First, get total count of rows (simplified approach)
-	scanOpts := &engine.ScanOptions{
+	scanOpts := &engineTypes.ScanOptions{
 		Limit: sampleSize,
 	}
 	

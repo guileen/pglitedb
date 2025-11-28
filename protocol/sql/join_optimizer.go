@@ -2,7 +2,7 @@ package sql
 
 import (
 	"fmt"
-	"github.com/guileen/pglitedb/catalog"
+	"github.com/guileen/pglitedb/catalog/system/interfaces"
 )
 
 // JoinType represents the type of join algorithm
@@ -42,11 +42,11 @@ type ScanNode struct {
 // JoinOptimizer is responsible for optimizing join operations
 type JoinOptimizer struct {
 	costModel      *CostModel
-	statsCollector catalog.StatsCollector
+	statsCollector interfaces.StatsManager
 }
 
 // NewJoinOptimizer creates a new join optimizer
-func NewJoinOptimizer(costModel *CostModel, statsCollector catalog.StatsCollector) *JoinOptimizer {
+func NewJoinOptimizer(costModel *CostModel, statsCollector interfaces.StatsManager) *JoinOptimizer {
 	return &JoinOptimizer{
 		costModel:      costModel,
 		statsCollector: statsCollector,

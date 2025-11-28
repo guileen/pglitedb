@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/guileen/pglitedb/catalog/system/interfaces"
 )
 
 // TestStatsCollectorIntegration tests the integration of the stats collector with table statistics
@@ -18,19 +19,18 @@ func TestStatsCollectorIntegration(t *testing.T) {
 	tableID := uint64(1)
 	
 	// Collect table statistics
-	tableStats, err := collector.CollectTableStats(ctx, tableID)
+	tableStats, err := collector.(*statsCollector).CollectTableStats(ctx, tableID)
 	assert.NoError(t, err)
 	assert.Equal(t, tableID, tableStats.RelID)
 	assert.NotEmpty(t, tableStats.RelName)
 	assert.WithinDuration(t, time.Now(), tableStats.LastUpdated, time.Second)
 	
 	// Collect column statistics
-	columnID := 1
-	columnStats, err := collector.CollectColumnStats(ctx, tableID, columnID)
+	columnStats, err := collector.(*statsCollector).CollectColumnStats(ctx, tableID, "column1")
 	assert.NoError(t, err)
-	assert.Equal(t, tableID, columnStats.RelID)
-	assert.Equal(t, columnID, columnStats.AttNum)
-	assert.NotEmpty(t, columnStats.AttName)
+	assert.Equal(t, tableID, columnStats.TableID)
+	assert.Equal(t, "column1", columnStats.ColumnName)
+	assert.NotEmpty(t, columnStats.ColumnName)
 	
 	// Retrieve table stats
 	retrievedTableStats, err := collector.GetTableStats(ctx, tableID)
@@ -38,32 +38,37 @@ func TestStatsCollectorIntegration(t *testing.T) {
 	assert.Equal(t, tableStats, retrievedTableStats)
 	
 	// Retrieve column stats
-	retrievedColumnStats, err := collector.GetColumnStats(ctx, tableID, columnID)
+	retrievedColumnStats, err := collector.GetColumnStats(ctx, tableID, "column1")
 	assert.NoError(t, err)
 	assert.Equal(t, columnStats, retrievedColumnStats)
 	
 	// Update stats
-	updatedTableStats := &TableStatistics{
+	updatedTableStats := &interfaces.TableStatistics{
 		RelID:        tableID,
 		RelName:      "test_users",
 		SeqScan:      50,
 		SeqTupRead:   500,
 		IdxScan:      25,
 		IdxTupFetch:  250,
-		NTupIns:      100,
-		NTupUpd:      25,
-		NTupDel:      5,
-		NTupHotUpd:   2,
+		NScan:        100,
+		NUpdate:      25,
+		NDelete:      5,
 		NLiveTup:     5000,
 		NDeadTup:     50,
-		HeapBlksRead: 500,
-		HeapBlksHit:  4500,
-		IdxBlksRead:  250,
-		IdxBlksHit:   2250,
+		NModSinceAnalyze: 1000,
+		LastVacuum:   time.Now(),
+		LastAutovacuum: time.Now(),
+		LastAnalyze:  time.Now(),
+		LastAutoanalyze: time.Now(),
+		VacuumCount:  1,
+		AutovacuumCount: 0,
+		AnalyzeCount: 1,
+		AutoanalyzeCount: 0,
+
 		LastUpdated:  time.Now(),
 	}
 	
-	err = collector.UpdateStats(ctx, tableID, updatedTableStats)
+	err = collector.(*statsCollector).UpdateStats(ctx, tableID, updatedTableStats)
 	assert.NoError(t, err)
 	
 	// Verify updated stats
@@ -72,36 +77,41 @@ func TestStatsCollectorIntegration(t *testing.T) {
 	assert.Equal(t, updatedTableStats, retrievedUpdatedStats)
 	
 	// Delete stats
-	err = collector.DeleteStats(ctx, tableID)
+	err = collector.(*statsCollector).DeleteStats(ctx, tableID)
 	assert.NoError(t, err)
 	
 	// Verify deletion
 	_, err = collector.GetTableStats(ctx, tableID)
 	assert.Error(t, err)
 	
-	_, err = collector.GetColumnStats(ctx, tableID, columnID)
+	_, err = collector.GetColumnStats(ctx, tableID, "column1")
 	assert.Error(t, err)
 }
 
 // TestTableStatisticsStructure verifies the structure of TableStatistics
 func TestTableStatisticsStructure(t *testing.T) {
-	stats := &TableStatistics{
+	stats := &interfaces.TableStatistics{
 		RelID:        1,
 		RelName:      "users",
 		SeqScan:      100,
 		SeqTupRead:   1000,
 		IdxScan:      50,
 		IdxTupFetch:  500,
-		NTupIns:      200,
-		NTupUpd:      50,
-		NTupDel:      10,
-		NTupHotUpd:   5,
+		NScan:        200,
+		NUpdate:      50,
+		NDelete:      10,
 		NLiveTup:     10000,
 		NDeadTup:     100,
-		HeapBlksRead: 1000,
-		HeapBlksHit:  9000,
-		IdxBlksRead:  500,
-		IdxBlksHit:   4500,
+		NModSinceAnalyze: 2000,
+		LastVacuum:   time.Now(),
+		LastAutovacuum: time.Now(),
+		LastAnalyze:  time.Now(),
+		LastAutoanalyze: time.Now(),
+		VacuumCount:  2,
+		AutovacuumCount: 1,
+		AnalyzeCount: 2,
+		AutoanalyzeCount: 1,
+
 		LastUpdated:  time.Now(),
 	}
 	
@@ -112,39 +122,37 @@ func TestTableStatisticsStructure(t *testing.T) {
 	assert.Equal(t, int64(1000), stats.SeqTupRead)
 	assert.Equal(t, int64(50), stats.IdxScan)
 	assert.Equal(t, int64(500), stats.IdxTupFetch)
-	assert.Equal(t, int64(200), stats.NTupIns)
-	assert.Equal(t, int64(50), stats.NTupUpd)
-	assert.Equal(t, int64(10), stats.NTupDel)
-	assert.Equal(t, int64(5), stats.NTupHotUpd)
+	assert.Equal(t, int64(200), stats.NScan)
+	assert.Equal(t, int64(50), stats.NUpdate)
+	assert.Equal(t, int64(10), stats.NDelete)
 	assert.Equal(t, int64(10000), stats.NLiveTup)
 	assert.Equal(t, int64(100), stats.NDeadTup)
-	assert.Equal(t, int64(1000), stats.HeapBlksRead)
-	assert.Equal(t, int64(9000), stats.HeapBlksHit)
-	assert.Equal(t, int64(500), stats.IdxBlksRead)
-	assert.Equal(t, int64(4500), stats.IdxBlksHit)
+	assert.Equal(t, int64(2000), stats.NModSinceAnalyze)
+
 }
 
 // TestColumnStatisticsStructure verifies the structure of ColumnStatistics
 func TestColumnStatisticsStructure(t *testing.T) {
-	stats := &ColumnStatistics{
-		RelID:           1,
-		AttNum:          1,
-		AttName:         "username",
+	stats := &interfaces.ColumnStatistics{
+		TableID:         1,
+		ColumnName:      "username",
 		NDistinct:       5000,
 		NullFrac:        0.001,
 		AvgWidth:        15,
+		Correlation:     0.5,
 		MostCommonVals:  []string{"john", "jane", "bob", "alice"},
 		MostCommonFreqs: []float64{0.01, 0.008, 0.005, 0.003},
 		HistogramBounds: []string{"a", "f", "k", "p", "u", "z"},
+		LastUpdated:     time.Now(),
 	}
 	
 	// Verify all fields are present and correctly typed
-	assert.Equal(t, uint64(1), stats.RelID)
-	assert.Equal(t, 1, stats.AttNum)
-	assert.Equal(t, "username", stats.AttName)
-	assert.Equal(t, int64(5000), stats.NDistinct)
+	assert.Equal(t, uint64(1), stats.TableID)
+	assert.Equal(t, "username", stats.ColumnName)
+	assert.Equal(t, float64(5000), stats.NDistinct)
 	assert.Equal(t, 0.001, stats.NullFrac)
-	assert.Equal(t, 15, stats.AvgWidth)
+	assert.Equal(t, int32(15), stats.AvgWidth)
+	assert.Equal(t, 0.5, stats.Correlation)
 	assert.Equal(t, []string{"john", "jane", "bob", "alice"}, stats.MostCommonVals)
 	assert.Equal(t, []float64{0.01, 0.008, 0.005, 0.003}, stats.MostCommonFreqs)
 	assert.Equal(t, []string{"a", "f", "k", "p", "u", "z"}, stats.HistogramBounds)
@@ -163,7 +171,7 @@ func TestConcurrentAccess(t *testing.T) {
 			tableID := uint64(id)
 			
 			// Collect stats
-			_, err := collector.CollectTableStats(ctx, tableID)
+			_, err := collector.(*statsCollector).CollectTableStats(ctx, tableID)
 			assert.NoError(t, err)
 			
 			// Get stats

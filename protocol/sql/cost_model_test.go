@@ -3,7 +3,7 @@ package sql
 import (
 	"testing"
 	
-	"github.com/guileen/pglitedb/catalog"
+	"github.com/guileen/pglitedb/catalog/system/interfaces"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -133,7 +133,7 @@ func TestCostModel_Selectivity(t *testing.T) {
 	assert.Equal(t, 0.1, selectivity)
 	
 	// Test selectivity with statistics
-	stats := &catalog.ColumnStatistics{
+	stats := &interfaces.ColumnStatistics{
 		NDistinct:       100,
 		MostCommonFreqs: []float64{0.05, 0.03, 0.02},
 	}

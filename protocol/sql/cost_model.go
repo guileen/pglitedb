@@ -3,7 +3,7 @@ package sql
 import (
 	"math"
 	
-	"github.com/guileen/pglitedb/catalog"
+	"github.com/guileen/pglitedb/catalog/system/interfaces"
 )
 
 // CostModel represents the cost model for query optimization
@@ -130,7 +130,7 @@ func (cm *CostModel) SortCost(inputCost PlanCost) PlanCost {
 }
 
 // Selectivity calculates the selectivity of a condition based on column statistics
-func (cm *CostModel) Selectivity(stats *catalog.ColumnStatistics, operator string, value interface{}) float64 {
+func (cm *CostModel) Selectivity(stats *interfaces.ColumnStatistics, operator string, value interface{}) float64 {
 	if stats == nil {
 		// Default selectivity if no statistics available
 		return 0.1

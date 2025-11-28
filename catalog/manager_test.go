@@ -8,7 +8,7 @@ import (
 
 	"github.com/guileen/pglitedb/codec"
 	"github.com/guileen/pglitedb/storage"
-	"github.com/guileen/pglitedb/engine"
+	"github.com/guileen/pglitedb/engine/pebble"
 	"github.com/guileen/pglitedb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,7 +27,7 @@ func setupTestManager(t *testing.T) (Manager, func()) {
 	}
 
 	c := codec.NewMemComparableCodec()
-	eng := engine.NewPebbleEngine(kvStore, c)
+	eng := pebble.NewPebbleEngine(kvStore, c)
 	mgr := NewTableManager(eng)
 
 	cleanup := func() {
@@ -200,7 +200,7 @@ func BenchmarkTableManager_Insert(b *testing.B) {
 	defer kvStore.Close()
 
 	c := codec.NewMemComparableCodec()
-	eng := engine.NewPebbleEngine(kvStore, c)
+	eng := pebble.NewPebbleEngine(kvStore, c)
 	mgr := NewTableManager(eng)
 
 	ctx := context.Background()
@@ -241,7 +241,7 @@ func BenchmarkTableManager_Query(b *testing.B) {
 	defer kvStore.Close()
 
 	c := codec.NewMemComparableCodec()
-	eng := engine.NewPebbleEngine(kvStore, c)
+	eng := pebble.NewPebbleEngine(kvStore, c)
 	mgr := NewTableManager(eng)
 
 	ctx := context.Background()

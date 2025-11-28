@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/guileen/pglitedb/catalog/internal"
+	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/engine"
 	"github.com/guileen/pglitedb/types"
 )
@@ -47,7 +48,7 @@ func (m *queryManager) Query(ctx context.Context, tenantID int64, tableName stri
 	}
 	startTime := time.Now()
 
-	scanOpts := &engine.ScanOptions{}
+	scanOpts := &engineTypes.ScanOptions{}
 	if opts != nil {
 		if opts.Limit != nil {
 			scanOpts.Limit = *opts.Limit
@@ -64,7 +65,7 @@ func (m *queryManager) Query(ctx context.Context, tenantID int64, tableName stri
 		}
 	}
 
-	var iter engine.RowIterator
+	var iter engineTypes.RowIterator
 	if opts != nil && len(opts.OrderBy) > 0 {
 		optimizer := NewQueryOptimizer(nil)
 		candidate, err := optimizer.SelectBestIndex(opts, schema)
@@ -327,7 +328,7 @@ func (m *queryManager) findIndexForColumn(schema *types.TableDefinition, columnN
 }
 
 // buildFilterExpression converts a simple map filter to a complex FilterExpression
-func (m *queryManager) buildFilterExpression(where map[string]interface{}) *engine.FilterExpression {
+func (m *queryManager) buildFilterExpression(where map[string]interface{}) *engineTypes.FilterExpression {
 	if len(where) == 0 {
 		return nil
 	}
@@ -335,7 +336,7 @@ func (m *queryManager) buildFilterExpression(where map[string]interface{}) *engi
 	if len(where) == 1 {
 		// Single condition
 		for col, val := range where {
-			return &engine.FilterExpression{
+			return &engineTypes.FilterExpression{
 				Type:     "simple",
 				Column:   col,
 				Operator: "=",
@@ -345,9 +346,9 @@ func (m *queryManager) buildFilterExpression(where map[string]interface{}) *engi
 	}
 	
 	// Multiple conditions - combine with AND
-	children := make([]*engine.FilterExpression, 0, len(where))
+	children := make([]*engineTypes.FilterExpression, 0, len(where))
 	for col, val := range where {
-		children = append(children, &engine.FilterExpression{
+		children = append(children, &engineTypes.FilterExpression{
 			Type:     "simple",
 			Column:   col,
 			Operator: "=",
@@ -355,7 +356,7 @@ func (m *queryManager) buildFilterExpression(where map[string]interface{}) *engi
 		})
 	}
 	
-	return &engine.FilterExpression{
+	return &engineTypes.FilterExpression{
 		Type:     "and",
 		Children: children,
 	}

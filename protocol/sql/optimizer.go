@@ -2,11 +2,12 @@ package sql
 
 import (
 	"github.com/guileen/pglitedb/catalog"
+	"github.com/guileen/pglitedb/catalog/system/interfaces"
 )
 
 // QueryOptimizer is responsible for optimizing query execution plans
 type QueryOptimizer struct {
-	statsCollector catalog.StatsCollector
+	statsCollector interfaces.StatsManager
 	dataManager    catalog.DataManager
 	catalogManager catalog.Manager
 	costModel      *CostModel
@@ -24,13 +25,10 @@ func NewQueryOptimizer() *QueryOptimizer {
 // NewQueryOptimizerWithCatalog creates a new query optimizer with catalog manager
 func NewQueryOptimizerWithCatalog(cm catalog.Manager) *QueryOptimizer {
 	costModel := NewCostModel()
-	joinOptimizer := NewJoinOptimizer(costModel, cm.GetStatsCollector())
 	
 	return &QueryOptimizer{
 		catalogManager: cm,
-		statsCollector: cm.GetStatsCollector(),
 		costModel:      costModel,
-		joinOptimizer:  joinOptimizer,
 	}
 }
 
@@ -217,6 +215,6 @@ func (o *QueryOptimizer) optimizeProjections(plan *Plan) {
 }
 
 // GetStatsCollector returns the statistics collector
-func (o *QueryOptimizer) GetStatsCollector() catalog.StatsCollector {
+func (o *QueryOptimizer) GetStatsCollector() interfaces.StatsManager {
 	return o.statsCollector
 }

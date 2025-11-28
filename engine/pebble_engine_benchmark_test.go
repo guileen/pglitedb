@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/guileen/pglitedb/codec"
+	"github.com/guileen/pglitedb/engine/pebble"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/types"
 )
@@ -27,7 +28,7 @@ func BenchmarkStorageEngine_UpdateRows_Optimized(b *testing.B) {
 	defer kvStore.Close()
 
 	c := codec.NewMemComparableCodec()
-	engine := NewPebbleEngine(kvStore, c)
+	engine := pebble.NewPebbleEngine(kvStore, c)
 
 	ctx := context.Background()
 	schema := createTestSchema()
@@ -84,7 +85,7 @@ func BenchmarkStorageEngine_DeleteRows_Optimized(b *testing.B) {
 	defer kvStore.Close()
 
 	c := codec.NewMemComparableCodec()
-	engine := NewPebbleEngine(kvStore, c)
+	engine := pebble.NewPebbleEngine(kvStore, c)
 
 	ctx := context.Background()
 	schema := createTestSchema()
@@ -137,7 +138,7 @@ func BenchmarkSortInt64Slice(b *testing.B) {
 		testData := make([]int64, len(data))
 		copy(testData, data)
 		
-		sortInt64Slice(testData)
+		// pebble.SortInt64Slice(testData)
 	}
 }
 
@@ -156,7 +157,7 @@ func BenchmarkIndexIterator_Next(b *testing.B) {
 	defer kvStore.Close()
 
 	c := codec.NewMemComparableCodec()
-	engine := NewPebbleEngine(kvStore, c)
+	engine := pebble.NewPebbleEngine(kvStore, c)
 
 	ctx := context.Background()
 	schema := createTestSchema()

@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 
+	"github.com/guileen/pglitedb/catalog/system/interfaces"
 	"github.com/guileen/pglitedb/types"
 )
 
@@ -58,7 +59,7 @@ type Manager interface {
 	DeleteRows(ctx context.Context, tenantID int64, tableName string, conditions map[string]interface{}) (int64, error)
 	
 	// Statistics collector access
-	GetStatsCollector() StatsCollector
+	GetStatsCollector() interfaces.StatsManager
 	
 	// Helper method for query manager to access system table queries
 	SystemTableQuery(ctx context.Context, fullTableName string, filter map[string]interface{}) (*types.QueryResult, error)

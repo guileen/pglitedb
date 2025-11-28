@@ -5,6 +5,8 @@ import (
 	"strconv"
 
 	"github.com/guileen/pglitedb/catalog/internal"
+	"github.com/guileen/pglitedb/catalog/system"
+	"github.com/guileen/pglitedb/catalog/system/interfaces"
 	"github.com/guileen/pglitedb/engine"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/types"
@@ -18,7 +20,13 @@ type tableManager struct {
 
 	engine engine.StorageEngine
 	cache  *internal.SchemaCache
-	statsCollector StatsCollector
+	statsCollector interfaces.StatsManager
+	systemCatalog system.SystemCatalog
+}
+
+// GetEngine returns the storage engine
+func (tm *tableManager) GetEngine() engine.StorageEngine {
+	return tm.engine
 }
 
 func NewTableManager(eng engine.StorageEngine) Manager {
@@ -34,7 +42,8 @@ func NewTableManager(eng engine.StorageEngine) Manager {
 	}
 	// Set the manager reference in QueryManager
 	tm.QueryManager = newQueryManager(eng, cache, tm)
-	tm.statsCollector = NewStatsCollector(tm)
+	tm.statsCollector = NewStatsCollector(interfaces.TableManager(tm))
+	tm.systemCatalog = system.NewCatalog(interfaces.TableManager(tm))
 	return tm
 }
 
@@ -51,7 +60,8 @@ func NewTableManagerWithKV(eng engine.StorageEngine, kv storage.KV) Manager {
 	}
 	// Set the manager reference in QueryManager
 	tm.QueryManager = newQueryManager(eng, cache, tm)
-	tm.statsCollector = NewStatsCollector(tm)
+	tm.statsCollector = NewStatsCollector(interfaces.TableManager(tm))
+	tm.systemCatalog = system.NewCatalog(interfaces.TableManager(tm))
 	return tm
 }
 
@@ -85,13 +95,18 @@ func (tm *tableManager) DeleteRows(ctx context.Context, tenantID int64, tableNam
 }
 
 // GetStatsCollector returns the statistics collector for this manager
-func (tm *tableManager) GetStatsCollector() StatsCollector {
+func (tm *tableManager) GetStatsCollector() interfaces.StatsManager {
 	return tm.statsCollector
 }
 
-// SystemTableQuery is a helper method for query manager to access system table queries
+// QuerySystemTable implements the Manager interface
+func (tm *tableManager) QuerySystemTable(ctx context.Context, fullTableName string, filter map[string]interface{}) (*types.QueryResult, error) {
+	return tm.systemCatalog.QuerySystemTable(ctx, fullTableName, filter)
+}
+
+// SystemTableQuery implements the Manager interface
 func (tm *tableManager) SystemTableQuery(ctx context.Context, fullTableName string, filter map[string]interface{}) (*types.QueryResult, error) {
-	return tm.QuerySystemTable(ctx, fullTableName, filter)
+	return tm.systemCatalog.QuerySystemTable(ctx, fullTableName, filter)
 }
 
 // Implement view management methods by delegating to SchemaManager

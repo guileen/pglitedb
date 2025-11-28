@@ -93,6 +93,10 @@ func (e *Executor) Execute(ctx context.Context, query string) (*types.ResultSet,
 	return nil, fmt.Errorf("unhandled statement type: %v", parsed.Type)
 }
 
+// =============================================================================
+// DDL EXECUTION METHODS
+// =============================================================================
+
 func (e *Executor) executeDDL(ctx context.Context, query string) (*types.ResultSet, error) {
 	// Parse the DDL statement
 	ddlParser := NewDDLParser()
@@ -128,6 +132,10 @@ func (e *Executor) executeDDL(ctx context.Context, query string) (*types.ResultS
 		}, nil
 	}
 }
+
+// =============================================================================
+// DML EXECUTION METHODS
+// =============================================================================
 
 func (e *Executor) executeSelect(ctx context.Context, plan *Plan) (*types.ResultSet, error) {
 	if e.catalog == nil {
@@ -233,6 +241,10 @@ func isSystemTable(tableName string) bool {
 	
 	return false
 }
+
+// =============================================================================
+// SYSTEM TABLE METHODS
+// =============================================================================
 
 func (e *Executor) executeSystemTableQuery(ctx context.Context, plan *Plan) (*types.ResultSet, error) {
 	if e.catalog == nil {
@@ -417,6 +429,10 @@ func (e *Executor) executeCommit(ctx context.Context) (*types.ResultSet, error) 
 	}, nil
 }
 
+// =============================================================================
+// TRANSACTION METHODS
+// =============================================================================
+
 func (e *Executor) executeBegin(ctx context.Context) (*types.ResultSet, error) {
 	// For now, we'll just update the transaction state
 	// In a full implementation, we would begin a transaction in the storage engine
@@ -427,6 +443,10 @@ func (e *Executor) executeBegin(ctx context.Context) (*types.ResultSet, error) {
 		Count:   0,
 	}, nil
 }
+
+// =============================================================================
+// ANALYZE METHOD
+// =============================================================================
 
 func (e *Executor) executeAnalyze(ctx context.Context, query string) (*types.ResultSet, error) {
 	if e.catalog == nil {
@@ -486,30 +506,29 @@ func (e *Executor) executeAnalyze(ctx context.Context, query string) (*types.Res
 		// If specific columns are specified, collect column statistics
 		if len(analyzeStmt.Columns) > 0 {
 			for _, columnName := range analyzeStmt.Columns {
-				// Find column ID
-				columnID := -1
-				for i, col := range tableDef.Columns {
+				// Check if column exists in table
+				found := false
+				for _, col := range tableDef.Columns {
 					if col.Name == columnName {
-						columnID = i + 1 // Column IDs are 1-based
+						found = true
 						break
 					}
 				}
 				
-				if columnID == -1 {
+				if !found {
 					return nil, fmt.Errorf("column %s not found in table %s", columnName, analyzeStmt.TableName)
 				}
 				
 				// Collect column statistics
-				_, err = statsCollector.CollectColumnStats(ctx, tableID, columnID)
+				_, err = statsCollector.CollectColumnStats(ctx, tableID, columnName)
 				if err != nil {
 					return nil, fmt.Errorf("failed to collect column statistics for %s: %w", columnName, err)
 				}
 			}
 		} else {
 			// Collect statistics for all columns
-			for i, col := range tableDef.Columns {
-				columnID := i + 1 // Column IDs are 1-based
-				_, err = statsCollector.CollectColumnStats(ctx, tableID, columnID)
+			for _, col := range tableDef.Columns {
+				_, err = statsCollector.CollectColumnStats(ctx, tableID, col.Name)
 				if err != nil {
 					return nil, fmt.Errorf("failed to collect column statistics for %s: %w", col.Name, err)
 				}

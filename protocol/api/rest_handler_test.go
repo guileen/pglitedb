@@ -11,7 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/guileen/pglitedb/codec"
 	"github.com/guileen/pglitedb/storage"
-	"github.com/guileen/pglitedb/engine"
+	"github.com/guileen/pglitedb/engine/pebble"
 	"github.com/guileen/pglitedb/protocol/sql"
 	"github.com/guileen/pglitedb/catalog"
 	"github.com/guileen/pglitedb/types"
@@ -26,7 +26,7 @@ func setupTestRESTHandler(t *testing.T) (*RESTHandler, func()) {
 	require.NoError(t, err)
 
 	c := codec.NewMemComparableCodec()
-	eng := engine.NewPebbleEngine(kvStore, c)
+	eng := pebble.NewPebbleEngine(kvStore, c)
 	mgr := catalog.NewTableManager(eng)
 	
 	// Create SQL parser and planner with catalog
@@ -165,7 +165,7 @@ func BenchmarkRESTHandler_Insert(b *testing.B) {
 	defer kvStore.Close()
 
 	c := codec.NewMemComparableCodec()
-	eng := engine.NewPebbleEngine(kvStore, c)
+	eng := pebble.NewPebbleEngine(kvStore, c)
 	mgr := catalog.NewTableManager(eng)
 	
 	// Create SQL parser and planner with catalog
@@ -221,7 +221,7 @@ func BenchmarkRESTHandler_Query(b *testing.B) {
 	defer kvStore.Close()
 
 	c := codec.NewMemComparableCodec()
-	eng := engine.NewPebbleEngine(kvStore, c)
+	eng := pebble.NewPebbleEngine(kvStore, c)
 	mgr := catalog.NewTableManager(eng)
 	
 	// Create SQL parser and planner with catalog

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/guileen/pglitedb/codec"
+	"github.com/guileen/pglitedb/engine/pebble"
+	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/types"
 )
@@ -26,7 +28,7 @@ func setupTestEngine(t *testing.T) (StorageEngine, func()) {
 	}
 
 	c := codec.NewMemComparableCodec()
-	engine := NewPebbleEngine(kvStore, c)
+	engine := pebble.NewPebbleEngine(kvStore, c)
 
 	cleanup := func() {
 		engine.Close()
@@ -284,7 +286,7 @@ func TestStorageEngine_ScanRows(t *testing.T) {
 	})
 
 	t.Run("Scan with limit", func(t *testing.T) {
-		opts := &ScanOptions{Limit: 5}
+		opts := &engineTypes.ScanOptions{Limit: 5}
 		iter, err := engine.ScanRows(ctx, 1, 1, schema, opts)
 		if err != nil {
 			t.Fatalf("scan rows: %v", err)
@@ -302,7 +304,7 @@ func TestStorageEngine_ScanRows(t *testing.T) {
 	})
 
 	t.Run("Scan with offset", func(t *testing.T) {
-		opts := &ScanOptions{Offset: 3, Limit: 3}
+		opts := &engineTypes.ScanOptions{Offset: 3, Limit: 3}
 		iter, err := engine.ScanRows(ctx, 1, 1, schema, opts)
 		if err != nil {
 			t.Fatalf("scan rows: %v", err)
@@ -441,7 +443,7 @@ func BenchmarkStorageEngine_InsertRow(b *testing.B) {
 	defer kvStore.Close()
 
 	c := codec.NewMemComparableCodec()
-	engine := NewPebbleEngine(kvStore, c)
+	engine := pebble.NewPebbleEngine(kvStore, c)
 
 	ctx := context.Background()
 	schema := createTestSchema()
@@ -480,7 +482,7 @@ func BenchmarkStorageEngine_GetRow(b *testing.B) {
 	defer kvStore.Close()
 
 	c := codec.NewMemComparableCodec()
-	engine := NewPebbleEngine(kvStore, c)
+	engine := pebble.NewPebbleEngine(kvStore, c)
 
 	ctx := context.Background()
 	schema := createTestSchema()

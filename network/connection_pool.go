@@ -1,9 +1,11 @@
-// Advanced connection pooling implementation for PostgreSQL connections with lifecycle management
+// Advanced connection pooling implementation for PostgreSQL connections with lifecycle management,
+// health checking, metrics collection, and standardized error handling
 package network
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -19,6 +21,29 @@ type PoolConfig struct {
 	MaxLifetime       time.Duration
 	MaxIdleConns      int
 	HealthCheckPeriod time.Duration
+	
+	// Metrics configuration
+	MetricsEnabled bool
+}
+
+// ConnectionPoolError represents errors specific to connection pool operations
+type ConnectionPoolError struct {
+	Op  string
+	Err error
+}
+
+func (e *ConnectionPoolError) Error() string {
+	return fmt.Sprintf("connection pool error during %s: %v", e.Op, e.Err)
+}
+
+func (e *ConnectionPoolError) Unwrap() error {
+	return e.Err
+}
+
+// IsConnectionPoolError checks if an error is a connection pool error
+func IsConnectionPoolError(err error) bool {
+	var target *ConnectionPoolError
+	return errors.As(err, &target)
 }
 
 // ConnectionPool manages a pool of database connections with advanced lifecycle management
@@ -41,6 +66,12 @@ type PoolStats struct {
 	TotalConns  uint64 // total number of connections created
 	IdleConns   uint64 // current number of idle connections
 	ActiveConns uint64 // current number of active connections
+	
+	// Health and error metrics
+	HealthChecks    uint64 // number of health checks performed
+	FailedHealth    uint64 // number of failed health checks
+	ConnectionErrors uint64 // number of connection errors
+	ClosedConns     uint64 // number of closed connections
 }
 
 // PooledConnection wraps a net.Conn with pool lifecycle management
@@ -51,6 +82,10 @@ type PooledConnection struct {
 	lastUsedAt time.Time
 	closed     int32 // atomic flag
 	mu         sync.RWMutex
+	
+	// Health tracking
+	lastHealthCheck time.Time
+	healthFailures  int32
 }
 
 // ConnectionFactory interface for creating new connections
@@ -122,6 +157,7 @@ func (p *ConnectionPool) createConnection() {
 	conn, err := p.factory.CreateConnection(ctx)
 	if err != nil {
 		atomic.AddInt32(&p.activeCount, -1)
+		atomic.AddUint64(&p.stats.ConnectionErrors, 1)
 		return
 	}
 
@@ -168,7 +204,11 @@ func (p *ConnectionPool) Get(ctx context.Context) (*PooledConnection, error) {
 			if err != nil {
 				atomic.AddInt32(&p.activeCount, -1)
 				atomic.AddUint64(&p.stats.Misses, 1)
-				return nil, err
+				atomic.AddUint64(&p.stats.ConnectionErrors, 1)
+				return nil, &ConnectionPoolError{
+					Op:  "create_connection",
+					Err: err,
+				}
 			}
 
 			atomic.AddUint64(&p.stats.Misses, 1)
@@ -194,7 +234,10 @@ func (p *ConnectionPool) Get(ctx context.Context) (*PooledConnection, error) {
 		return conn, nil
 	case <-ctx.Done():
 		atomic.AddUint64(&p.stats.Timeouts, 1)
-		return nil, ctx.Err()
+		return nil, &ConnectionPoolError{
+			Op:  "acquire_connection",
+			Err: ctx.Err(),
+		}
 	}
 }
 
@@ -209,6 +252,10 @@ func (p *ConnectionPool) Put(conn *PooledConnection) {
 		conn.forceClose()
 		atomic.AddInt32(&p.activeCount, -1)
 		atomic.AddUint64(&p.stats.ActiveConns, ^uint64(0)) // decrement
+		atomic.AddUint64(&p.stats.ClosedConns, 1)
+		if !conn.isHealthy() {
+			atomic.AddUint64(&p.stats.FailedHealth, 1)
+		}
 		// Try to create a replacement connection asynchronously
 		go p.createConnection()
 		return
@@ -221,6 +268,7 @@ func (p *ConnectionPool) Put(conn *PooledConnection) {
 		conn.forceClose()
 		atomic.AddInt32(&p.activeCount, -1)
 		atomic.AddUint64(&p.stats.ActiveConns, ^uint64(0)) // decrement
+		atomic.AddUint64(&p.stats.ClosedConns, 1)
 		return
 	}
 
@@ -235,6 +283,7 @@ func (p *ConnectionPool) Put(conn *PooledConnection) {
 		conn.forceClose()
 		atomic.AddInt32(&p.activeCount, -1)
 		atomic.AddUint64(&p.stats.ActiveConns, ^uint64(0)) // decrement
+		atomic.AddUint64(&p.stats.ClosedConns, 1)
 	}
 }
 
@@ -267,12 +316,84 @@ func (p *ConnectionPool) Close() error {
 // Stats returns current pool statistics
 func (p *ConnectionPool) Stats() PoolStats {
 	return PoolStats{
-		Hits:        atomic.LoadUint64(&p.stats.Hits),
-		Misses:      atomic.LoadUint64(&p.stats.Misses),
-		Timeouts:    atomic.LoadUint64(&p.stats.Timeouts),
-		TotalConns:  atomic.LoadUint64(&p.stats.TotalConns),
-		IdleConns:   atomic.LoadUint64(&p.stats.IdleConns),
-		ActiveConns: atomic.LoadUint64(&p.stats.ActiveConns),
+		Hits:            atomic.LoadUint64(&p.stats.Hits),
+		Misses:          atomic.LoadUint64(&p.stats.Misses),
+		Timeouts:        atomic.LoadUint64(&p.stats.Timeouts),
+		TotalConns:      atomic.LoadUint64(&p.stats.TotalConns),
+		IdleConns:       atomic.LoadUint64(&p.stats.IdleConns),
+		ActiveConns:     atomic.LoadUint64(&p.stats.ActiveConns),
+		HealthChecks:    atomic.LoadUint64(&p.stats.HealthChecks),
+		FailedHealth:    atomic.LoadUint64(&p.stats.FailedHealth),
+		ConnectionErrors: atomic.LoadUint64(&p.stats.ConnectionErrors),
+		ClosedConns:     atomic.LoadUint64(&p.stats.ClosedConns),
+	}
+}
+
+// PoolMetrics represents formatted metrics for reporting
+type PoolMetrics struct {
+	// Basic pool statistics
+	CurrentConnections int64
+	ActiveConnections  int64
+	IdleConnections    int64
+	TotalConnections   uint64
+	
+	// Operation metrics
+	ConnectionHits     uint64
+	ConnectionMisses   uint64
+	ConnectionTimeouts uint64
+	ConnectionErrors   uint64
+	
+	// Health metrics
+	HealthChecks     uint64
+	FailedHealth     uint64
+	ClosedConnections uint64
+	
+	// Rates (per second)
+	HitRate     float64
+	ErrorRate   float64
+	HealthRate  float64
+}
+
+// GetMetrics returns formatted pool metrics for reporting
+func (p *ConnectionPool) GetMetrics() PoolMetrics {
+	stats := p.Stats()
+	
+	// Calculate rates
+	totalOps := float64(stats.Hits + stats.Misses + stats.Timeouts)
+	hitRate := 0.0
+	errorRate := 0.0
+	healthRate := 0.0
+	
+	if totalOps > 0 {
+		hitRate = float64(stats.Hits) / totalOps * 100
+	}
+	
+	totalConnections := float64(stats.TotalConns)
+	if totalConnections > 0 {
+		errorRate = float64(stats.ConnectionErrors) / totalConnections * 100
+		if stats.HealthChecks > 0 {
+			healthRate = float64(stats.FailedHealth) / float64(stats.HealthChecks) * 100
+		}
+	}
+	
+	return PoolMetrics{
+		CurrentConnections: int64(atomic.LoadInt32(&p.activeCount)),
+		ActiveConnections:  int64(stats.ActiveConns),
+		IdleConnections:    int64(stats.IdleConns),
+		TotalConnections:   stats.TotalConns,
+		
+		ConnectionHits:     stats.Hits,
+		ConnectionMisses:   stats.Misses,
+		ConnectionTimeouts: stats.Timeouts,
+		ConnectionErrors:   stats.ConnectionErrors,
+		
+		HealthChecks:      stats.HealthChecks,
+		FailedHealth:      stats.FailedHealth,
+		ClosedConnections: stats.ClosedConns,
+		
+		HitRate:    hitRate,
+		ErrorRate:  errorRate,
+		HealthRate: healthRate,
 	}
 }
 
@@ -297,6 +418,8 @@ func (p *ConnectionPool) maintenance() {
 
 // healthCheck performs periodic health checks on pooled connections
 func (p *ConnectionPool) healthCheck() {
+	atomic.AddUint64(&p.stats.HealthChecks, 1)
+	
 	// Create a temporary slice to hold connections during health check
 	var conns []*PooledConnection
 	defer func() {
@@ -308,6 +431,7 @@ func (p *ConnectionPool) healthCheck() {
 				// Pool is full, close connection
 				conn.forceClose()
 				atomic.AddInt32(&p.activeCount, -1)
+				atomic.AddUint64(&p.stats.ClosedConns, 1)
 			}
 		}
 	}()
@@ -325,15 +449,19 @@ func (p *ConnectionPool) healthCheck() {
 	}
 
 	// Health check each connection
+	healthyCount := 0
 	for _, conn := range conns {
 		if !conn.isHealthy() || conn.isExpired(p.config.MaxLifetime) {
 			// Remove unhealthy connection
 			conn.forceClose()
 			atomic.AddInt32(&p.activeCount, -1)
 			atomic.AddUint64(&p.stats.IdleConns, ^uint64(0)) // decrement
+			atomic.AddUint64(&p.stats.FailedHealth, 1)
+			atomic.AddUint64(&p.stats.ClosedConns, 1)
 			// Try to create a replacement connection asynchronously
 			go p.createConnection()
 		} else {
+			healthyCount++
 			// Keep healthy connection in the pool
 			select {
 			case p.connections <- conn:
@@ -342,6 +470,7 @@ func (p *ConnectionPool) healthCheck() {
 				conn.forceClose()
 				atomic.AddInt32(&p.activeCount, -1)
 				atomic.AddUint64(&p.stats.IdleConns, ^uint64(0)) // decrement
+				atomic.AddUint64(&p.stats.ClosedConns, 1)
 			}
 		}
 	}
@@ -364,6 +493,7 @@ func (p *ConnectionPool) cleanupIdleConnections() {
 				conn.forceClose()
 				atomic.AddInt32(&p.activeCount, -1)
 				atomic.AddUint64(&p.stats.IdleConns, ^uint64(0)) // decrement
+				atomic.AddUint64(&p.stats.ClosedConns, 1)
 			}
 		}
 	}()
@@ -381,6 +511,7 @@ func (p *ConnectionPool) cleanupIdleConnections() {
 	}
 
 	// Check each connection for idle timeout
+	closedCount := 0
 	for _, conn := range conns {
 		conn.mu.RLock()
 		idleTime := now.Sub(conn.lastUsedAt)
@@ -391,6 +522,8 @@ func (p *ConnectionPool) cleanupIdleConnections() {
 			conn.forceClose()
 			atomic.AddInt32(&p.activeCount, -1)
 			atomic.AddUint64(&p.stats.IdleConns, ^uint64(0)) // decrement
+			atomic.AddUint64(&p.stats.ClosedConns, 1)
+			closedCount++
 			// Try to create a replacement connection if we're below min connections
 			currentActive := atomic.LoadInt32(&p.activeCount)
 			if int(currentActive) < p.config.MinConnections {
@@ -405,6 +538,8 @@ func (p *ConnectionPool) cleanupIdleConnections() {
 				conn.forceClose()
 				atomic.AddInt32(&p.activeCount, -1)
 				atomic.AddUint64(&p.stats.IdleConns, ^uint64(0)) // decrement
+				atomic.AddUint64(&p.stats.ClosedConns, 1)
+				closedCount++
 			}
 		}
 	}
@@ -415,10 +550,18 @@ func (pc *PooledConnection) isClosed() bool {
 	return atomic.LoadInt32(&pc.closed) == 1
 }
 
-// isHealthy checks if the connection is still healthy
+// isHealthy checks if the connection is still healthy with enhanced error handling
 func (pc *PooledConnection) isHealthy() bool {
 	pc.mu.RLock()
 	defer pc.mu.RUnlock()
+	
+	// Skip health check if recently checked (within 100ms)
+	if time.Since(pc.lastHealthCheck) < 100*time.Millisecond {
+		return atomic.LoadInt32(&pc.healthFailures) == 0
+	}
+	
+	// Update last health check time
+	pc.lastHealthCheck = time.Now()
 	
 	// Try a non-blocking read with a short timeout to check connection health
 	_ = pc.conn.SetReadDeadline(time.Now().Add(1 * time.Millisecond))
@@ -432,14 +575,24 @@ func (pc *PooledConnection) isHealthy() bool {
 	if err != nil {
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 			// Timeout is expected for healthy connection with no data
+			atomic.StoreInt32(&pc.healthFailures, 0)
 			return true
 		}
-		if errors.Is(err, net.ErrClosed) || errors.Is(err, net.ErrClosed) {
+		if errors.Is(err, net.ErrClosed) {
+			atomic.AddInt32(&pc.healthFailures, 1)
 			return false
 		}
 		// Other errors might indicate connection problems
-		return err == nil || err.Error() == "EOF"
+		isHealthy := err == nil || err.Error() == "EOF"
+		if !isHealthy {
+			atomic.AddInt32(&pc.healthFailures, 1)
+		} else {
+			atomic.StoreInt32(&pc.healthFailures, 0)
+		}
+		return isHealthy
 	}
+	
+	atomic.StoreInt32(&pc.healthFailures, 0)
 	return true
 }
 

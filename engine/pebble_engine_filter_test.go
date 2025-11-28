@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/guileen/pglitedb/codec"
+	"github.com/guileen/pglitedb/engine/pebble"
+	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/types"
 )
@@ -25,7 +27,7 @@ func TestComplexFilterExpression(t *testing.T) {
 	}
 
 	c := codec.NewMemComparableCodec()
-	eng := NewPebbleEngine(kvStore, c)
+	eng := pebble.NewPebbleEngine(kvStore, c)
 	defer eng.Close()
 
 	ctx := context.Background()
@@ -82,15 +84,15 @@ func TestComplexFilterExpression(t *testing.T) {
 	}
 
 	t.Run("AND filter - age > 20 AND city = Beijing", func(t *testing.T) {
-		filter := &FilterExpression{
+		filter := &engineTypes.FilterExpression{
 			Type: "and",
-			Children: []*FilterExpression{
+			Children: []*engineTypes.FilterExpression{
 				{Type: "simple", Column: "age", Operator: ">", Value: int64(20)},
 				{Type: "simple", Column: "city", Operator: "=", Value: "Beijing"},
 			},
 		}
 
-		opts := &ScanOptions{Filter: filter}
+		opts := &engineTypes.ScanOptions{Filter: filter}
 		// Use full table scan to test AND filter logic
 		iter, err := eng.ScanRows(ctx, tenantID, tableID, schema, opts)
 		if err != nil {
@@ -115,15 +117,15 @@ func TestComplexFilterExpression(t *testing.T) {
 	})
 
 	t.Run("OR filter - age < 22 OR age > 33", func(t *testing.T) {
-		filter := &FilterExpression{
+		filter := &engineTypes.FilterExpression{
 			Type: "or",
-			Children: []*FilterExpression{
+			Children: []*engineTypes.FilterExpression{
 				{Type: "simple", Column: "age", Operator: "<", Value: int64(22)},
 				{Type: "simple", Column: "age", Operator: ">", Value: int64(33)},
 			},
 		}
 
-		opts := &ScanOptions{Filter: filter}
+		opts := &engineTypes.ScanOptions{Filter: filter}
 		iter, err := eng.ScanRows(ctx, tenantID, tableID, schema, opts)
 		if err != nil {
 			t.Fatalf("ScanRows failed: %v", err)
@@ -146,14 +148,14 @@ func TestComplexFilterExpression(t *testing.T) {
 	})
 
 	t.Run("NOT filter - NOT (active = true)", func(t *testing.T) {
-		filter := &FilterExpression{
+		filter := &engineTypes.FilterExpression{
 			Type: "not",
-			Children: []*FilterExpression{
+			Children: []*engineTypes.FilterExpression{
 				{Type: "simple", Column: "active", Operator: "=", Value: true},
 			},
 		}
 
-		opts := &ScanOptions{Filter: filter}
+		opts := &engineTypes.ScanOptions{Filter: filter}
 		iter, err := eng.ScanRows(ctx, tenantID, tableID, schema, opts)
 		if err != nil {
 			t.Fatalf("ScanRows failed: %v", err)
@@ -176,14 +178,14 @@ func TestComplexFilterExpression(t *testing.T) {
 	})
 
 	t.Run("IN operator - city IN (Beijing, Shanghai)", func(t *testing.T) {
-		filter := &FilterExpression{
+		filter := &engineTypes.FilterExpression{
 			Type:     "simple",
 			Column:   "city",
 			Operator: "IN",
 			Values:   []interface{}{"Beijing", "Shanghai"},
 		}
 
-		opts := &ScanOptions{Filter: filter}
+		opts := &engineTypes.ScanOptions{Filter: filter}
 		iter, err := eng.ScanRows(ctx, tenantID, tableID, schema, opts)
 		if err != nil {
 			t.Fatalf("ScanRows failed: %v", err)
@@ -206,14 +208,14 @@ func TestComplexFilterExpression(t *testing.T) {
 	})
 
 	t.Run("BETWEEN operator - age BETWEEN 25 AND 32", func(t *testing.T) {
-		filter := &FilterExpression{
+		filter := &engineTypes.FilterExpression{
 			Type:     "simple",
 			Column:   "age",
 			Operator: "BETWEEN",
 			Values:   []interface{}{int64(25), int64(32)},
 		}
 
-		opts := &ScanOptions{Filter: filter}
+		opts := &engineTypes.ScanOptions{Filter: filter}
 		iter, err := eng.ScanRows(ctx, tenantID, tableID, schema, opts)
 		if err != nil {
 			t.Fatalf("ScanRows failed: %v", err)

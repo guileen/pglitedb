@@ -9,13 +9,14 @@ import (
 	"github.com/guileen/pglitedb/catalog"
 	"github.com/guileen/pglitedb/codec"
 	"github.com/guileen/pglitedb/storage"
-	"github.com/guileen/pglitedb/engine"
+	engineTypes "github.com/guileen/pglitedb/engine/types"
+	"github.com/guileen/pglitedb/engine/pebble"
 	"github.com/guileen/pglitedb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func setupTestEngine(t *testing.T) (engine.StorageEngine, func()) {
+func setupTestEngine(t *testing.T) (engineTypes.StorageEngine, func()) {
 	// Create a temporary directory for the database
 	tmpDir, err := os.MkdirTemp("", "sql-test-*")
 	if err != nil {
@@ -30,7 +31,7 @@ func setupTestEngine(t *testing.T) (engine.StorageEngine, func()) {
 	}
 
 	c := codec.NewMemComparableCodec()
-	engInstance := engine.NewPebbleEngine(kvStore, c)
+	engInstance := pebble.NewPebbleEngine(kvStore, c)
 
 	cleanup := func() {
 		engInstance.Close()

@@ -3,27 +3,21 @@ package logger
 import (
 	"context"
 	"log/slog"
+	"sync"
 )
 
 // Logger is the global logger instance
-var Logger *slog.Logger
-
-// ContextKey is used for context values
-type ContextKey string
-
-const (
-	// TenantIDKey is the context key for tenant ID
-	TenantIDKey ContextKey = "tenant_id"
-	// UserIDKey is the context key for user ID
-	UserIDKey ContextKey = "user_id"
-	// RequestIDKey is the context key for request ID
-	RequestIDKey ContextKey = "request_id"
+var (
+	Logger     *slog.Logger
+	loggerOnce sync.Once
 )
 
 func init() {
 	// Load configuration and create logger
-	config := LoadConfig()
-	Logger = NewLogger(config)
+	loggerOnce.Do(func() {
+		config := LoadConfig()
+		Logger = NewLogger(config)
+	})
 }
 
 // Debug logs a debug message
@@ -33,7 +27,9 @@ func Debug(msg string, args ...any) {
 
 // DebugContext logs a debug message with context
 func DebugContext(ctx context.Context, msg string, args ...any) {
-	Logger.Debug(msg, appendContextArgs(ctx, args...)...)
+	if Logger.Enabled(ctx, slog.LevelDebug) {
+		Logger.DebugContext(ctx, msg, append(appendContextArgs(ctx), args...)...)
+	}
 }
 
 // Info logs an info message
@@ -43,7 +39,9 @@ func Info(msg string, args ...any) {
 
 // InfoContext logs an info message with context
 func InfoContext(ctx context.Context, msg string, args ...any) {
-	Logger.Info(msg, appendContextArgs(ctx, args...)...)
+	if Logger.Enabled(ctx, slog.LevelInfo) {
+		Logger.InfoContext(ctx, msg, append(appendContextArgs(ctx), args...)...)
+	}
 }
 
 // Warn logs a warning message
@@ -53,17 +51,14 @@ func Warn(msg string, args ...any) {
 
 // WarnContext logs a warning message with context
 func WarnContext(ctx context.Context, msg string, args ...any) {
-	Logger.Warn(msg, appendContextArgs(ctx, args...)...)
+	if Logger.Enabled(ctx, slog.LevelWarn) {
+		Logger.WarnContext(ctx, msg, append(appendContextArgs(ctx), args...)...)
+	}
 }
 
 // Error logs an error message
 func Error(msg string, args ...any) {
 	Logger.Error(msg, args...)
-}
-
-// ErrorContext logs an error message with context
-func ErrorContext(ctx context.Context, msg string, args ...any) {
-	Logger.Error(msg, appendContextArgs(ctx, args...)...)
 }
 
 // With returns a new Logger that includes the given attributes in each output operation

@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/guileen/pglitedb/codec"
+	"github.com/guileen/pglitedb/engine/pebble"
+	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/types"
 )
@@ -25,7 +27,7 @@ func TestIndexOnlyScan(t *testing.T) {
 	}
 
 	c := codec.NewMemComparableCodec()
-	eng := NewPebbleEngine(kvStore, c)
+	eng := pebble.NewPebbleEngine(kvStore, c)
 	defer eng.Close()
 
 	ctx := context.Background()
@@ -88,7 +90,7 @@ func TestIndexOnlyScan(t *testing.T) {
 
 	t.Run("Covering index scan - category, price, name", func(t *testing.T) {
 		// Index (category, price, name) covers projection (category, price)
-		opts := &ScanOptions{
+		opts := &engineTypes.ScanOptions{
 			Projection: []string{"category", "price", "name"},
 		}
 
@@ -99,7 +101,7 @@ func TestIndexOnlyScan(t *testing.T) {
 		defer iter.Close()
 
 		// Should use indexOnlyIterator
-		if _, ok := iter.(*indexOnlyIterator); !ok {
+		if !pebble.IsIndexOnlyIterator(iter) {
 			t.Error("Should use indexOnlyIterator for covering index")
 		}
 
@@ -155,7 +157,7 @@ func TestIndexOnlyScan(t *testing.T) {
 
 	t.Run("Non-covering index scan - need table access", func(t *testing.T) {
 		// Projection includes 'stock' which is not in index - must use regular scan with table access
-		opts := &ScanOptions{
+		opts := &engineTypes.ScanOptions{
 			Projection: []string{"category", "price", "stock"},
 		}
 
@@ -166,7 +168,7 @@ func TestIndexOnlyScan(t *testing.T) {
 		defer iter.Close()
 
 		// Should NOT be index-only iterator
-		if _, ok := iter.(*indexOnlyIterator); ok {
+		if pebble.IsIndexOnlyIterator(iter) {
 			t.Error("Should not use indexOnlyIterator when index doesn't cover projection")
 		}
 
@@ -189,11 +191,11 @@ func TestIndexOnlyScan(t *testing.T) {
 
 	t.Run("Covering index with filter", func(t *testing.T) {
 		// Test covering index with complex filter
-		opts := &ScanOptions{
+		opts := &engineTypes.ScanOptions{
 			Projection: []string{"category", "price"},
-			Filter: &FilterExpression{
+			Filter: &engineTypes.FilterExpression{
 				Type:     "and",
-				Children: []*FilterExpression{
+				Children: []*engineTypes.FilterExpression{
 					{
 						Type:     "simple",
 						Column:   "category",
@@ -217,7 +219,7 @@ func TestIndexOnlyScan(t *testing.T) {
 		defer iter.Close()
 
 		// Should use indexOnlyIterator
-		if _, ok := iter.(*indexOnlyIterator); !ok {
+		if !pebble.IsIndexOnlyIterator(iter) {
 			t.Error("Should use indexOnlyIterator for covering index")
 		}
 

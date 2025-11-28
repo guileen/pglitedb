@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/guileen/pglitedb/codec"
-	"github.com/guileen/pglitedb/engine"
+	"github.com/guileen/pglitedb/engine/pebble"
 	"github.com/guileen/pglitedb/protocol/sql"
 	"github.com/guileen/pglitedb/storage"
 	
@@ -35,7 +35,7 @@ func NewClient(dbPath string) *Client {
 	c := codec.NewMemComparableCodec()
 	
 	// Create engine and manager
-	eng := engine.NewPebbleEngine(kvStore, c)
+	eng := pebble.NewPebbleEngine(kvStore, c)
 	mgr := catalog.NewTableManagerWithKV(eng, kvStore)
 	
 	// Load existing schemas

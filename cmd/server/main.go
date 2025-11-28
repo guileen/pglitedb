@@ -70,7 +70,7 @@ func startHTTPServer(dbPath string) {
 	
 	// Create engine and manager
 	logger.Info("Creating PebbleEngine")
-	eng := engine.NewPebbleEngine(kvStore, c)
+	eng := engine.NewStorageEngine(kvStore, c)
 	logger.Info("PebbleEngine created successfully")
 	
 	logger.Info("Creating TableManager")
@@ -173,7 +173,7 @@ func startPostgreSQLServer(dbPath string) {
 	
 	// Create engine and manager
 	logger.Info("Creating PebbleEngine")
-	eng := engine.NewPebbleEngine(kvStore, c)
+	eng := engine.NewStorageEngine(kvStore, c)
 	logger.Info("PebbleEngine created successfully")
 	
 	logger.Info("Creating TableManager")

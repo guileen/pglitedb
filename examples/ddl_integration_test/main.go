@@ -8,7 +8,7 @@ import (
 
 	"github.com/guileen/pglitedb/catalog"
 	"github.com/guileen/pglitedb/codec"
-	"github.com/guileen/pglitedb/engine"
+	"github.com/guileen/pglitedb/engine/pebble"
 	"github.com/guileen/pglitedb/protocol/sql"
 	"github.com/guileen/pglitedb/storage"
 )
@@ -27,7 +27,7 @@ func main() {
 
 	// Create engine and catalog
 	codec := codec.NewMemComparableCodec()
-	eng := engine.NewPebbleEngine(kvStore, codec)
+	eng := pebble.NewPebbleEngine(kvStore, codec)
 	mgr := catalog.NewTableManagerWithKV(eng, kvStore)
 
 	// Create parser, planner and executor
