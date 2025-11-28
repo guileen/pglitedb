@@ -230,9 +230,11 @@ func (p *Planner) extractSelectInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 		}
 	}
 	
-	// Extract fields (target list)
+	// Extract fields (target list) and aggregates
 	if targetList := selectStmt.GetTargetList(); targetList != nil {
 		fields := make([]string, 0, len(targetList))
+		aggregates := make([]Aggregate, 0)
+		
 		for _, target := range targetList {
 			if resTarget := target.GetResTarget(); resTarget != nil {
 				if val := resTarget.GetVal(); val != nil {
@@ -244,11 +246,40 @@ func (p *Planner) extractSelectInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 							}
 						}
 					} else if funcCall := val.GetFuncCall(); funcCall != nil {
-						// Handle function calls
+						// Handle function calls, especially aggregate functions
 						if len(funcCall.GetFuncname()) > 0 {
 							if str := funcCall.GetFuncname()[0].GetString_(); str != nil {
+								funcName := str.GetSval()
+								
 								// Mark this as a function call by prefixing with "func:"
-								fields = append(fields, "func:"+str.GetSval())
+								fields = append(fields, "func:"+funcName)
+								
+								// Extract aggregate information
+								aggregate := Aggregate{
+									Function: strings.ToUpper(funcName),
+									Alias:    resTarget.GetName(),
+								}
+								
+								// Extract argument for the aggregate function
+								if len(funcCall.GetArgs()) > 0 {
+									arg := funcCall.GetArgs()[0]
+									if argColRef := arg.GetColumnRef(); argColRef != nil {
+										// Extract column name from ColumnRef argument
+										if len(argColRef.GetFields()) > 0 {
+											if argStr := argColRef.GetFields()[len(argColRef.GetFields())-1].GetString_(); argStr != nil {
+												aggregate.Field = argStr.GetSval()
+											}
+										}
+									} else if arg.GetAStar() != nil {
+										// Handle COUNT(*) case
+										aggregate.Field = "*"
+									}
+								} else if funcCall.GetAggStar() {
+									// Handle COUNT(*) case from agg_star flag
+									aggregate.Field = "*"
+								}
+								
+								aggregates = append(aggregates, aggregate)
 							}
 						}
 					} else if sqlValueFunc := val.GetSqlvalueFunction(); sqlValueFunc != nil {
@@ -275,6 +306,9 @@ func (p *Planner) extractSelectInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 			}
 		}
 		plan.Fields = fields
+		if len(aggregates) > 0 {
+			plan.Aggregates = aggregates
+		}
 	}
 	
 	// Extract WHERE conditions
@@ -325,6 +359,24 @@ func (p *Planner) extractSelectInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 				limit := int64(iConst.GetIval())
 				plan.Limit = &limit
 			}
+		}
+	}
+	
+	// Extract GROUP BY clause
+	if groupClause := selectStmt.GetGroupClause(); groupClause != nil {
+		groupBy := make([]string, 0, len(groupClause))
+		for _, groupNode := range groupClause {
+			if columnRef := groupNode.GetColumnRef(); columnRef != nil {
+				// Extract column name from ColumnRef
+				if len(columnRef.GetFields()) > 0 {
+					if str := columnRef.GetFields()[len(columnRef.GetFields())-1].GetString_(); str != nil {
+						groupBy = append(groupBy, str.GetSval())
+					}
+				}
+			}
+		}
+		if len(groupBy) > 0 {
+			plan.GroupBy = groupBy
 		}
 	}
 }

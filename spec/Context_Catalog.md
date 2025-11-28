@@ -9,6 +9,8 @@ This file provides context about the system catalog implementation, including sy
 - Index management complexity revealed intricate relationships between catalog metadata and physical storage operations
 - Proper OID generation consistency is essential for maintaining referential integrity between system tables
 - Interface-driven development enabled clean separation between catalog logic and storage implementation
+- System table implementation complexity requires careful consideration of filtering and metadata consistency
+- Database metadata queries need deterministic OID generation for consistent results
 
 ## OID Generation Consistency
 ⚠️ **Critical Implementation Principle**: Consistent OID generation is essential for maintaining referential integrity between system tables. All OIDs must be generated deterministically to ensure consistency across system restarts and distributed environments.
@@ -138,9 +140,12 @@ For detailed implementation approach, see [GUIDE.md](./GUIDE.md) and [System Tab
    - `pg_index` - Index metadata and configuration
    - `pg_inherits` - Table inheritance relationships
    - `pg_class` - Object metadata (tables, indexes, sequences)
-3. **Integration Points**:
+3. **Database System Tables** - Database metadata information
+   - `pg_database` - Database catalog information with filtering support
+4. **Integration Points**:
    - `catalog/system_tables.go` - Extended system table implementations
    - `catalog/stats_collector.go` - Statistics data source integration
+   - `catalog/system/pg_catalog/database_provider.go` - pg_database implementation
 
 **Implementation Guide**: See `spec/GUIDE_SYSTEM_TABLES_ENHANCEMENT.md`
 
@@ -250,6 +255,23 @@ For detailed implementation approach, see [GUIDE.md](./GUIDE.md) and [System Tab
    - Populated from actual constraint definitions in catalog
    - Real-time data reflecting current constraint state
    - Constraint definition formatted appropriately for each type
+
+### pg_database Implementation
+
+1. **Schema Definition**
+   - Columns match PostgreSQL pg_database system table
+   - Provides database catalog information with standard PostgreSQL columns
+   - Supports filtering by database name and OID for efficient queries
+
+2. **Data Source**
+   - Populated with deterministic database metadata for PGLiteDB
+   - Consistent OID generation using `oid.GenerateDeterministicOID("pglitedb")`
+   - Supports standard database queries and PostgreSQL client connectivity
+
+3. **Key Features**
+   - Database name and OID filtering for efficient query processing
+   - Complete PostgreSQL-compatible column set including encoding, collation, and connection information
+   - Integration with system catalog factory for seamless query execution
 
 ## Troubleshooting Guide
 

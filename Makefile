@@ -188,7 +188,7 @@ regress_bench:
 	echo "Running regression tests..."; \
 	scripts/run_regress.sh; \
 	echo "Running pgbench tests..."; \
-	mkdir -p bench && scripts/run_pgbench.sh > $(PWD)/bench/$$TIMESTAMP.json; \
+	mkdir -p bench && scripts/run_pgbench.sh | tee $(PWD)/bench/$$TIMESTAMP.json; \
 	echo "Benchmark test results saved to bench/$$TIMESTAMP.json"; \
 	echo "Tests completed. Results saved to regress/ and bench/ directories."
 

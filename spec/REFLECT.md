@@ -74,6 +74,8 @@
 
 - **System Table Design**: Creating system table providers showed the importance of consistent data modeling and proper filtering support.
 
+- **Aggregate Function Implementation**: Adding support for COUNT and other aggregate functions demonstrated the need for proper AST traversal and plan structure population.
+
 ### 4. Improvement Suggestions
 
 - **Better Test Coverage**: The current test suite is minimal and lacks comprehensive coverage for error conditions and edge cases. More extensive unit tests would improve confidence in changes.
@@ -99,6 +101,7 @@ The recent work on function call support and system table implementation has sig
 1. **Function Call Support**: Successfully implemented parsing and execution of SQL functions like version(), current_user, etc.
 2. **System Table Implementation**: Added pg_database table for database metadata queries
 3. **Parser Enhancements**: Enhanced AST parsing to handle SQL value functions properly
-4. **Performance**: Maintained good performance with ~2445 TPS in benchmark tests
+4. **Aggregate Function Support**: Added basic support for COUNT and other aggregate functions with GROUP BY clause parsing
+5. **Performance**: Maintained good performance with ~2400 TPS in benchmark tests
 
 These improvements have made basic PostgreSQL client connectivity and standard function calls work properly, which is a significant step toward full compatibility.

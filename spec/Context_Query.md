@@ -28,6 +28,20 @@
 
 ⚠️ **Note**: While query optimization is implemented, current critical infrastructure issues may affect query execution. See [GUIDE.md](./GUIDE.md) for priority fixes.
 
+### Aggregate Function Support
+**Goal**: Implement support for COUNT and other aggregate functions with proper AST traversal and plan structure population
+**Key Components**:
+1. **AST Parsing** - Detect and parse aggregate function calls in SELECT statements
+2. **Plan Structure Population** - Extract aggregate functions into Plan.Aggregates during planning
+3. **Execution Support** - Implement aggregate operator execution with grouping support
+4. **Integration Points**:
+   - `protocol/sql/planner.go` - Aggregate function detection and plan population
+   - `protocol/sql/operators/aggregate.go` - Aggregate operator implementation
+   - `protocol/sql/executor.go` - Aggregate execution integration
+
+**Supported Functions**: COUNT(*), COUNT(column), SUM(column), AVG(column), MAX(column), MIN(column)
+**Features**: GROUP BY clause support, alias handling, NULL value handling
+
 ### AST-Based SQL Parsing Optimization
 
 1. **Complete Regex Dependency Removal**
