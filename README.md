@@ -363,7 +363,7 @@ All contributions are reviewed by our AI agents to ensure code quality and perfo
 
 ## Documentation
 
-Comprehensive documentation is available to help you understand and contribute to PGLiteDB:
+Comprehensive documentation is available to help you understand and use PGLiteDB:
 
 ### 📚 Core Documentation
 - [Project Context](spec/Context.md) - Current project status and immediate focus areas
@@ -372,14 +372,24 @@ Comprehensive documentation is available to help you understand and contribute t
 - [Performance Optimization Plan](spec/PERFORMANCE_OPTIMIZATION_PLAN.md) - Performance targets and optimization strategies
 
 ### 🗂 Documentation Navigation
-For a complete list of all documentation files, see [DOCUMENTATION_NAVIGATION.md](spec/DOCUMENTATION_NAVIGATION.md) which organizes all project documentation by category and priority.
+For a complete list of all documentation files, see:
+- [Spec Documentation Navigation](spec/DOCUMENTATION_NAVIGATION.md) - Technical and development documentation
+- [User Documentation](docs/NAVIGATION.md) - User guides, API reference, and examples
 
 ### 🎯 Key Documentation Categories
 - **Architecture & Design**: Technical architecture, maintainability guides, and technical debt reduction plans
 - **Implementation Guides**: Component-specific implementation details and best practices
 - **Testing & Quality Assurance**: Testing strategies, coverage plans, and quality metrics
 - **Performance & Benchmarking**: Performance optimization plans and benchmark results
+- **User Guides**: Comprehensive usage documentation, API reference, and examples
 - **Reflection & Learning**: Implementation reflections and lessons learned
+
+### 📖 User Documentation
+- [Documentation Index](docs/README.md) - Main documentation entry point
+- [Quick Start Guides](docs/guides/quickstart.md) - Step-by-step guides for different use cases
+- [Embedded Usage Guide](docs/guides/embedded_usage.md) - Comprehensive guide for embedded usage
+- [API Reference](docs/api/reference.md) - Detailed API documentation
+- [Interactive Examples](docs/guides/interactive_examples.md) - Runnable examples demonstrating features
 
 ## License
 
