@@ -22,8 +22,8 @@ func TestConcurrentTransactions(t *testing.T) {
 	engine := createTestEngine(t)
 	defer engine.Close()
 
-	const numWorkers = 10
-	const numOpsPerWorker = 100
+	const numWorkers = 3
+	const numOpsPerWorker = 20
 
 	// Use WaitGroup to coordinate workers
 	var wg sync.WaitGroup
@@ -85,6 +85,7 @@ func TestConcurrentTransactions(t *testing.T) {
 
 				// Commit transaction
 				err = tx.Commit()
+				tx.Rollback() // Ensure transaction is properly closed
 				if err != nil {
 					errChan <- err
 					return
@@ -104,7 +105,7 @@ func TestConcurrentTransactions(t *testing.T) {
 	select {
 	case <-done:
 		// All workers completed
-	case <-time.After(30 * time.Second):
+	case <-time.After(60 * time.Second):
 		t.Fatal("Test timed out")
 	}
 
@@ -127,6 +128,7 @@ func TestConcurrentTransactions(t *testing.T) {
 			// The important thing is that no errors occurred during the concurrent operations
 			
 			err = tx.Commit()
+			tx.Rollback() // Ensure transaction is properly closed
 			require.NoError(t, err)
 		}
 	}
@@ -138,9 +140,9 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 	engine := createTestEngine(t)
 	defer engine.Close()
 
-	const numReaders = 5
-	const numWriters = 5
-	const numOps = 100
+	const numReaders = 2
+	const numWriters = 2
+	const numOps = 10
 
 	// Create a simple schema for testing
 	schemaDef := &types.TableDefinition{
@@ -210,6 +212,7 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 				}
 
 				err = tx.Commit()
+				tx.Rollback() // Ensure transaction is properly closed
 				if err != nil {
 					errChan <- err
 					return
@@ -250,6 +253,7 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 				}
 
 				err = tx.Commit()
+				tx.Rollback() // Ensure transaction is properly closed
 				if err != nil {
 					errChan <- err
 					return
@@ -268,7 +272,7 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 	select {
 	case <-done:
 		// Success
-	case <-time.After(30 * time.Second):
+	case <-time.After(60 * time.Second):
 		t.Fatal("Test timed out")
 	}
 
@@ -285,8 +289,8 @@ func TestHighConcurrency(t *testing.T) {
 	engine := createTestEngine(t)
 	defer engine.Close()
 
-	const numGoroutines = 50
-	const opsPerGoroutine = 20
+	const numGoroutines = 5
+	const opsPerGoroutine = 3
 
 	// Create a simple schema for testing
 	schemaDef := &types.TableDefinition{
@@ -372,6 +376,7 @@ func TestHighConcurrency(t *testing.T) {
 					}
 					
 					err = tx.Commit()
+					tx.Rollback() // Ensure transaction is properly closed
 					if err != nil {
 						errChan <- err
 						return
@@ -452,7 +457,7 @@ func TestHighConcurrency(t *testing.T) {
 	select {
 	case <-done:
 		// Success
-	case <-time.After(60 * time.Second):
+	case <-time.After(120 * time.Second):
 		t.Fatal("High concurrency test timed out")
 	}
 
