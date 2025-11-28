@@ -39,24 +39,33 @@ type PebbleConfig struct {
 func DefaultPebbleConfig(path string) *PebbleConfig {
 	return &PebbleConfig{
 		Path:                  path,
-		CacheSize:             256 * 1024 * 1024,
+		CacheSize:             512 * 1024 * 1024, // Increased cache size
 		MemTableSize:          64 * 1024 * 1024,
-		MaxOpenFiles:          1000,
-		CompactionConcurrency: 3,
-		FlushInterval:         1 * time.Second,
+		MaxOpenFiles:          10000, // Increased max open files
+		CompactionConcurrency: 4,     // Increased compaction concurrency
+		FlushInterval:         5 * time.Second, // Less aggressive flushing
 	}
 }
 
 func NewPebbleKV(config *PebbleConfig) (*PebbleKV, error) {
+	cache := pebble.NewCache(config.CacheSize)
+	defer cache.Unref()
+	
 	opts := &pebble.Options{
-		Cache:          pebble.NewCache(config.CacheSize),
+		Cache: cache,
 		MaxOpenFiles:   config.MaxOpenFiles,
-		MemTableSize:   64 * 1024 * 1024,
-		L0CompactionThreshold: 4,
+		MemTableSize:   uint64(config.MemTableSize),
+		MemTableStopWritesThreshold: 4,
+		L0CompactionThreshold: 2,
 		L0StopWritesThreshold: 12,
-		MaxConcurrentCompactions: func() int { return 3 },
+		LBaseMaxBytes:         64 << 20, // 64 MB
+		MaxConcurrentCompactions: func() int { return config.CompactionConcurrency },
+		Levels: []pebble.LevelOptions{
+			{TargetFileSize: 2 << 20},  // 2 MB
+			{TargetFileSize: 8 << 20},  // 8 MB
+			{TargetFileSize: 32 << 20}, // 32 MB
+		},
 	}
-	defer opts.Cache.Unref()
 
 	db, err := pebble.Open(config.Path, opts)
 	if err != nil {
@@ -275,8 +284,14 @@ func (p *PebbleKV) Stats() shared.KVStats {
 
 	metrics := p.db.Metrics()
 	
+	// Calculate total key count approximation
+	var keyCount int64
+	for _, level := range metrics.Levels {
+		keyCount += int64(level.NumFiles)
+	}
+	
 	return shared.KVStats{
-		KeyCount:        0,
+		KeyCount:        keyCount,
 		ApproximateSize: int64(metrics.DiskSpaceUsage()),
 		MemTableSize:    int64(metrics.MemTable.Size),
 		FlushCount:      int64(metrics.Flush.Count),

@@ -13,20 +13,19 @@ import (
 
 // Regular transaction implementation
 type transaction struct {
-	kvTxn     storage.Transaction
-	codec     codec.Codec
-	engine    *pebbleEngine
-	isolation storage.IsolationLevel
+	*BaseTransaction
+	kvTxn storage.Transaction
+	codec codec.Codec
 }
 
 // Snapshot transaction implementation
 type snapshotTransaction struct {
+	*BaseTransaction
 	snapshot  storage.Snapshot
 	beginTS   int64
 	mutations map[string][]byte
 	engine    *pebbleEngine
 	closed    bool
-	isolation storage.IsolationLevel
 }
 
 // BeginTx starts a new transaction with default isolation level
@@ -36,12 +35,20 @@ func (e *pebbleEngine) BeginTx(ctx context.Context) (engineTypes.Transaction, er
 		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
 
-	return &transaction{
-		kvTxn:     kvTxn,
-		codec:     e.codec,
-		engine:    e,
-		isolation: storage.ReadCommitted,
-	}, nil
+	baseTx := NewBaseTransaction(e, storage.ReadCommitted)
+	tx := &transaction{
+		BaseTransaction: baseTx,
+		kvTxn:           kvTxn,
+		codec:           e.codec,
+	}
+	
+	// Set the isolation level on the base transaction
+	if err := tx.SetIsolation(storage.ReadCommitted); err != nil {
+		kvTxn.Rollback()
+		return nil, fmt.Errorf("set isolation level: %w", err)
+	}
+	
+	return tx, nil
 }
 
 // BeginTxWithIsolation starts a new transaction with specified isolation level
@@ -60,12 +67,17 @@ func (e *pebbleEngine) BeginTxWithIsolation(ctx context.Context, level storage.I
 		return nil, fmt.Errorf("set isolation level: %w", err)
 	}
 
-	return &transaction{
-		kvTxn:     kvTxn,
-		codec:     e.codec,
-		engine:    e,
-		isolation: level,
-	}, nil
+	baseTx := NewBaseTransaction(e, level)
+	tx := &transaction{
+		BaseTransaction: baseTx,
+		kvTxn:           kvTxn,
+		codec:           e.codec,
+	}
+	
+	// Set the isolation level on the base transaction
+	tx.SetIsolation(level)
+	
+	return tx, nil
 }
 
 // newSnapshotTx creates a new snapshot transaction
@@ -75,14 +87,17 @@ func (e *pebbleEngine) newSnapshotTx(ctx context.Context, level storage.Isolatio
 		return nil, fmt.Errorf("create snapshot: %w", err)
 	}
 
-	return &snapshotTransaction{
-		snapshot:  snapshot,
-		beginTS:   time.Now().UnixNano(),
-		mutations: make(map[string][]byte),
-		engine:    e,
-		closed:    false,
-		isolation: level,
-	}, nil
+	baseTx := NewBaseTransaction(e, level)
+	tx := &snapshotTransaction{
+		BaseTransaction: baseTx,
+		snapshot:        snapshot,
+		beginTS:         time.Now().UnixNano(),
+		mutations:       make(map[string][]byte),
+		engine:          e,
+		closed:          false,
+	}
+	
+	return tx, nil
 }
 
 // Transaction methods
@@ -227,97 +242,7 @@ func (t *transaction) Rollback() error {
 	return t.kvTxn.Rollback()
 }
 
-// UpdateRows updates multiple rows that match the given conditions
-func (t *transaction) UpdateRows(ctx context.Context, tenantID, tableID int64, updates map[string]*dbTypes.Value, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
-	// For transactions, we'll implement a simpler version that scans and updates
-	// In a production system, this would need to be more sophisticated
-	
-	// Create a scan options with the conditions as filter
-	scanOpts := &engineTypes.ScanOptions{
-		Filter: t.engine.buildFilterExpression(conditions),
-	}
-	
-	// Scan for matching rows
-	iter, err := t.engine.ScanRows(ctx, tenantID, tableID, schemaDef, scanOpts)
-	if err != nil {
-		return 0, fmt.Errorf("scan rows: %w", err)
-	}
-	defer iter.Close()
-	
-	// Update each matching row
-	var count int64
-	for iter.Next() {
-		record := iter.Row()
-		// Extract row ID from the record's _rowid field
-		rowIDVal, ok := record.Data["_rowid"]
-		if !ok {
-			return count, fmt.Errorf("missing _rowid in record")
-		}
-		rowID, ok := rowIDVal.Data.(int64)
-		if !ok {
-			return count, fmt.Errorf("_rowid is not an int64")
-		}
-		
-		// Update the row
-		if err := t.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
-			return count, fmt.Errorf("update row %d: %w", rowID, err)
-		}
-		
-		count++
-	}
-	
-	if err := iter.Error(); err != nil {
-		return count, fmt.Errorf("iterator error: %w", err)
-	}
-	
-	return count, nil
-}
 
-// DeleteRows deletes multiple rows that match the given conditions
-func (t *transaction) DeleteRows(ctx context.Context, tenantID, tableID int64, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
-	// For transactions, we'll implement a simpler version that scans and deletes
-	// In a production system, this would need to be more sophisticated
-	
-	// Create a scan options with the conditions as filter
-	scanOpts := &engineTypes.ScanOptions{
-		Filter: t.engine.buildFilterExpression(conditions),
-	}
-	
-	// Scan for matching rows
-	iter, err := t.engine.ScanRows(ctx, tenantID, tableID, schemaDef, scanOpts)
-	if err != nil {
-		return 0, fmt.Errorf("scan rows: %w", err)
-	}
-	defer iter.Close()
-	
-	// Delete each matching row
-	var count int64
-	for iter.Next() {
-		record := iter.Row()
-		// Extract row ID from the record's _rowid field
-		rowIDVal, ok := record.Data["_rowid"]
-		if !ok {
-			return count, fmt.Errorf("missing _rowid in record")
-		}
-		rowID, ok := rowIDVal.Data.(int64)
-		if !ok {
-			return count, fmt.Errorf("_rowid is not an int64")
-		}
-		
-		// Delete the row
-		if err := t.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
-			return count, fmt.Errorf("delete row %d: %w", rowID, err)
-		}
-		
-		count++
-	}
-	
-	if err := iter.Error(); err != nil {
-		return count, fmt.Errorf("iterator error: %w", err)
-	}
-	
-	return count, nil
-}
 
 // Snapshot transaction methods
 func (tx *snapshotTransaction) GetRow(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *dbTypes.TableDefinition) (*dbTypes.Record, error) {
@@ -492,103 +417,7 @@ func (tx *snapshotTransaction) DeleteRowBatch(ctx context.Context, tenantID, tab
 	return nil
 }
 
-func (tx *snapshotTransaction) DeleteRows(ctx context.Context, tenantID, tableID int64, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
-	if tx.closed {
-		return 0, storage.ErrClosed
-	}
 
-	// For snapshot transactions, we'll implement a simpler version that scans and deletes
-	// In a production system, this would need to be more sophisticated
-
-	// Create a scan options with the conditions as filter
-	scanOpts := &engineTypes.ScanOptions{
-		Filter: tx.engine.buildFilterExpression(conditions),
-	}
-
-	// Scan for matching rows
-	iter, err := tx.engine.ScanRows(ctx, tenantID, tableID, schemaDef, scanOpts)
-	if err != nil {
-		return 0, fmt.Errorf("scan rows: %w", err)
-	}
-	defer iter.Close()
-
-	// Delete each matching row
-	var count int64
-	for iter.Next() {
-		record := iter.Row()
-		// Extract row ID from the record's _rowid field
-		rowIDVal, ok := record.Data["_rowid"]
-		if !ok {
-			return count, fmt.Errorf("missing _rowid in record")
-		}
-		rowID, ok := rowIDVal.Data.(int64)
-		if !ok {
-			return count, fmt.Errorf("_rowid is not an int64")
-		}
-
-		// Delete the row
-		if err := tx.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
-			return count, fmt.Errorf("delete row %d: %w", rowID, err)
-		}
-
-		count++
-	}
-
-	if err := iter.Error(); err != nil {
-		return count, fmt.Errorf("iterator error: %w", err)
-	}
-
-	return count, nil
-}
-
-func (tx *snapshotTransaction) UpdateRows(ctx context.Context, tenantID, tableID int64, updates map[string]*dbTypes.Value, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
-	if tx.closed {
-		return 0, storage.ErrClosed
-	}
-
-	// For snapshot transactions, we'll implement a simpler version that scans and updates
-	// In a production system, this would need to be more sophisticated
-
-	// Create a scan options with the conditions as filter
-	scanOpts := &engineTypes.ScanOptions{
-		Filter: tx.engine.buildFilterExpression(conditions),
-	}
-
-	// Scan for matching rows
-	iter, err := tx.engine.ScanRows(ctx, tenantID, tableID, schemaDef, scanOpts)
-	if err != nil {
-		return 0, fmt.Errorf("scan rows: %w", err)
-	}
-	defer iter.Close()
-
-	// Update each matching row
-	var count int64
-	for iter.Next() {
-		record := iter.Row()
-		// Extract row ID from the record's _rowid field
-		rowIDVal, ok := record.Data["_rowid"]
-		if !ok {
-			return count, fmt.Errorf("missing _rowid in record")
-		}
-		rowID, ok := rowIDVal.Data.(int64)
-		if !ok {
-			return count, fmt.Errorf("_rowid is not an int64")
-		}
-
-		// Update the row
-		if err := tx.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
-			return count, fmt.Errorf("update row %d: %w", rowID, err)
-		}
-
-		count++
-	}
-
-	if err := iter.Error(); err != nil {
-		return count, fmt.Errorf("iterator error: %w", err)
-	}
-
-	return count, nil
-}
 
 func (tx *snapshotTransaction) Commit() error {
 	if tx.closed {
@@ -627,4 +456,24 @@ func (tx *snapshotTransaction) Isolation() storage.IsolationLevel {
 
 func (tx *snapshotTransaction) SetIsolation(level storage.IsolationLevel) error {
 	return fmt.Errorf("cannot change isolation level after transaction started")
+}
+
+// updateRowImpl implements the update row functionality for regular transactions
+func (t *transaction) updateRowImpl(ctx context.Context, tenantID, tableID, rowID int64, updates map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
+	return t.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef)
+}
+
+// deleteRowImpl implements the delete row functionality for regular transactions
+func (t *transaction) deleteRowImpl(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *dbTypes.TableDefinition) error {
+	return t.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef)
+}
+
+// updateRowImpl implements the update row functionality for snapshot transactions
+func (tx *snapshotTransaction) updateRowImpl(ctx context.Context, tenantID, tableID, rowID int64, updates map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
+	return tx.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef)
+}
+
+// deleteRowImpl implements the delete row functionality for snapshot transactions
+func (tx *snapshotTransaction) deleteRowImpl(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *dbTypes.TableDefinition) error {
+	return tx.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef)
 }

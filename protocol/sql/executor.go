@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/guileen/pglitedb/catalog"
+	"github.com/guileen/pglitedb/logger"
 	"github.com/guileen/pglitedb/types"
 )
 
@@ -20,6 +21,20 @@ type Executor struct {
 // GetCatalog returns the catalog manager
 func (e *Executor) GetCatalog() catalog.Manager {
 	return e.catalog
+}
+
+// getTenantIDFromContext extracts tenant ID from context, defaulting to 1 if not found
+func (e *Executor) getTenantIDFromContext(ctx context.Context) int64 {
+	if ctx == nil {
+		return 1
+	}
+	
+	if tenantID, ok := ctx.Value(logger.TenantIDKey).(int64); ok {
+		return tenantID
+	}
+	
+	// Default to 1 for backward compatibility
+	return 1
 }
 
 func NewExecutor(planner *Planner) *Executor {
@@ -146,7 +161,7 @@ func (e *Executor) executeSelect(ctx context.Context, plan *Plan) (*types.Result
 		return e.executeSystemTableQuery(ctx, plan)
 	}
 
-	tenantID := int64(1)
+	tenantID := e.getTenantIDFromContext(ctx)
 
 	// Check if table exists
 	_, err := e.catalog.GetTableDefinition(ctx, tenantID, plan.Table)
@@ -338,7 +353,7 @@ func (e *Executor) executeInsert(ctx context.Context, plan *Plan) (*types.Result
 	// Extract values from the plan
 	values := plan.Values
 	
-	tenantID := int64(1) // Get from context
+	tenantID := e.getTenantIDFromContext(ctx)
 	lastInsertID, err := e.catalog.InsertRow(ctx, tenantID, plan.Table, values)
 	if err != nil {
 		return nil, err
@@ -368,7 +383,7 @@ func (e *Executor) executeUpdate(ctx context.Context, plan *Plan) (*types.Result
 		}
 	}
 	
-	tenantID := int64(1) // Get from context
+	tenantID := e.getTenantIDFromContext(ctx)
 	affected, err := e.catalog.UpdateRows(ctx, tenantID, plan.Table, values, conditions)
 	if err != nil {
 		return nil, err

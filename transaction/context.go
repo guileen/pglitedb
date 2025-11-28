@@ -74,6 +74,14 @@ type TxnManager struct {
 	activeTxns   map[TransactionID]*TxnContext
 	globalTS     int64
 	mu           sync.RWMutex
+	
+	// Use sharded locks to reduce contention
+	activeTxnsMu [256]sync.RWMutex
+	
+	// Performance metrics
+	commitCount     int64
+	rollbackCount   int64
+	abortCount      int64
 }
 
 // NewTxnManager creates a new transaction manager
@@ -104,10 +112,11 @@ func (tm *TxnManager) Begin(ctx context.Context, isolation IsolationLevel) (*Txn
 		Savepoints: make(map[string]*Savepoint),
 	}
 	
-	// Register transaction
-	tm.mu.Lock()
+	// Register transaction with sharded locking to reduce contention
+	shard := txnID % 256
+	tm.activeTxnsMu[shard].Lock()
 	tm.activeTxns[txnID] = txn
-	tm.mu.Unlock()
+	tm.activeTxnsMu[shard].Unlock()
 	
 	return txn, nil
 }
@@ -158,15 +167,19 @@ func (tm *TxnManager) Commit(txn *TxnContext) error {
 	txn.State = TxnCommitted
 	txn.CommitTime = time.Now()
 	
-	// Unregister transaction
-	tm.mu.Lock()
+	// Unregister transaction with sharded locking
+	shard := txn.ID % 256
+	tm.activeTxnsMu[shard].Lock()
 	delete(tm.activeTxns, txn.ID)
-	tm.mu.Unlock()
+	tm.activeTxnsMu[shard].Unlock()
 	
 	// Cancel context to release resources
 	if txn.CancelFunc != nil {
 		txn.CancelFunc()
 	}
+	
+	// Update metrics
+	atomic.AddInt64(&tm.commitCount, 1)
 	
 	return nil
 }
@@ -182,15 +195,19 @@ func (tm *TxnManager) Rollback(txn *TxnContext) error {
 	
 	txn.State = TxnRolledBack
 	
-	// Unregister transaction
-	tm.mu.Lock()
+	// Unregister transaction with sharded locking
+	shard := txn.ID % 256
+	tm.activeTxnsMu[shard].Lock()
 	delete(tm.activeTxns, txn.ID)
-	tm.mu.Unlock()
+	tm.activeTxnsMu[shard].Unlock()
 	
 	// Cancel context to release resources
 	if txn.CancelFunc != nil {
 		txn.CancelFunc()
 	}
+	
+	// Update metrics
+	atomic.AddInt64(&tm.rollbackCount, 1)
 	
 	return nil
 }
@@ -207,15 +224,19 @@ func (tm *TxnManager) Abort(txn *TxnContext) error {
 	
 	txn.State = TxnAborted
 	
-	// Unregister transaction
-	tm.mu.Lock()
+	// Unregister transaction with sharded locking
+	shard := txn.ID % 256
+	tm.activeTxnsMu[shard].Lock()
 	delete(tm.activeTxns, txn.ID)
-	tm.mu.Unlock()
+	tm.activeTxnsMu[shard].Unlock()
 	
 	// Cancel context to release resources
 	if txn.CancelFunc != nil {
 		txn.CancelFunc()
 	}
+	
+	// Update metrics
+	atomic.AddInt64(&tm.abortCount, 1)
 	
 	return nil
 }
@@ -346,6 +367,16 @@ func (tm *TxnManager) GetActiveTransactions() int {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 	return len(tm.activeTxns)
+}
+
+// GetStats returns transaction manager statistics
+func (tm *TxnManager) GetStats() map[string]int64 {
+	return map[string]int64{
+		"commits":   atomic.LoadInt64(&tm.commitCount),
+		"rollbacks": atomic.LoadInt64(&tm.rollbackCount),
+		"aborts":    atomic.LoadInt64(&tm.abortCount),
+		"active":    int64(tm.GetActiveTransactions()),
+	}
 }
 
 // GetTransaction retrieves a transaction by ID

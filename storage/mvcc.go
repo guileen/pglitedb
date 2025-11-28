@@ -76,54 +76,38 @@ func (m *MVCCStorage) Get(key []byte, timestamp int64) ([]byte, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	
-	// Create iterator to scan versions
-	opts := &shared.IteratorOptions{
-		LowerBound: m.encodeKey(key, 0),
-		UpperBound: m.encodeKey(key, timestamp+1),
-	}
-	
-	iter := m.kv.NewIterator(opts)
-	defer iter.Close()
-	
-	// Scan backwards to find the most recent committed version
-	var foundValue []byte
-	var found bool
-	
-	for iter.Last(); iter.Valid(); iter.Prev() {
-		origKey, _, err := m.decodeKey(iter.Key())
+	// Scan backwards from the timestamp to find the most recent committed version
+	// We start from timestamp and go backward to 0
+	for ts := timestamp; ts >= 0; ts-- {
+		encodedKey := m.encodeKey(key, ts)
+		value, err := m.kv.Get(context.Background(), encodedKey)
 		if err != nil {
+			if err == shared.ErrNotFound {
+				continue // Try previous timestamp
+			}
+			return nil, err // Actual error
+		}
+		
+		// Decode the value to get version info
+		version := &MVCCVersion{}
+		if err := m.decodeValue(value, version); err != nil {
 			continue
 		}
 		
-		// Check if this is the same key
-		if bytes.Equal(origKey, key) {
-			// Decode the value to get version info
-			version := &MVCCVersion{}
-			if err := m.decodeValue(iter.Value(), version); err != nil {
-				continue
+		// Check if this version is visible at the given timestamp
+		if version.StartTS <= timestamp && 
+		   (version.CommitTS > 0 && version.CommitTS <= timestamp) &&
+		   !version.Aborted && !version.Deleted {
+			if version.Value == nil {
+				return nil, shared.ErrNotFound
 			}
-			
-			// Check if this version is visible at the given timestamp
-			if version.StartTS <= timestamp && 
-			   (version.CommitTS > 0 && version.CommitTS <= timestamp) &&
-			   !version.Aborted && !version.Deleted {
-				foundValue = make([]byte, len(version.Value))
-				copy(foundValue, version.Value)
-				found = true
-				break
-			}
+			foundValue := make([]byte, len(version.Value))
+			copy(foundValue, version.Value)
+			return foundValue, nil
 		}
 	}
 	
-	if iter.Error() != nil {
-		return nil, iter.Error()
-	}
-	
-	if !found {
-		return nil, shared.ErrNotFound
-	}
-	
-	return foundValue, nil
+	return nil, shared.ErrNotFound
 }
 
 // Put stores a new version of a key-value pair
