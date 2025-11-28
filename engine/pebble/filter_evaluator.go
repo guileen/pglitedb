@@ -36,6 +36,11 @@ func (fe *FilterEvaluator) EvaluateFilter(filter *types.FilterExpression, record
 			}
 		}
 		return false
+	case "not":
+		if len(filter.Children) > 0 {
+			return !fe.EvaluateFilter(filter.Children[0], record)
+		}
+		return true
 	default:
 		return true
 	}
