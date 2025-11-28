@@ -2,18 +2,16 @@ package pebble
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/guileen/pglitedb/codec"
 	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/engine/pebble/indexes"
 	"github.com/guileen/pglitedb/engine/pebble/operations/query"
+	"github.com/guileen/pglitedb/engine/pebble/resources"
 	"github.com/guileen/pglitedb/idgen"
 	"github.com/guileen/pglitedb/storage"
 	dbTypes "github.com/guileen/pglitedb/types"
 )
-
-
 
 type pebbleEngine struct {
 	kv                  storage.KV
@@ -35,7 +33,7 @@ func NewPebbleEngine(kvStore storage.KV, c codec.Codec) engineTypes.StorageEngin
 	deleteOps := query.NewDeleteOperations(kvStore, c)
 	
 	// Track the KV store connection for leak detection
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	rm.TrackConnection(kvStore)
 	
 	return &pebbleEngine{
@@ -193,16 +191,6 @@ func (e *pebbleEngine) ScanIndex(ctx context.Context, tenantID, tableID, indexID
 	return scanner.ScanIndex(ctx, tenantID, tableID, indexID, schemaDef, opts)
 }
 
-
-
-
-
-
-
-
-
-
-
 func (e *pebbleEngine) CreateIndex(ctx context.Context, tenantID, tableID int64, indexDef *dbTypes.IndexDefinition) error {
 	return e.indexManager.CreateIndex(ctx, tenantID, tableID, indexDef, e.NextIndexID)
 }
@@ -210,8 +198,6 @@ func (e *pebbleEngine) CreateIndex(ctx context.Context, tenantID, tableID int64,
 func (e *pebbleEngine) DropIndex(ctx context.Context, tenantID, tableID, indexID int64) error {
 	return e.indexManager.DropIndex(ctx, tenantID, tableID, indexID)
 }
-
-
 
 func (e *pebbleEngine) LookupIndex(ctx context.Context, tenantID, tableID, indexID int64, indexValue interface{}) ([]int64, error) {
 	return e.indexManager.LookupIndex(ctx, tenantID, tableID, indexID, indexValue)
@@ -257,11 +243,11 @@ func (e *pebbleEngine) batchUpdateIndexesBulk(batch storage.Batch, tenantID, tab
 				}
 
 				if err != nil {
-					return fmt.Errorf("encode index key: %w", err)
+					return err
 				}
 
 				if err := batch.Set(indexKey, []byte{}); err != nil {
-					return fmt.Errorf("batch set index: %w", err)
+					return err
 				}
 			}
 		}
@@ -291,12 +277,6 @@ func (e *pebbleEngine) EvaluateFilter(filter *engineTypes.FilterExpression, reco
 func (e *pebbleEngine) BuildFilterExpression(conditions map[string]interface{}) *engineTypes.FilterExpression {
 	return e.buildFilterExpression(conditions)
 }
-
-
-
-
-
-
 
 // buildFilterExpression converts a simple map filter to a complex FilterExpression
 func (e *pebbleEngine) buildFilterExpression(conditions map[string]interface{}) *engineTypes.FilterExpression {

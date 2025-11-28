@@ -5,7 +5,7 @@ package leak_detection
 /*
 func ExampleLeakDetection() {
 	// Get the resource manager
-	rm := pebble.GetResourceManager()
+	rm := resources.GetResourceManager()
 	
 	// Set a leak threshold (optional, defaults to 5 minutes)
 	if leakDetector := rm.GetLeakDetector(); leakDetector != nil {

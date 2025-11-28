@@ -3,10 +3,12 @@ package pebble
 import (
 	"testing"
 	"time"
+
+	"github.com/guileen/pglitedb/engine/pebble/resources"
 )
 
 func TestIteratorLeakDetectionIntegration(t *testing.T) {
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	rm.GetLeakDetector().SetLeakThreshold(50 * time.Millisecond)
 	
 	// Acquire iterator but don't release it
@@ -32,7 +34,7 @@ func TestIteratorLeakDetectionIntegration(t *testing.T) {
 }
 
 func TestTransactionLeakDetectionIntegration(t *testing.T) {
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	rm.GetLeakDetector().SetLeakThreshold(50 * time.Millisecond)
 	
 	// Acquire transaction but don't release it
@@ -52,7 +54,7 @@ func TestTransactionLeakDetectionIntegration(t *testing.T) {
 }
 
 func TestConnectionLeakDetectionIntegration(t *testing.T) {
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	rm.GetLeakDetector().SetLeakThreshold(50 * time.Millisecond)
 	
 	// Track a connection but don't release it

@@ -2,10 +2,12 @@ package pebble
 
 import (
 	"testing"
+
+	"github.com/guileen/pglitedb/engine/pebble/resources"
 )
 
 func TestTieredBufferPools(t *testing.T) {
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	
 	// Test small buffer pool (≤ 64 bytes)
 	buf := rm.AcquireTieredBuffer(32)
@@ -44,7 +46,7 @@ func TestTieredBufferPools(t *testing.T) {
 }
 
 func TestKeyBufferPools(t *testing.T) {
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	
 	// Test index key buffers
 	indexBuf := rm.AcquireIndexKeyBuffer(50)
@@ -62,7 +64,7 @@ func TestKeyBufferPools(t *testing.T) {
 }
 
 func TestScanResultPool(t *testing.T) {
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	
 	// Test scan result pools
 	result := rm.AcquireScanResult()

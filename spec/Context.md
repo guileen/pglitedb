@@ -18,6 +18,10 @@ This file serves as the central index for project context. All AI agents should 
 - [x] README.md 的更新，更加具有传播性。核心卖点：1. 高性能 2. 嵌入式 3. 全AI自动化编写优化。
 - [x] Comprehensive test coverage implementation completed for all core components
 - [x] Property-based testing framework implemented and validated
+- [ ] fix bug: 即使服务启动失败（比如端口被占用），make regress_bench 也通过了。其实测试的是别的端口服务。
+- [ ] README.md 要强调 100% PostgreSQL regress test pass， 最好直接贴出命令执行过程和结果。再提供一些psql直接连接的例子（要自己真实测试过，快速启动服务并且能直接用psql连接上）。
+- [ ] README 中go get 之后再 go run 这个例子不好。不优雅。
+- [ ] embedded client 导入路径不优雅。
 - [ ] Tenant isolation, multi-tenancy support. 是否有必要？多租户情况下如何保证和postgresql的兼容？是否服务启动或连接或认证环节需要更多的认证信息？
 - [ ] 嵌入式使用时的文档和示例代码，是否更方便？比sqlite是否更方便？有没有竞争优势？
 - [ ] 高可用方面的考虑，Cluster 模式将会是一个巨大的调整，整个架构都将变得更复杂。但若是要支持的话，不得不更早地思考这个问题。

@@ -97,6 +97,49 @@ PGLiteDB has achieved a significant milestone with 100% PostgreSQL regress test 
 - **Edge Case Testing**: Property-based testing implemented
 - **Regression Testing**: 100% PostgreSQL compatibility maintained
 
+## Refactoring Plan for engine/pebble Directory
+
+### Summary
+The engine/pebble directory contains several large files that can be better organized to improve maintainability:
+1. `resource_manager.go` (16.7 KB) - Contains resource pooling and leak detection functionality
+2. `engine.go` (12.6 KB) - Contains the main engine implementation with many methods
+3. `resource_metrics.go` (13.1 KB) - Contains metrics collection for resource management
+4. `transaction_snapshot.go` (9.4 KB) - Contains snapshot transaction implementation
+
+### Proposed Package Structure
+```
+engine/pebble/
+├── engine.go                   # Main engine struct and core methods
+├── engine_impl/                # Internal implementation details
+│   ├── index_operations.go     # Index management operations
+│   ├── query_operations.go     # Query operations delegation
+│   └── batch_operations.go     # Batch operations delegation
+├── transactions/               # Transaction-related functionality
+│   ├── base.go                 # Base transaction functionality
+│   ├── regular.go              # Regular transaction implementation
+│   ├── snapshot.go             # Snapshot transaction implementation
+│   └── handler.go              # Transaction handler utilities
+├── resources/                  # Resource management
+│   ├── manager.go              # Resource pooling manager
+│   ├── metrics.go              # Resource metrics collection
+│   └── leak_detector.go        # Leak detection integration
+├── operations/                 # Database operations
+│   ├── scanner.go              # Row and index scanning
+│   ├── row_handler.go          # Row operation handlers
+│   └── tx_handler.go           # Transaction operation handlers
+└── optimizer/                  # Query optimization
+    └── multi_column.go         # Multi-column index optimization
+```
+
+### Implementation Steps
+1. Create new package structure with internal directories
+2. Extract resource management components into separate files/packages
+3. Refactor transaction implementations into dedicated packages
+4. Move metrics collection to its own package
+5. Consolidate operation handlers into logical groupings
+6. Update imports and references throughout the codebase
+7. Verify all tests pass after each refactoring step
+
 ## Recommendations
 
 ### Short-term Actions

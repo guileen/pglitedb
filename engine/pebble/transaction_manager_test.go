@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/guileen/pglitedb/codec"
+	"github.com/guileen/pglitedb/engine/pebble/resources"
 	"github.com/guileen/pglitedb/storage"
 )
 
@@ -22,7 +23,7 @@ func TestTransactionCreation(t *testing.T) {
 	}
 	
 	// Verify transaction is tracked for leak detection
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	report := rm.CheckForLeaks()
 	// Note: We can't easily verify the exact count because there might be other tracked resources
 	// but we can at least confirm the resource manager is working
@@ -66,7 +67,7 @@ func TestTransactionCreationWithIsolation(t *testing.T) {
 		}
 
 		// Verify transaction is tracked for leak detection
-		rm := GetResourceManager()
+		rm := resources.GetResourceManager()
 		report := rm.CheckForLeaks()
 		// Note: We can't easily verify the exact count because there might be other tracked resources
 		// but we can at least confirm the resource manager is working
@@ -110,7 +111,7 @@ func TestSnapshotTransactionCreation(t *testing.T) {
 		}
 
 		// Verify transaction is tracked for leak detection
-		rm := GetResourceManager()
+		rm := resources.GetResourceManager()
 		report := rm.CheckForLeaks()
 		// Note: We can't easily verify the exact count because there might be other tracked resources
 		// but we can at least confirm the resource manager is working
@@ -131,7 +132,7 @@ func TestTransactionManagerLeakDetection(t *testing.T) {
 	defer engine.Close()
 
 	// Get the resource manager and set a short leak threshold for testing
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	ld := rm.GetLeakDetector()
 	if ld != nil {
 		ld.SetLeakThreshold(50 * time.Millisecond)

@@ -3,24 +3,26 @@ package pebble
 import (
 	"testing"
 	"time"
+
+	"github.com/guileen/pglitedb/engine/pebble/resources"
 )
 
 func TestResourceManagerLeakDetection(t *testing.T) {
 	// Get the default resource manager
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	
 	// Set a short leak threshold for testing
-	if rm.leakDetector != nil {
-		rm.leakDetector.SetLeakThreshold(100 * time.Millisecond)
+	if rm.GetLeakDetector() != nil {
+		rm.GetLeakDetector().SetLeakThreshold(100 * time.Millisecond)
 	}
 	
 	// Create a test iterator object to track directly
 	testIter := &struct{ name string }{name: "test"}
 	
 	// Track the iterator manually for testing
-	if rm.leakDetector != nil {
+	if rm.GetLeakDetector() != nil {
 		stackTrace := "test stack trace"
-		rm.leakDetector.TrackIterator(testIter, stackTrace)
+		rm.GetLeakDetector().TrackIterator(testIter, stackTrace)
 	}
 	
 	// Wait for the leak threshold to pass
@@ -37,7 +39,7 @@ func TestResourceManagerLeakDetection(t *testing.T) {
 	// Mark the iterator as released
 	// In a real scenario, this would be done by the Close method
 	// For testing, we'll manually mark it as released
-	if rm.leakDetector != nil {
+	if rm.GetLeakDetector() != nil {
 		// We can't easily access the tracked resource, so we'll just check that tracking works
 	}
 	
@@ -47,7 +49,7 @@ func TestResourceManagerLeakDetection(t *testing.T) {
 
 func TestTransactionLeakDetection(t *testing.T) {
 	// Get the default resource manager
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	
 	// Create a test transaction object
 	testTxn := &struct{ name string }{name: "test"}
@@ -56,8 +58,8 @@ func TestTransactionLeakDetection(t *testing.T) {
 	rm.TrackTransaction(testTxn)
 	
 	// Set a short leak threshold for testing
-	if rm.leakDetector != nil {
-		rm.leakDetector.SetLeakThreshold(100 * time.Millisecond)
+	if rm.GetLeakDetector() != nil {
+		rm.GetLeakDetector().SetLeakThreshold(100 * time.Millisecond)
 	}
 	
 	// Wait for the leak threshold to pass
@@ -74,7 +76,7 @@ func TestTransactionLeakDetection(t *testing.T) {
 
 func TestConnectionLeakDetection(t *testing.T) {
 	// Get the default resource manager
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	
 	// Create a test connection object
 	testConn := &struct{ name string }{name: "test"}
@@ -83,8 +85,8 @@ func TestConnectionLeakDetection(t *testing.T) {
 	rm.TrackConnection(testConn)
 	
 	// Set a short leak threshold for testing
-	if rm.leakDetector != nil {
-		rm.leakDetector.SetLeakThreshold(100 * time.Millisecond)
+	if rm.GetLeakDetector() != nil {
+		rm.GetLeakDetector().SetLeakThreshold(100 * time.Millisecond)
 	}
 	
 	// Wait for the leak threshold to pass
@@ -101,7 +103,7 @@ func TestConnectionLeakDetection(t *testing.T) {
 
 func TestFileDescriptorLeakDetection(t *testing.T) {
 	// Get the default resource manager
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	
 	// Create a test file descriptor object
 	testFd := &struct{ name string }{name: "test"}
@@ -110,8 +112,8 @@ func TestFileDescriptorLeakDetection(t *testing.T) {
 	rm.TrackFileDescriptor(testFd, "/test/path")
 	
 	// Set a short leak threshold for testing
-	if rm.leakDetector != nil {
-		rm.leakDetector.SetLeakThreshold(100 * time.Millisecond)
+	if rm.GetLeakDetector() != nil {
+		rm.GetLeakDetector().SetLeakThreshold(100 * time.Millisecond)
 	}
 	
 	// Wait for the leak threshold to pass
@@ -128,14 +130,14 @@ func TestFileDescriptorLeakDetection(t *testing.T) {
 
 func TestGoroutineLeakDetection(t *testing.T) {
 	// Get the default resource manager
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	
 	// Track the current goroutine
 	rm.TrackCurrentGoroutine()
 	
 	// Set a short leak threshold for testing
-	if rm.leakDetector != nil {
-		rm.leakDetector.SetLeakThreshold(100 * time.Millisecond)
+	if rm.GetLeakDetector() != nil {
+		rm.GetLeakDetector().SetLeakThreshold(100 * time.Millisecond)
 	}
 	
 	// Wait for the leak threshold to pass

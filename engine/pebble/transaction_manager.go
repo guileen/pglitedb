@@ -7,24 +7,25 @@ import (
 
 	"github.com/guileen/pglitedb/codec"
 	engineTypes "github.com/guileen/pglitedb/engine/types"
+	"github.com/guileen/pglitedb/engine/pebble/resources"
 	"github.com/guileen/pglitedb/storage"
 )
 
 // Regular transaction implementation
 type transaction struct {
-	*BaseTransaction
-	kvTxn storage.Transaction
-	codec codec.Codec
+	engine    *pebbleEngine
+	kvTxn     storage.Transaction
+	codec     codec.Codec
+	isolation storage.IsolationLevel
 }
 
 // Snapshot transaction implementation
 type snapshotTransaction struct {
-	*BaseTransaction
-	snapshot  storage.Snapshot
-	beginTS   int64
-	mutations map[string][]byte
-	engine    *pebbleEngine
-	closed    bool
+	engine     *pebbleEngine
+	snapshot   storage.Snapshot
+	beginTS    int64
+	mutations  map[string][]byte
+	closed     bool
 }
 
 // BeginTx starts a new transaction with default isolation level
@@ -34,18 +35,18 @@ func (e *pebbleEngine) BeginTx(ctx context.Context) (engineTypes.Transaction, er
 		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
 
-	baseTx := NewBaseTransaction(e, storage.ReadCommitted)
 	tx := &transaction{
-		BaseTransaction: baseTx,
-		kvTxn:           kvTxn,
-		codec:           e.codec,
+		engine:   e,
+		kvTxn:    kvTxn,
+		codec:    e.codec,
+		isolation: storage.ReadCommitted,
 	}
 	
 	// Track transaction for leak detection
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	rm.TrackTransaction(tx)
 	
-	// Set the isolation level on the base transaction
+	// Set the isolation level on the transaction
 	if err := tx.SetIsolation(storage.ReadCommitted); err != nil {
 		kvTxn.Rollback()
 		return nil, fmt.Errorf("set isolation level: %w", err)
@@ -70,18 +71,18 @@ func (e *pebbleEngine) BeginTxWithIsolation(ctx context.Context, level storage.I
 		return nil, fmt.Errorf("set isolation level: %w", err)
 	}
 
-	baseTx := NewBaseTransaction(e, level)
 	tx := &transaction{
-		BaseTransaction: baseTx,
-		kvTxn:           kvTxn,
-		codec:           e.codec,
+		engine:   e,
+		kvTxn:    kvTxn,
+		codec:    e.codec,
+		isolation: level,
 	}
 	
 	// Track transaction for leak detection
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	rm.TrackTransaction(tx)
 	
-	// Set the isolation level on the base transaction
+	// Set the isolation level on the transaction
 	tx.SetIsolation(level)
 	
 	return tx, nil
@@ -94,18 +95,16 @@ func (e *pebbleEngine) newSnapshotTx(ctx context.Context, level storage.Isolatio
 		return nil, fmt.Errorf("create snapshot: %w", err)
 	}
 
-	baseTx := NewBaseTransaction(e, level)
 	tx := &snapshotTransaction{
-		BaseTransaction: baseTx,
-		snapshot:        snapshot,
-		beginTS:         time.Now().UnixNano(),
-		mutations:       make(map[string][]byte),
-		engine:          e,
-		closed:          false,
+		engine:    e,
+		snapshot:  snapshot,
+		beginTS:   time.Now().UnixNano(),
+		mutations: make(map[string][]byte),
+		closed:    false,
 	}
 	
 	// Track transaction for leak detection
-	rm := GetResourceManager()
+	rm := resources.GetResourceManager()
 	rm.TrackTransaction(tx)
 	
 	return tx, nil
