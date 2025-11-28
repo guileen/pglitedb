@@ -36,31 +36,33 @@ func NewMemComparableCodec() Codec {
 // =============================================================================
 
 func (c *memcodec) EncodeTableKey(tenantID, tableID, rowID int64) []byte {
-	buf := &bytes.Buffer{}
-	buf.WriteByte(byte(KeyTypeTable))
-	writeMemComparableInt64(buf, tenantID)
-	buf.WriteByte(byte(KeyTypeRow))
-	writeMemComparableInt64(buf, tableID)
-	writeMemComparableInt64(buf, rowID)
-	return buf.Bytes()
+	// Pre-allocate with a reasonable size for table keys
+	buf := make([]byte, 0, 32)
+	buf = append(buf, byte(KeyTypeTable))
+	buf = appendMemComparableInt64(buf, tenantID)
+	buf = append(buf, byte(KeyTypeRow))
+	buf = appendMemComparableInt64(buf, tableID)
+	buf = appendMemComparableInt64(buf, rowID)
+	return buf
 }
 
 func (c *memcodec) EncodeIndexKey(tenantID, tableID, indexID int64, indexValue interface{}, rowID int64) ([]byte, error) {
-	buf := &bytes.Buffer{}
-	buf.WriteByte(byte(KeyTypeTable))
-	writeMemComparableInt64(buf, tenantID)
-	buf.WriteByte(byte(KeyTypeIndex))
-	writeMemComparableInt64(buf, tableID)
-	writeMemComparableInt64(buf, indexID)
+	// Pre-allocate with a reasonable size for index keys
+	buf := make([]byte, 0, 64)
+	buf = append(buf, byte(KeyTypeTable))
+	buf = appendMemComparableInt64(buf, tenantID)
+	buf = append(buf, byte(KeyTypeIndex))
+	buf = appendMemComparableInt64(buf, tableID)
+	buf = appendMemComparableInt64(buf, indexID)
 
 	valueBytes, err := c.encodeMemComparableValue(indexValue)
 	if err != nil {
 		return nil, fmt.Errorf("encode index value: %w", err)
 	}
-	buf.Write(valueBytes)
-	writeMemComparableInt64(buf, rowID)
+	buf = append(buf, valueBytes...)
+	buf = appendMemComparableInt64(buf, rowID)
 
-	return buf.Bytes(), nil
+	return buf, nil
 }
 
 func (c *memcodec) EncodeCompositeIndexKey(tenantID, tableID, indexID int64, indexValues []interface{}, rowID int64) ([]byte, error) {
@@ -68,12 +70,13 @@ func (c *memcodec) EncodeCompositeIndexKey(tenantID, tableID, indexID int64, ind
 		return nil, fmt.Errorf("index values cannot be empty")
 	}
 
-	buf := &bytes.Buffer{}
-	buf.WriteByte(byte(KeyTypeTable))
-	writeMemComparableInt64(buf, tenantID)
-	buf.WriteByte(byte(KeyTypeIndex))
-	writeMemComparableInt64(buf, tableID)
-	writeMemComparableInt64(buf, indexID)
+	// Pre-allocate with a reasonable size for composite index keys
+	buf := make([]byte, 0, 128)
+	buf = append(buf, byte(KeyTypeTable))
+	buf = appendMemComparableInt64(buf, tenantID)
+	buf = append(buf, byte(KeyTypeIndex))
+	buf = appendMemComparableInt64(buf, tableID)
+	buf = appendMemComparableInt64(buf, indexID)
 
 	// Encode each index value
 	for _, value := range indexValues {
@@ -81,11 +84,78 @@ func (c *memcodec) EncodeCompositeIndexKey(tenantID, tableID, indexID int64, ind
 		if err != nil {
 			return nil, fmt.Errorf("encode index value: %w", err)
 		}
-		buf.Write(valueBytes)
+		buf = append(buf, valueBytes...)
 	}
 
-	writeMemComparableInt64(buf, rowID)
-	return buf.Bytes(), nil
+	buf = appendMemComparableInt64(buf, rowID)
+	return buf, nil
+}
+
+// EncodeIndexScanStartKey creates a start key for index scanning
+func (c *memcodec) EncodeIndexScanStartKey(tenantID, tableID, indexID int64) []byte {
+	// Pre-allocate with a reasonable size for index scan keys
+	buf := make([]byte, 0, 32)
+	buf = append(buf, byte(KeyTypeTable))
+	buf = appendMemComparableInt64(buf, tenantID)
+	buf = append(buf, byte(KeyTypeIndex))
+	buf = appendMemComparableInt64(buf, tableID)
+	buf = appendMemComparableInt64(buf, indexID)
+	return buf
+}
+
+// EncodeIndexScanEndKey creates an end key for index scanning
+func (c *memcodec) EncodeIndexScanEndKey(tenantID, tableID, indexID int64) []byte {
+	// Pre-allocate with a reasonable size for index scan keys
+	buf := make([]byte, 0, 33)
+	buf = append(buf, byte(KeyTypeTable))
+	buf = appendMemComparableInt64(buf, tenantID)
+	buf = append(buf, byte(KeyTypeIndex))
+	buf = appendMemComparableInt64(buf, tableID)
+	buf = appendMemComparableInt64(buf, indexID)
+
+	// Add a max byte to ensure we scan all indexes for this table+index
+	buf = append(buf, maxFlag)
+	return buf
+}
+
+// EncodePKKey encodes a primary key
+func (c *memcodec) EncodePKKey(tenantID, tableID int64, pkValue interface{}) ([]byte, error) {
+	// Pre-allocate with a reasonable size for PK keys
+	buf := make([]byte, 0, 64)
+	buf = append(buf, byte(KeyTypeTable))
+	buf = appendMemComparableInt64(buf, tenantID)
+	buf = append(buf, byte(KeyTypePK))
+	buf = appendMemComparableInt64(buf, tableID)
+
+	valueBytes, err := c.encodeMemComparableValue(pkValue)
+	if err != nil {
+		return nil, fmt.Errorf("encode pk value: %w", err)
+	}
+	buf = append(buf, valueBytes...)
+
+	return buf, nil
+}
+
+// EncodeMetaKey encodes a metadata key
+func (c *memcodec) EncodeMetaKey(tenantID int64, metaType string, key string) []byte {
+	// Pre-allocate with a reasonable size for meta keys
+	buf := make([]byte, 0, 64)
+	buf = append(buf, byte(KeyTypeMeta))
+	buf = appendMemComparableInt64(buf, tenantID)
+	buf = append(buf, metaType...)
+	buf = append(buf, ':')
+	buf = append(buf, key...)
+	return buf
+}
+
+// EncodeSequenceKey encodes a sequence key
+func (c *memcodec) EncodeSequenceKey(tenantID int64, seqName string) []byte {
+	// Pre-allocate with a reasonable size for sequence keys
+	buf := make([]byte, 0, 32)
+	buf = append(buf, byte(KeyTypeSequence))
+	buf = appendMemComparableInt64(buf, tenantID)
+	buf = append(buf, seqName...)
+	return buf
 }
 
 // =============================================================================
@@ -533,29 +603,142 @@ func (c *memcodec) encodeMemComparableValue(value interface{}) ([]byte, error) {
 	}
 }
 
+// EncodeTableKeyBuffer encodes a table key into the provided buffer, reusing it when possible
+func (c *memcodec) EncodeTableKeyBuffer(tenantID, tableID, rowID int64, buf []byte) []byte {
+	// Reuse buffer when possible to eliminate allocations
+	if buf == nil {
+		buf = make([]byte, 0, 32) // Pre-allocate with reasonable size
+	}
+	buf = buf[:0]
 
+	// Encode the key components
+	buf = append(buf, byte(KeyTypeTable))
+	buf = appendMemComparableInt64(buf, tenantID)
+	buf = append(buf, byte(KeyTypeRow))
+	buf = appendMemComparableInt64(buf, tableID)
+	buf = appendMemComparableInt64(buf, rowID)
+
+	return buf
+}
+
+// EncodeIndexKeyBuffer encodes an index key into the provided buffer, reusing it when possible
+func (c *memcodec) EncodeIndexKeyBuffer(tenantID, tableID, indexID int64, indexValue interface{}, rowID int64, buf []byte) ([]byte, error) {
+	// Reuse buffer when possible to eliminate allocations
+	if buf == nil {
+		buf = make([]byte, 0, 64) // Pre-allocate with reasonable size
+	}
+	buf = buf[:0]
+
+	buf = append(buf, byte(KeyTypeTable))
+	buf = appendMemComparableInt64(buf, tenantID)
+	buf = append(buf, byte(KeyTypeIndex))
+	buf = appendMemComparableInt64(buf, tableID)
+	buf = appendMemComparableInt64(buf, indexID)
+
+	valueBytes, err := c.encodeMemComparableValue(indexValue)
+	if err != nil {
+		return nil, fmt.Errorf("encode index value: %w", err)
+	}
+	buf = append(buf, valueBytes...)
+	buf = appendMemComparableInt64(buf, rowID)
+
+	return buf, nil
+}
+
+// EncodeCompositeIndexKeyBuffer encodes a composite index key into the provided buffer, reusing it when possible
+func (c *memcodec) EncodeCompositeIndexKeyBuffer(tenantID, tableID, indexID int64, indexValues []interface{}, rowID int64, buf []byte) ([]byte, error) {
+	if len(indexValues) == 0 {
+		return nil, fmt.Errorf("index values cannot be empty")
+	}
+
+	// Reuse buffer when possible to eliminate allocations
+	if buf == nil {
+		buf = make([]byte, 0, 128) // Pre-allocate with reasonable size
+	}
+	buf = buf[:0]
+
+	buf = append(buf, byte(KeyTypeTable))
+	buf = appendMemComparableInt64(buf, tenantID)
+	buf = append(buf, byte(KeyTypeIndex))
+	buf = appendMemComparableInt64(buf, tableID)
+	buf = appendMemComparableInt64(buf, indexID)
+
+	// Encode each index value
+	for _, value := range indexValues {
+		valueBytes, err := c.encodeMemComparableValue(value)
+		if err != nil {
+			return nil, fmt.Errorf("encode index value: %w", err)
+		}
+		buf = append(buf, valueBytes...)
+	}
+
+	buf = appendMemComparableInt64(buf, rowID)
+	return buf, nil
+}
 
 // EncodeIndexScanStartKey creates a start key for index scanning
 func (c *memcodec) EncodeIndexScanStartKey(tenantID, tableID, indexID int64) []byte {
-	buf := &bytes.Buffer{}
-	buf.WriteByte(byte(KeyTypeTable))
-	writeMemComparableInt64(buf, tenantID)
-	buf.WriteByte(byte(KeyTypeIndex))
-	writeMemComparableInt64(buf, tableID)
-	writeMemComparableInt64(buf, indexID)
-	return buf.Bytes()
+	// Pre-allocate with a reasonable size for index scan keys
+	buf := make([]byte, 0, 32)
+	buf = append(buf, byte(KeyTypeTable))
+	buf = appendMemComparableInt64(buf, tenantID)
+	buf = append(buf, byte(KeyTypeIndex))
+	buf = appendMemComparableInt64(buf, tableID)
+	buf = appendMemComparableInt64(buf, indexID)
+	return buf
 }
 
 // EncodeIndexScanEndKey creates an end key for index scanning
 func (c *memcodec) EncodeIndexScanEndKey(tenantID, tableID, indexID int64) []byte {
-	buf := &bytes.Buffer{}
-	buf.WriteByte(byte(KeyTypeTable))
-	writeMemComparableInt64(buf, tenantID)
-	buf.WriteByte(byte(KeyTypeIndex))
-	writeMemComparableInt64(buf, tableID)
-	writeMemComparableInt64(buf, indexID)
-	
+	// Pre-allocate with a reasonable size for index scan keys
+	buf := make([]byte, 0, 33)
+	buf = append(buf, byte(KeyTypeTable))
+	buf = appendMemComparableInt64(buf, tenantID)
+	buf = append(buf, byte(KeyTypeIndex))
+	buf = appendMemComparableInt64(buf, tableID)
+	buf = appendMemComparableInt64(buf, indexID)
+
 	// Add a max byte to ensure we scan all indexes for this table+index
-	buf.WriteByte(maxFlag)
-	return buf.Bytes()
+	buf = append(buf, maxFlag)
+	return buf
+}
+
+// EncodePKKey encodes a primary key
+func (c *memcodec) EncodePKKey(tenantID, tableID int64, pkValue interface{}) ([]byte, error) {
+	// Pre-allocate with a reasonable size for PK keys
+	buf := make([]byte, 0, 64)
+	buf = append(buf, byte(KeyTypeTable))
+	buf = appendMemComparableInt64(buf, tenantID)
+	buf = append(buf, byte(KeyTypePK))
+	buf = appendMemComparableInt64(buf, tableID)
+
+	valueBytes, err := c.encodeMemComparableValue(pkValue)
+	if err != nil {
+		return nil, fmt.Errorf("encode pk value: %w", err)
+	}
+	buf = append(buf, valueBytes...)
+
+	return buf, nil
+}
+
+// EncodeMetaKey encodes a metadata key
+func (c *memcodec) EncodeMetaKey(tenantID int64, metaType string, key string) []byte {
+	// Pre-allocate with a reasonable size for meta keys
+	buf := make([]byte, 0, 64)
+	buf = append(buf, byte(KeyTypeMeta))
+	buf = appendMemComparableInt64(buf, tenantID)
+	buf = append(buf, metaType...)
+	buf = append(buf, ':')
+	buf = append(buf, key...)
+	return buf
+}
+
+// EncodeSequenceKey encodes a sequence key
+func (c *memcodec) EncodeSequenceKey(tenantID int64, seqName string) []byte {
+	// Pre-allocate with a reasonable size for sequence keys
+	buf := make([]byte, 0, 32)
+	buf = append(buf, byte(KeyTypeSequence))
+	buf = appendMemComparableInt64(buf, tenantID)
+	buf = append(buf, seqName...)
+	return buf
 }
