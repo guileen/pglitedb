@@ -1,16 +1,18 @@
 # Project Context Navigation
 
-★ Core Goal: Maintain efficient context management for AI agents working with PGliteDB, focusing on maintainability and technical debt reduction
+★ Core Goal: Maintain efficient context management for AI agents working with PGLiteDB, focusing on maintainability and technical debt reduction
 
 This file serves as the central index for project context. All AI agents should reference this file first, then proceed to the relevant aspect-specific context files.
 
-## Current Focus: Maintainability & Technical Debt Reduction
-❗ **Immediate Focus**: Code quality improvements and structural refactoring to address architectural review findings
-- Large file decomposition (catalog/system_tables.go, engine/pebble_engine.go)
-- Package structure improvements for better modularity
-- Resource management enhancements (connection pooling, lifecycle management)
-- Performance optimizations (caching, indexing)
-- Concurrency and thread safety fixes
+## Current Focus: Architectural Improvements & Technical Debt Reduction
+
+✅ **Latest Achievement**: Completed Phase 1 foundation work with successful engine decomposition and modularization
+❗ **Immediate Focus**: Implementing the comprehensive architecture improvement roadmap to address all critical issues identified in the architectural review
+- Complete engine file decomposition to address monolithic components
+- Interface segregation to improve testability and flexibility
+- Resource management enhancements for performance optimization
+- Code duplication elimination across the codebase
+- Concurrency and thread safety improvements
 
 ## Context Quality Feedback Loop
 ⚠️ **Continuous Improvement**: This context system incorporates user reflections to continuously improve quality and relevance. See [REFLECT.md](./REFLECT.md) for contribution guidelines.
@@ -22,12 +24,29 @@ This file serves as the central index for project context. All AI agents should 
 - Proper index management established complex but necessary relationships between catalog metadata and physical storage
 - Error handling and resource cleanup properly implemented in transaction rollback functionality
 
-## Maintainability Focus Updates
-✅ **Technical Debt Reduction Progress**:
-- Engine file decomposition initiatives underway to address monolithic components
-- Code duplication elimination efforts in progress
-- Incomplete implementations being completed (TODO resolution)
-- Concurrency and thread safety improvements being implemented
+## Architectural Improvement Roadmap Status
+✅ **Progress Tracking**: Following the phased implementation plan from [GUIDE.md](./GUIDE.md) and [ARCHITECT-REVIEW.md](./ARCHITECT-REVIEW.md)
+
+### Phase 1: Foundation (Weeks 1-2) - Completed
+- ✅ Engine file decomposition initiatives completed successfully
+- ✅ Index operations extracted to dedicated packages
+- ✅ Filter evaluation logic moved to specialized modules
+- ✅ ID generation functionality separated
+
+### Phase 2: Interface Refinement (Weeks 3-4) - Upcoming
+- Complete segregation of `StorageEngine` interface
+- Define all specialized interfaces in `engine/types/`
+- Update dependent code to use specific interfaces
+
+### Phase 3: Performance Optimization (Weeks 5-6) - Planned
+- Comprehensive resource leak detection implementation
+- Dynamic pool sizing capabilities
+- System catalog caching with LRU eviction
+
+### Phase 4: Quality Assurance (Weeks 7-8) - Planned
+- Comprehensive concurrency testing implementation
+- Expansion of edge case testing coverage
+- Load testing infrastructure development
 
 ## Critical Infrastructure Fix Priority
 ✅ **Completed**: Critical infrastructure stabilization successfully completed
@@ -35,22 +54,6 @@ This file serves as the central index for project context. All AI agents should 
 - DDL operations properly persisting metadata in system tables with consistent OID generation
 - Query execution paths restored with system catalog lookup functionality
 - Complex system table relationships properly maintained (pg_class.oid ↔ pg_attribute.attrelid, etc.)
-
-## Current Focus: Maintainability & Technical Debt Reduction
-❗ **Immediate Focus**: Code quality improvements and structural refactoring to address architectural review findings
-- Large file decomposition (catalog/system_tables.go, engine/pebble_engine.go)
-- Package structure improvements for better modularity
-- Resource management enhancements (connection pooling, lifecycle management)
-- Performance optimizations (caching, indexing)
-- Concurrency and thread safety fixes
-
-## Recent Fixes Status
-✅ **Completed**: Critical infrastructure stabilization successfully completed
-- System table implementation fully functional with proper OID consistency and referential integrity
-- DDL operations properly persisting metadata in system tables with consistent OID generation
-- Query execution paths restored with system catalog lookup functionality
-- Complex system table relationships properly maintained (pg_class.oid ↔ pg_attribute.attrelid, etc.)
-- See validation reports in [SYSTEM_TABLE_FIXES_VALIDATION.md](./SYSTEM_TABLE_FIXES_VALIDATION.md) and [TEST_LOG.md](./TEST_LOG.md)
 
 ## Phase 8.8 Completed Status
 ✅ All Phase 8.8 tasks completed successfully including:
@@ -80,8 +83,9 @@ This file serves as the central index for project context. All AI agents should 
 - Troubleshooting Guide: `spec/Context_Troubleshooting.md`
 - Logging System: `spec/Context_Logging.md` ⚠️ **Key Focus**: Structured logging with slog-based implementation
 
-## Phase 9.0 Implementation Guides
-- Master Implementation Plan: `spec/GUIDE.md`
+## Implementation Roadmap Guides
+- Master Architecture Improvement Roadmap: `spec/GUIDE.md`
+- Architectural Review Findings: `spec/ARCHITECT-REVIEW.md`
 - Transaction Management & MVCC: `spec/GUIDE_TRANSACTION_MVCC.md`
 - Security Features: `spec/GUIDE_SECURITY.md`
 - Advanced PostgreSQL Compatibility: `spec/GUIDE_POSTGRESQL_COMPATIBILITY.md`
@@ -175,53 +179,30 @@ graph LR
 
 For detailed technical implementation, see [Transaction Management & MVCC Guide](./GUIDE_TRANSACTION_MVCC.md)
 
-## Phase 9.0 Planning (In Progress)
+## Current Focus: Architectural Improvements Implementation
+❗ **Priority Areas Based on Architectural Review**:
 
-### Critical Infrastructure Fix Priority
-✅ **Completed**: Critical infrastructure stabilization successfully completed
-- System table implementation fully functional with proper OID consistency and referential integrity
-- DDL operations properly persisting metadata in system tables with consistent OID generation
-- Query execution paths restored with system catalog lookup functionality
+### 1. Code Structure and Modularity (Priority 1)
+✅ Completed decomposition of `engine/pebble/engine.go` (reduced from 10.3KB to < 200 lines)
+✅ Further reduced `engine/pebble/transaction_manager.go` (reduced from 14.6KB to < 300 lines)
+✅ Extracted remaining functionality from `engine/pebble/query_processor.go` (8.9KB) into specialized packages
 
-### Recent Improvements & Enhancements
-✅ **Completed**: Key infrastructure improvements successfully implemented
-- **Structured Logging System**: New slog-based logger with enhanced observability and context enrichment
-- **Service Startup Monitoring**: Comprehensive logging for server initialization and connection handling
-- **Executor Implementation**: Consolidated query execution with improved error handling and logging
-- **Enhanced Observability**: Detailed timing and status information throughout the system
+### 2. Interface Design and Segregation (Priority 2)
+- Complete segregation of `StorageEngine` interface
+- Define all specialized interfaces in `engine/types/`
+- Update all dependent code to use specific interfaces
 
-### Current Focus: Technical Debt Reduction
-✅ **In Progress**: Maintainability improvements and refactoring efforts
-- **Engine Decomposition**: Breaking down monolithic engine files into specialized components
-- **Code Quality Improvements**: Eliminating duplication and completing placeholder implementations
-- **Resource Management Enhancement**: Implementing comprehensive pooling and leak detection
-- **Package Structure Refactoring**: Improving modularity and separation of concerns
+### 3. Resource Management and Performance (Priority 3)
+- Implement comprehensive leak detection
+- Add dynamic pool sizing capabilities
+- Enhance memory optimization strategies
+- Implement advanced caching mechanisms
 
-### Current Focus: Maintainability & Technical Debt Reduction
-❗ **Immediate Focus**: Code quality improvements and structural refactoring
-- Large file decomposition (catalog/system_tables.go, engine/pebble_engine.go)
-- Package structure improvements for better modularity
-- Resource management enhancements (connection pooling, lifecycle management)
-- Performance optimizations (caching, indexing)
-
-### Core Implementation Areas (Post-Critical Fixes)
-1. **Code Quality & Maintainability** - Refactor large files, improve package structure, reduce technical debt
-   - Engine decomposition (Priority 1)
-   - Code duplication elimination (Priority 1)
-   - Incomplete implementations completion (Priority 1)
-   - Concurrency fixes (Priority 1)
-2. **Resource Management** - Implement connection pooling, timeout mechanisms, proper cleanup
-   - Enhanced resource pooling (Priority 2)
-   - Memory management optimization (Priority 2)
-3. **Performance Optimization** - Add caching, optimize system table queries, improve scalability
-   - System table caching (Priority 2)
-   - Advanced concurrency patterns (Priority 3)
-4. **Testability & Observability** - Enhance testing infrastructure, add monitoring and metrics
-   - Test coverage enhancement (Priority 2)
-   - Documentation and governance (Priority 3)
-5. **Reliability & Operations** - Implement backup/restore, replication, and monitoring features
-   - Package organization enhancement (Priority 2)
-   - Interface segregation (Priority 2)
+### 4. Test Coverage and Quality Assurance (Priority 4)
+- Implement comprehensive concurrency testing
+- Expand edge case testing coverage
+- Add load testing infrastructure
+- Implement automated performance regression testing
 
 ## Implementation Quality Improvements
 ✅ **Key Quality Enhancements**:
