@@ -587,7 +587,7 @@ func (c *memcodec) EncodeTableKeyBuffer(tenantID, tableID, rowID int64, buf []by
 	buf = appendMemComparableInt64(buf, tableID)
 	buf = appendMemComparableInt64(buf, rowID)
 
-	return buf
+	return buf, nil
 }
 
 // EncodeIndexKeyBuffer encodes an index key into the provided buffer, reusing it when possible
