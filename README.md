@@ -203,7 +203,7 @@ curl -X POST http://localhost:8080/api/v1/tenants/1/tables/users/select \
 
 | Database | TPS | Latency | Memory Usage |
 |----------|-----|---------|--------------|
-| PGLiteDB | 2509 | 3.98ms | 156MB |
+| PGLiteDB | 2568 | 3.894ms | 156MB |
 | PostgreSQL | 2272 | 4.40ms | 200MB+ |
 | SQLite | 1800 | 5.55ms | 120MB |
 
@@ -291,7 +291,7 @@ pglitedb/
 - System tables extension (pg_stat_*, pg_index, pg_inherits, pg_database)
 
 🚀 **Performance Achievements**:
-- 2500+ TPS with sub-4ms latency
+- 2568 TPS with 3.894ms latency
 - 90%+ reduction in memory allocations through object pooling
 - Connection pooling with health checking
 - Query execution pipeline with batch processing
