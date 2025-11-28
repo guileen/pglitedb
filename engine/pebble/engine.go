@@ -3,58 +3,48 @@ package pebble
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 
 	"github.com/guileen/pglitedb/codec"
 	engineTypes "github.com/guileen/pglitedb/engine/types"
-	"github.com/guileen/pglitedb/engine/pebble/operations/scan"
+	"github.com/guileen/pglitedb/engine/pebble/indexes"
+	"github.com/guileen/pglitedb/engine/pebble/operations/query"
+	"github.com/guileen/pglitedb/idgen"
 	"github.com/guileen/pglitedb/storage"
 	dbTypes "github.com/guileen/pglitedb/types"
 )
 
-// IsIndexOnlyIterator checks if the given iterator is an index-only iterator
-func IsIndexOnlyIterator(iter engineTypes.RowIterator) bool {
-	_, ok := iter.(*scan.IndexOnlyIterator)
-	return ok
-}
 
-// IsIndexIterator checks if the given iterator is an index iterator
-func IsIndexIterator(iter engineTypes.RowIterator) bool {
-	_, ok := iter.(*scan.IndexIterator)
-	return ok
-}
-
-// IsRowIterator checks if the given iterator is a row iterator
-func IsRowIterator(iter engineTypes.RowIterator) bool {
-	_, ok := iter.(*scan.RowIterator)
-	return ok
-}
 
 type pebbleEngine struct {
 	kv                  storage.KV
 	codec               codec.Codec
-	idGenerator         *IDGenerator
-	indexManager        *IndexManager
+	idGenerator         idgen.IDGeneratorInterface
+	indexManager        *indexes.Handler
 	filterEvaluator     *FilterEvaluator
 	multiColumnOptimizer *MultiColumnOptimizer
-
-	tableIDCounters map[int64]*int64
-	indexIDCounters map[string]*int64
+	queryOperations     *query.QueryOperations
+	insertOperations    *query.InsertOperations
+	updateOperations    *query.UpdateOperations
+	deleteOperations    *query.DeleteOperations
 }
 
 func NewPebbleEngine(kvStore storage.KV, c codec.Codec) engineTypes.StorageEngine {
-	// Initialize the indexIDCounters map with a default counter for each tenant:table combination
-	indexIDCounters := make(map[string]*int64)
+	queryOps := query.NewQueryOperations(kvStore, c)
+	insertOps := query.NewInsertOperations(kvStore, c)
+	updateOps := query.NewUpdateOperations(kvStore, c)
+	deleteOps := query.NewDeleteOperations(kvStore, c)
 	
 	return &pebbleEngine{
 		kv:                  kvStore,
 		codec:               c,
-		idGenerator:         NewIDGenerator(),
-		indexManager:        NewIndexManager(kvStore, c),
+		idGenerator:         idgen.NewIDGenerator(),
+		indexManager:        indexes.NewHandler(kvStore, c),
 		filterEvaluator:     NewFilterEvaluator(),
 		multiColumnOptimizer: NewMultiColumnOptimizer(c),
-		tableIDCounters:     make(map[int64]*int64),
-		indexIDCounters:     indexIDCounters,
+		queryOperations:     queryOps,
+		insertOperations:    insertOps,
+		updateOperations:    updateOps,
+		deleteOperations:    deleteOps,
 	}
 }
 
@@ -62,34 +52,31 @@ func (e *pebbleEngine) Close() error {
 	return e.kv.Close()
 }
 
+// GetCodec returns the codec used by the engine
+func (e *pebbleEngine) GetCodec() codec.Codec {
+	return e.codec
+}
+
+// GetKV returns the KV store used by the engine
+func (e *pebbleEngine) GetKV() storage.KV {
+	return e.kv
+}
+
+// CheckForConflicts checks for conflicts with the given key
+func (e *pebbleEngine) CheckForConflicts(txn storage.Transaction, key []byte) error {
+	return e.kv.CheckForConflicts(txn, key)
+}
+
 func (e *pebbleEngine) NextRowID(ctx context.Context, tenantID, tableID int64) (int64, error) {
 	return e.idGenerator.NextRowID(ctx, tenantID, tableID)
 }
 
 func (e *pebbleEngine) NextTableID(ctx context.Context, tenantID int64) (int64, error) {
-	if counter, exists := e.tableIDCounters[tenantID]; exists {
-		return atomic.AddInt64(counter, 1), nil
-	}
-
-	var startID int64 = 0
-	counter := &startID
-	e.tableIDCounters[tenantID] = counter
-
-	return atomic.AddInt64(counter, 1), nil
+	return e.idGenerator.NextTableID(ctx, tenantID)
 }
 
 func (e *pebbleEngine) NextIndexID(ctx context.Context, tenantID, tableID int64) (int64, error) {
-	key := fmt.Sprintf("%d:%d", tenantID, tableID)
-
-	if counter, exists := e.indexIDCounters[key]; exists {
-		return atomic.AddInt64(counter, 1), nil
-	}
-
-	var startID int64 = 0
-	counter := &startID
-	e.indexIDCounters[key] = counter
-
-	return atomic.AddInt64(counter, 1), nil
+	return e.idGenerator.NextIndexID(ctx, tenantID, tableID)
 }
 
 func (e *pebbleEngine) DeleteRows(ctx context.Context, tenantID, tableID int64, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
@@ -150,47 +137,7 @@ func (e *pebbleEngine) ScanIndex(ctx context.Context, tenantID, tableID, indexID
 	return scanner.ScanIndex(ctx, tenantID, tableID, indexID, schemaDef, opts)
 }
 
-// buildIndexRangeFromFilter constructs index scan range based on filter expression
-func (e *pebbleEngine) buildIndexRangeFromFilter(tenantID, tableID, indexID int64, filter *engineTypes.FilterExpression, indexDef *dbTypes.IndexDefinition) ([]byte, []byte) {
-	return e.multiColumnOptimizer.buildIndexRangeFromFilter(tenantID, tableID, indexID, filter, indexDef)
-}
 
-// buildRangeFromSimpleFilter constructs index range for a simple filter
-func (e *pebbleEngine) buildRangeFromSimpleFilter(tenantID, tableID, indexID int64, filter *engineTypes.FilterExpression) ([]byte, []byte) {
-	maxRowID := int64(^uint64(0) >> 1)
-	
-	switch filter.Operator {
-	case "=":
-		start, _ := e.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, 0)
-		end, _ := e.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, maxRowID)
-		return start, end
-		
-	case ">":
-		start, _ := e.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, maxRowID)
-		end := e.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
-		return start, end
-		
-	case ">=":
-		start, _ := e.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, 0)
-		end := e.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
-		return start, end
-		
-	case "<":
-		start := e.codec.EncodeIndexScanStartKey(tenantID, tableID, indexID)
-		end, _ := e.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, 0)
-		return start, end
-		
-	case "<=":
-		start := e.codec.EncodeIndexScanStartKey(tenantID, tableID, indexID)
-		end, _ := e.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, maxRowID)
-		return start, end
-		
-	default:
-		// Unsupported operator, full scan
-		return e.codec.EncodeIndexScanStartKey(tenantID, tableID, indexID),
-			e.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
-	}
-}
 
 
 
@@ -201,20 +148,17 @@ func (e *pebbleEngine) buildRangeFromSimpleFilter(tenantID, tableID, indexID int
 
 
 func (e *pebbleEngine) CreateIndex(ctx context.Context, tenantID, tableID int64, indexDef *dbTypes.IndexDefinition) error {
-	handler := NewIndexHandler(e.kv, e.codec)
-	return handler.CreateIndex(ctx, tenantID, tableID, indexDef, e.NextIndexID)
+	return e.indexManager.CreateIndex(ctx, tenantID, tableID, indexDef, e.NextIndexID)
 }
 
 func (e *pebbleEngine) DropIndex(ctx context.Context, tenantID, tableID, indexID int64) error {
-	handler := NewIndexHandler(e.kv, e.codec)
-	return handler.DropIndex(ctx, tenantID, tableID, indexID)
+	return e.indexManager.DropIndex(ctx, tenantID, tableID, indexID)
 }
 
 
 
 func (e *pebbleEngine) LookupIndex(ctx context.Context, tenantID, tableID, indexID int64, indexValue interface{}) ([]int64, error) {
-	handler := NewIndexHandler(e.kv, e.codec)
-	return handler.LookupIndex(ctx, tenantID, tableID, indexID, indexValue)
+	return e.indexManager.LookupIndex(ctx, tenantID, tableID, indexID, indexValue)
 }
 
 func (e *pebbleEngine) updateIndexes(ctx context.Context, tenantID, tableID, rowID int64, row *dbTypes.Record, schemaDef *dbTypes.TableDefinition, isInsert bool) error {
@@ -287,6 +231,11 @@ func (e *pebbleEngine) EvaluateFilter(filter *engineTypes.FilterExpression, reco
 	return e.filterEvaluator.EvaluateFilter(filter, record)
 }
 
+// BuildFilterExpression builds a filter expression from conditions
+func (e *pebbleEngine) BuildFilterExpression(conditions map[string]interface{}) *engineTypes.FilterExpression {
+	return e.buildFilterExpression(conditions)
+}
+
 
 
 
@@ -327,3 +276,45 @@ func (e *pebbleEngine) buildFilterExpression(conditions map[string]interface{}) 
 		Children: children,
 	}
 }
+
+// GetRow retrieves a single row by its ID
+func (e *pebbleEngine) GetRow(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *dbTypes.TableDefinition) (*dbTypes.Record, error) {
+	return e.queryOperations.GetRow(ctx, tenantID, tableID, rowID, schemaDef)
+}
+
+// InsertRow inserts a single row
+func (e *pebbleEngine) InsertRow(ctx context.Context, tenantID, tableID int64, row *dbTypes.Record, schemaDef *dbTypes.TableDefinition) (int64, error) {
+	return e.insertOperations.InsertRow(ctx, tenantID, tableID, row, schemaDef, e.NextRowID, e.updateIndexes)
+}
+
+// UpdateRow updates a single row
+func (e *pebbleEngine) UpdateRow(ctx context.Context, tenantID, tableID, rowID int64, updates map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
+	return e.updateOperations.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef, e.GetRow, e.deleteIndexesInBatch, e.batchUpdateIndexes, e.kv.CommitBatch)
+}
+
+// DeleteRow deletes a single row
+func (e *pebbleEngine) DeleteRow(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *dbTypes.TableDefinition) error {
+	return e.deleteOperations.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef, e.GetRow, e.deleteIndexesInBatch, e.kv.CommitBatch)
+}
+
+// GetRowBatch retrieves multiple rows by their IDs
+func (e *pebbleEngine) GetRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) (map[int64]*dbTypes.Record, error) {
+	return e.queryOperations.GetRowBatch(ctx, tenantID, tableID, rowIDs, schemaDef)
+}
+
+// InsertRowBatch inserts multiple rows in a batch
+func (e *pebbleEngine) InsertRowBatch(ctx context.Context, tenantID, tableID int64, rows []*dbTypes.Record, schemaDef *dbTypes.TableDefinition) ([]int64, error) {
+	return e.insertOperations.InsertRowBatch(ctx, tenantID, tableID, rows, schemaDef, e.NextRowID, e.batchUpdateIndexes, e.kv.Commit)
+}
+
+// UpdateRowBatch updates multiple rows in a batch
+func (e *pebbleEngine) UpdateRowBatch(ctx context.Context, tenantID, tableID int64, updates []engineTypes.RowUpdate, schemaDef *dbTypes.TableDefinition) error {
+	return e.updateOperations.UpdateRowBatch(ctx, tenantID, tableID, updates, schemaDef, e.GetRowBatch, e.deleteIndexesBulk, e.batchUpdateIndexesBulk, e.kv.CommitBatchWithOptions)
+}
+
+// DeleteRowBatch deletes multiple rows in a batch
+func (e *pebbleEngine) DeleteRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) error {
+	return e.deleteOperations.DeleteRowBatch(ctx, tenantID, tableID, rowIDs, schemaDef, e.GetRowBatch, e.deleteIndexesBulk, e.kv.CommitBatchWithOptions)
+}
+
+var _ engineTypes.StorageEngine = (*pebbleEngine)(nil)

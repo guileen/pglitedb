@@ -175,7 +175,6 @@ func (mco *MultiColumnOptimizer) buildPartialRange(
 type IndexScanner struct {
 	kv    storage.KV
 	codec codec.Codec
-	rangeBuilder *utils.RangeBuilder
 }
 
 // NewIndexScanner creates a new index scanner
@@ -183,7 +182,6 @@ func NewIndexScanner(kv storage.KV, codec codec.Codec) *IndexScanner {
 	return &IndexScanner{
 		kv:    kv,
 		codec: codec,
-		rangeBuilder: utils.NewRangeBuilder(codec),
 	}
 }
 
@@ -280,27 +278,7 @@ func (is *IndexScanner) ScanIndex(ctx context.Context, tenantID, tableID, indexI
 
 // buildIndexRangeFromFilter constructs index scan range based on filter expression
 func (is *IndexScanner) buildIndexRangeFromFilter(tenantID, tableID, indexID int64, filter *engineTypes.FilterExpression, indexDef *dbTypes.IndexDefinition) ([]byte, []byte) {
-	if filter == nil {
-		return is.codec.EncodeIndexScanStartKey(tenantID, tableID, indexID),
-			is.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
-	}
-	
-	// For complex filters (AND/OR/NOT), do full index scan and filter in iterator
-	// Support multi-column index range optimization for AND filters
-	if filter.Type == "and" || filter.Type == "or" || filter.Type == "not" {
-		// For AND filters with multi-column indexes, try to optimize the range
-		if filter.Type == "and" && len(indexDef.Columns) > 1 {
-			optimizer := NewMultiColumnOptimizer()
-			return optimizer.OptimizeMultiColumnIndexRange(tenantID, tableID, indexID, filter, indexDef, is.codec)
-		}
-		
-		// For OR/NOT or single-column indexes, do full index scan
-		return is.codec.EncodeIndexScanStartKey(tenantID, tableID, indexID),
-			is.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
-	}
-	
-	// Simple filter
-	return is.buildRangeFromSimpleFilter(tenantID, tableID, indexID, filter)
+	return utils.BuildIndexRangeFromFilter(is.codec, tenantID, tableID, indexID, filter, indexDef)
 }
 
 // extractSimpleFilter finds a simple filter for the given column in a complex filter tree
@@ -310,7 +288,7 @@ func (is *IndexScanner) extractSimpleFilter(filter *engineTypes.FilterExpression
 
 // buildRangeFromSimpleFilter constructs index range for a simple filter
 func (is *IndexScanner) buildRangeFromSimpleFilter(tenantID, tableID, indexID int64, filter *engineTypes.FilterExpression) ([]byte, []byte) {
-	return is.rangeBuilder.BuildRangeFromSimpleFilter(tenantID, tableID, indexID, filter)
+	return utils.BuildRangeFromSimpleFilter(is.codec, tenantID, tableID, indexID, filter)
 }
 
 // isIndexCovering checks if an index covers all projection columns

@@ -8,6 +8,7 @@ import (
 
 	"github.com/guileen/pglitedb/codec"
 	"github.com/guileen/pglitedb/engine/pebble"
+	"github.com/guileen/pglitedb/engine/pebble/operations/scan"
 	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/types"
@@ -101,7 +102,7 @@ func TestIndexOnlyScan(t *testing.T) {
 		defer iter.Close()
 
 		// Should use indexOnlyIterator
-		if !pebble.IsIndexOnlyIterator(iter) {
+		if !scan.IsIndexOnlyIterator(iter) {
 			t.Error("Should use indexOnlyIterator for covering index")
 		}
 
@@ -168,7 +169,7 @@ func TestIndexOnlyScan(t *testing.T) {
 		defer iter.Close()
 
 		// Should NOT be index-only iterator
-		if pebble.IsIndexOnlyIterator(iter) {
+		if scan.IsIndexOnlyIterator(iter) {
 			t.Error("Should not use indexOnlyIterator when index doesn't cover projection")
 		}
 
@@ -219,7 +220,7 @@ func TestIndexOnlyScan(t *testing.T) {
 		defer iter.Close()
 
 		// Should use indexOnlyIterator
-		if !pebble.IsIndexOnlyIterator(iter) {
+		if !scan.IsIndexOnlyIterator(iter) {
 			t.Error("Should use indexOnlyIterator for covering index")
 		}
 

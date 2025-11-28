@@ -20,7 +20,6 @@ type Scanner struct {
 		EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool
 		GetRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) (map[int64]*dbTypes.Record, error)
 	}
-	rangeBuilder *utils.RangeBuilder
 }
 
 // NewScanner creates a new Scanner
@@ -32,7 +31,6 @@ func NewScanner(kv storage.KV, c codec.Codec, engine interface {
 		kv:    kv,
 		codec: c,
 		engine: engine,
-		rangeBuilder: utils.NewRangeBuilder(c),
 	}
 }
 
@@ -159,9 +157,7 @@ func (s *Scanner) ScanIndex(ctx context.Context, tenantID, tableID, indexID int6
 
 // buildIndexRangeFromFilter constructs index scan range based on filter expression
 func (s *Scanner) buildIndexRangeFromFilter(tenantID, tableID, indexID int64, filter *engineTypes.FilterExpression, indexDef *dbTypes.IndexDefinition) ([]byte, []byte) {
-	// Create a temporary MultiColumnOptimizer for scanning operations
-	optimizer := NewMultiColumnOptimizer(s.codec)
-	return optimizer.buildIndexRangeFromFilter(tenantID, tableID, indexID, filter, indexDef)
+	return utils.BuildIndexRangeFromFilter(s.codec, tenantID, tableID, indexID, filter, indexDef)
 }
 
 // extractSimpleFilter finds a simple filter for the given column in a complex filter tree
@@ -171,7 +167,7 @@ func (s *Scanner) extractSimpleFilter(filter *engineTypes.FilterExpression, colu
 
 // buildRangeFromSimpleFilter constructs index range for a simple filter
 func (s *Scanner) buildRangeFromSimpleFilter(tenantID, tableID, indexID int64, filter *engineTypes.FilterExpression) ([]byte, []byte) {
-	return s.rangeBuilder.BuildRangeFromSimpleFilter(tenantID, tableID, indexID, filter)
+	return utils.BuildRangeFromSimpleFilter(s.codec, tenantID, tableID, indexID, filter)
 }
 
 // isIndexCovering checks if an index covers all projection columns
