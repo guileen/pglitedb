@@ -4,11 +4,56 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/guileen/pglitedb/types"
 )
+
+// Global pool for EncodedRow objects
+var encodedRowPool = &sync.Pool{
+	New: func() interface{} {
+		return &EncodedRow{
+			Columns: make(map[string][]byte),
+		}
+	},
+}
+
+// AcquireEncodedRow gets an EncodedRow from the pool
+func AcquireEncodedRow() *EncodedRow {
+	obj := encodedRowPool.Get()
+	if obj != nil {
+		er := obj.(*EncodedRow)
+		// Clear the map without reallocating
+		for k := range er.Columns {
+			delete(er.Columns, k)
+		}
+		er.SchemaVersion = 0
+		er.CreatedAt = 0
+		er.UpdatedAt = 0
+		er.Version = 0
+		er.TxnID = 0
+		er.TxnTimestamp = 0
+		return er
+	}
+	
+	// Create a new encoded row
+	er := &EncodedRow{
+		Columns: make(map[string][]byte),
+	}
+	return er
+}
+
+// ReleaseEncodedRow returns an EncodedRow to the pool
+func ReleaseEncodedRow(er *EncodedRow) {
+	// Clear the map without reallocating
+	for k := range er.Columns {
+		delete(er.Columns, k)
+	}
+	
+	encodedRowPool.Put(er)
+}
 
 const (
 	nilFlag      byte = 0xFF
@@ -327,17 +372,17 @@ func (c *memcodec) DecodePKKey(key []byte) (tenantID, tableID int64, err error) 
 	return tenantID, tableID, nil
 }
 
+
 func (c *memcodec) EncodeRow(row *types.Record, schemaDef *types.TableDefinition) ([]byte, error) {
-	encoded := &EncodedRow{
-		SchemaVersion: uint32(schemaDef.Version),
-		Columns:       make(map[string][]byte),
-		CreatedAt:     row.CreatedAt.Unix(),
-		UpdatedAt:     row.UpdatedAt.Unix(),
-		Version:       row.Version,
-		// Transaction metadata will be set by the transaction implementation
-		TxnID:        0,
-		TxnTimestamp: 0,
-	}
+	// Use pooled EncodedRow object
+	encoded := AcquireEncodedRow()
+	encoded.SchemaVersion = uint32(schemaDef.Version)
+	encoded.CreatedAt = row.CreatedAt.Unix()
+	encoded.UpdatedAt = row.UpdatedAt.Unix()
+	encoded.Version = row.Version
+	// Transaction metadata will be set by the transaction implementation
+	encoded.TxnID = 0
+	encoded.TxnTimestamp = 0
 
 	for colName, value := range row.Data {
 		var colType types.ColumnType
@@ -349,11 +394,13 @@ func (c *memcodec) EncodeRow(row *types.Record, schemaDef *types.TableDefinition
 		}
 
 		if colType == "" {
+			ReleaseEncodedRow(encoded) // Return to pool on error
 			return nil, fmt.Errorf("column %s not found in schema", colName)
 		}
 
 		valueBytes, err := c.EncodeValue(value.Data, colType)
 		if err != nil {
+			ReleaseEncodedRow(encoded) // Return to pool on error
 			return nil, fmt.Errorf("encode column %s: %w", colName, err)
 		}
 		encoded.Columns[colName] = valueBytes
@@ -367,6 +414,9 @@ func (c *memcodec) DecodeRow(data []byte, schemaDef *types.TableDefinition) (*ty
 	if err != nil {
 		return nil, err
 	}
+
+	// Ensure we release the encoded row back to the pool
+	defer ReleaseEncodedRow(encoded)
 
 	record := &types.Record{
 		ID:        "",

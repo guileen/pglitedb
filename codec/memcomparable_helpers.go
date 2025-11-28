@@ -324,40 +324,46 @@ func decodeUUID(data []byte) (interface{}, error) {
 }
 
 func encodeEncodedRow(row *EncodedRow) ([]byte, error) {
-	buf := &bytes.Buffer{}
-
+	// Pre-allocate buffer with estimated size to reduce allocations
+	estimatedSize := 4 + 8 + 8 + 4 + 8 + 8 + 4 // Header fields
+	for name, value := range row.Columns {
+		estimatedSize += 4 + len(name) + 4 + len(value)
+	}
+	
+	buf := make([]byte, 0, estimatedSize)
+	
 	var tmp [8]byte
 	binary.BigEndian.PutUint32(tmp[:4], row.SchemaVersion)
-	buf.Write(tmp[:4])
-
-	writeMemComparableInt64(buf, row.CreatedAt)
-	writeMemComparableInt64(buf, row.UpdatedAt)
-
+	buf = append(buf, tmp[:4]...)
+	
+	buf = appendMemComparableInt64(buf, row.CreatedAt)
+	buf = appendMemComparableInt64(buf, row.UpdatedAt)
+	
 	binary.BigEndian.PutUint32(tmp[:4], uint32(row.Version))
-	buf.Write(tmp[:4])
-
+	buf = append(buf, tmp[:4]...)
+	
 	// Write transaction metadata
 	binary.BigEndian.PutUint64(tmp[:], row.TxnID)
-	buf.Write(tmp[:])
-
+	buf = append(buf, tmp[:]...)
+	
 	binary.BigEndian.PutUint64(tmp[:], uint64(row.TxnTimestamp))
-	buf.Write(tmp[:])
-
+	buf = append(buf, tmp[:]...)
+	
 	binary.BigEndian.PutUint32(tmp[:4], uint32(len(row.Columns)))
-	buf.Write(tmp[:4])
-
+	buf = append(buf, tmp[:4]...)
+	
 	for name, value := range row.Columns {
 		nameBytes := []byte(name)
 		binary.BigEndian.PutUint32(tmp[:4], uint32(len(nameBytes)))
-		buf.Write(tmp[:4])
-		buf.Write(nameBytes)
-
+		buf = append(buf, tmp[:4]...)
+		buf = append(buf, nameBytes...)
+		
 		binary.BigEndian.PutUint32(tmp[:4], uint32(len(value)))
-		buf.Write(tmp[:4])
-		buf.Write(value)
+		buf = append(buf, tmp[:4]...)
+		buf = append(buf, value...)
 	}
-
-	return buf.Bytes(), nil
+	
+	return buf, nil
 }
 
 func decodeEncodedRow(data []byte) (*EncodedRow, error) {
@@ -365,9 +371,8 @@ func decodeEncodedRow(data []byte) (*EncodedRow, error) {
 		return nil, fmt.Errorf("data too short")
 	}
 
-	row := &EncodedRow{
-		Columns: make(map[string][]byte),
-	}
+	// Use pooled EncodedRow object
+	row := AcquireEncodedRow()
 
 	offset := 0
 	row.SchemaVersion = binary.BigEndian.Uint32(data[offset : offset+4])
@@ -394,6 +399,7 @@ func decodeEncodedRow(data []byte) (*EncodedRow, error) {
 
 	for i := uint32(0); i < numColumns; i++ {
 		if offset+4 > len(data) {
+			ReleaseEncodedRow(row) // Return to pool on error
 			return nil, fmt.Errorf("unexpected end of data")
 		}
 
@@ -401,18 +407,21 @@ func decodeEncodedRow(data []byte) (*EncodedRow, error) {
 		offset += 4
 
 		if offset+int(nameLen) > len(data) {
+			ReleaseEncodedRow(row) // Return to pool on error
 			return nil, fmt.Errorf("unexpected end of data")
 		}
 		name := string(data[offset : offset+int(nameLen)])
 		offset += int(nameLen)
 
 		if offset+4 > len(data) {
+			ReleaseEncodedRow(row) // Return to pool on error
 			return nil, fmt.Errorf("unexpected end of data")
 		}
 		valueLen := binary.BigEndian.Uint32(data[offset : offset+4])
 		offset += 4
 
 		if offset+int(valueLen) > len(data) {
+			ReleaseEncodedRow(row) // Return to pool on error
 			return nil, fmt.Errorf("unexpected end of data")
 		}
 		value := make([]byte, valueLen)
