@@ -44,6 +44,7 @@ This file serves as the central index for project context. All AI agents should 
 - **System Table Query Fixes**: Resolved issues with system table recognition and query execution paths for full PostgreSQL compatibility
 - **Full Transaction Management & MVCC**: Implemented ACID-compliant transaction system with complete MVCC support and all isolation levels
 - **Statistics Collection Framework**: Implemented professional statistics collection with table and column statistics for cost-based optimization
+- **Comprehensive Resource Leak Detection**: Implemented complete leak detection system for iterators, transactions, connections, file descriptors, and goroutines with stack trace capture and automated monitoring
 
 ## Architectural Improvement Roadmap Status
 ✅ **Progress Tracking**: Following the phased implementation plan from [GUIDE.md](./GUIDE.md) and [ARCHITECT-REVIEW.md](./ARCHITECT-REVIEW.md)
@@ -69,8 +70,8 @@ This file serves as the central index for project context. All AI agents should 
 - ✅ Query execution pipeline with batch processing and worker pools
 - ✅ Memory management with object pooling for reduced allocations
 - ✅ Storage engine performance optimizations with object pooling and batch operations
-- Comprehensive resource leak detection implementation
-- Dynamic pool sizing capabilities
+- ✅ Comprehensive resource leak detection implementation
+- ✅ Dynamic pool sizing capabilities
 - System catalog caching with LRU eviction
 - Concurrency and thread safety improvements
 
@@ -114,6 +115,7 @@ This file serves as the central index for project context. All AI agents should 
 - Storage Engine: `spec/Context_Engine.md` ⚠️ **Key Focus**: Interface-driven design and bulk operation efficiency
 - DDL Parser: `spec/Context_DDL.md` ⚠️ **Key Focus**: Metadata persistence with consistent OID generation
 - Technical Debt Reduction: `spec/Context_TechDebt.md` ⚠️ **Key Focus**: Maintainability improvements and refactoring efforts
+- Resource Management & Leak Detection: `spec/Context_ResourceManagement.md` ⚠️ **Key Focus**: Object pooling and leak detection mechanisms
 - Component Cross-Reference: `spec/Context_CrossReference.md`
 - Troubleshooting Guide: `spec/Context_Troubleshooting.md`
 - Logging System: `spec/Context_Logging.md` ⚠️ **Key Focus**: Structured logging with slog-based implementation
