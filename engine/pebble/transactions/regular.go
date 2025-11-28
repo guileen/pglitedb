@@ -182,14 +182,8 @@ func (t *RegularTransaction) UpdateRows(ctx context.Context, tenantID, tableID i
 	}
 	defer iter.Close()
 	
-	// Defensive check to ensure iterator is not nil before calling methods on it
-	if iter == nil {
-		return 0, fmt.Errorf("iterator became nil after creation")
-	}
-	
 	// Call First() and check if it succeeded
-	firstResult := iter.First()
-	if !firstResult {
+	if !iter.First() {
 		// Check if there was an error
 		if err := iter.Error(); err != nil {
 			return 0, fmt.Errorf("iterator error: %w", err)
@@ -199,7 +193,7 @@ func (t *RegularTransaction) UpdateRows(ctx context.Context, tenantID, tableID i
 	}
 	
 	// Continue with the iteration
-	for ; iter.Valid(); iter.Next() {
+	for iter.Valid() {
 		_, _, rowID, err := t.codec.DecodeTableKey(iter.Key())
 		if err != nil {
 			return 0, fmt.Errorf("decode table key: %w", err)
@@ -215,6 +209,11 @@ func (t *RegularTransaction) UpdateRows(ctx context.Context, tenantID, tableID i
 		// Check conditions
 		if t.matchesConditions(record, conditions) {
 			matchingRowIDs = append(matchingRowIDs, rowID)
+		}
+		
+		// Move to next row
+		if !iter.Next() {
+			break
 		}
 	}
 	
@@ -264,14 +263,8 @@ func (t *RegularTransaction) DeleteRows(ctx context.Context, tenantID, tableID i
 	}
 	defer iter.Close()
 	
-	// Defensive check to ensure iterator is not nil before calling methods on it
-	if iter == nil {
-		return 0, fmt.Errorf("iterator became nil after creation")
-	}
-	
 	// Call First() and check if it succeeded
-	firstResult := iter.First()
-	if !firstResult {
+	if !iter.First() {
 		// Check if there was an error
 		if err := iter.Error(); err != nil {
 			return 0, fmt.Errorf("iterator error: %w", err)
@@ -281,7 +274,7 @@ func (t *RegularTransaction) DeleteRows(ctx context.Context, tenantID, tableID i
 	}
 	
 	// Continue with the iteration
-	for ; iter.Valid(); iter.Next() {
+	for iter.Valid() {
 		_, _, rowID, err := t.codec.DecodeTableKey(iter.Key())
 		if err != nil {
 			return 0, fmt.Errorf("decode table key: %w", err)
@@ -297,6 +290,11 @@ func (t *RegularTransaction) DeleteRows(ctx context.Context, tenantID, tableID i
 		// Check conditions
 		if t.matchesConditions(record, conditions) {
 			matchingRowIDs = append(matchingRowIDs, rowID)
+		}
+		
+		// Move to next row
+		if !iter.Next() {
+			break
 		}
 	}
 	
@@ -371,9 +369,71 @@ func (t *RegularTransaction) matchesConditions(record *dbTypes.Record, condition
 		if !exists {
 			return false
 		}
-		if field.Data != val {
-			return false
+		
+		// Direct comparison first
+		if field.Data == val {
+			continue
 		}
+		
+		// Handle numeric type mismatches (e.g., int vs int64)
+		// This is a common issue when data is encoded/decoded
+		if isNumeric(field.Data) && isNumeric(val) {
+			if compareNumerics(field.Data, val) {
+				continue
+			}
+		}
+		
+		return false
 	}
 	return true
+}
+
+// isNumeric checks if a value is a numeric type
+func isNumeric(v interface{}) bool {
+	switch v.(type) {
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return true
+	default:
+		return false
+	}
+}
+
+// compareNumerics compares two numeric values, handling type conversions
+func compareNumerics(a, b interface{}) bool {
+	// Convert both to float64 for comparison
+	aFloat := toFloat64(a)
+	bFloat := toFloat64(b)
+	return aFloat == bFloat
+}
+
+// toFloat64 converts a numeric value to float64
+func toFloat64(v interface{}) float64 {
+	switch val := v.(type) {
+	case int:
+		return float64(val)
+	case int8:
+		return float64(val)
+	case int16:
+		return float64(val)
+	case int32:
+		return float64(val)
+	case int64:
+		return float64(val)
+	case uint:
+		return float64(val)
+	case uint8:
+		return float64(val)
+	case uint16:
+		return float64(val)
+	case uint32:
+		return float64(val)
+	case uint64:
+		return float64(val)
+	case float32:
+		return float64(val)
+	case float64:
+		return val
+	default:
+		return 0
+	}
 }

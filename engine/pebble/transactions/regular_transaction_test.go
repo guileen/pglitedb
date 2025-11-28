@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func setupTestEngine(t *testing.T) (engineTypes.StorageEngine, func()) {
-	tmpDir, err := os.MkdirTemp("", "snapshot-test-*")
+func setupRegularTestEngine(t *testing.T) (engineTypes.StorageEngine, func()) {
+	tmpDir, err := os.MkdirTemp("", "regular-test-*")
 	require.NoError(t, err)
 
 	config := storage.DefaultPebbleConfig(filepath.Join(tmpDir, "db"))
@@ -35,7 +35,7 @@ func setupTestEngine(t *testing.T) (engineTypes.StorageEngine, func()) {
 	return engine, cleanup
 }
 
-func createTestSchema() *types.TableDefinition {
+func createRegularTestSchema() *types.TableDefinition {
 	return &types.TableDefinition{
 		ID:   "1",
 		Name: "test_table",
@@ -47,15 +47,50 @@ func createTestSchema() *types.TableDefinition {
 	}
 }
 
-func TestSnapshotTransaction_UpdateRows(t *testing.T) {
+func TestRegularTransaction_GetRow(t *testing.T) {
 	// Create a test engine and insert some data
-	engine, cleanup := setupTestEngine(t)
+	engine, cleanup := setupRegularTestEngine(t)
 	defer cleanup()
 
 	ctx := context.Background()
-	schemaDef := createTestSchema()
+	schemaDef := createRegularTestSchema()
 
-	// Insert some test data and store the row IDs
+	// Insert a test row
+	row := &types.Record{
+		Data: map[string]*types.Value{
+			"id":   {Data: int64(1), Type: types.ColumnTypeNumber},
+			"name": {Data: "user1", Type: types.ColumnTypeString},
+			"age":  {Data: 21, Type: types.ColumnTypeNumber},
+		},
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	rowID, err := engine.InsertRow(ctx, 1, 1, row, schemaDef)
+	require.NoError(t, err)
+
+	// Begin a regular transaction
+	kvTxn, err := engine.(interface{ GetKV() storage.KV }).GetKV().NewTransaction(ctx)
+	require.NoError(t, err)
+
+	c := engine.GetCodec()
+	tx := NewRegularTransaction(engine, kvTxn, c)
+
+	// Test getting the row through the transaction
+	record, err := tx.GetRow(ctx, 1, 1, rowID, schemaDef)
+	require.NoError(t, err)
+	assert.Equal(t, "user1", record.Data["name"].Data)
+	assert.Equal(t, int64(21), record.Data["age"].Data)
+}
+
+func TestRegularTransaction_UpdateRows(t *testing.T) {
+	// Create a test engine and insert some data
+	engine, cleanup := setupRegularTestEngine(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	schemaDef := createRegularTestSchema()
+
+	// Insert some test data
 	rowIDs := make([]int64, 0, 3)
 	for i := int64(1); i <= 3; i++ {
 		row := &types.Record{
@@ -72,13 +107,12 @@ func TestSnapshotTransaction_UpdateRows(t *testing.T) {
 		rowIDs = append(rowIDs, rowID)
 	}
 
-	// Create a snapshot
-	snapshot, err := engine.(interface{ GetKV() storage.KV }).GetKV().NewSnapshot()
+	// Begin a regular transaction
+	kvTxn, err := engine.(interface{ GetKV() storage.KV }).GetKV().NewTransaction(ctx)
 	require.NoError(t, err)
-	// Note: The snapshot will be closed by the transaction's Commit/Rollback methods
 
-	// Create a snapshot transaction
-	tx := NewSnapshotTransaction(engine, snapshot)
+	c := engine.GetCodec()
+	tx := NewRegularTransaction(engine, kvTxn, c)
 
 	// Test updating rows with a condition
 	updates := map[string]*types.Value{
@@ -99,26 +133,25 @@ func TestSnapshotTransaction_UpdateRows(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify the update by getting the row through the engine
-	// The row with age 21 should now have age 30
-	record, err := engine.GetRow(ctx, 1, 1, rowIDs[0], schemaDef) // rowIDs[0] corresponds to the first inserted row
+	record, err := engine.GetRow(ctx, 1, 1, rowIDs[0], schemaDef)
 	require.NoError(t, err)
 	assert.Equal(t, int64(30), record.Data["age"].Data)
 
 	// Verify other rows are unchanged
-	record, err = engine.GetRow(ctx, 1, 1, rowIDs[1], schemaDef) // rowIDs[1] corresponds to the second inserted row
+	record, err = engine.GetRow(ctx, 1, 1, rowIDs[1], schemaDef)
 	require.NoError(t, err)
 	assert.Equal(t, int64(22), record.Data["age"].Data)
 }
 
-func TestSnapshotTransaction_DeleteRows(t *testing.T) {
+func TestRegularTransaction_DeleteRows(t *testing.T) {
 	// Create a test engine and insert some data
-	engine, cleanup := setupTestEngine(t)
+	engine, cleanup := setupRegularTestEngine(t)
 	defer cleanup()
 
 	ctx := context.Background()
-	schemaDef := createTestSchema()
+	schemaDef := createRegularTestSchema()
 
-	// Insert some test data and store the row IDs
+	// Insert some test data
 	rowIDs := make([]int64, 0, 3)
 	for i := int64(1); i <= 3; i++ {
 		row := &types.Record{
@@ -135,13 +168,12 @@ func TestSnapshotTransaction_DeleteRows(t *testing.T) {
 		rowIDs = append(rowIDs, rowID)
 	}
 
-	// Create a snapshot
-	snapshot, err := engine.(interface{ GetKV() storage.KV }).GetKV().NewSnapshot()
+	// Begin a regular transaction
+	kvTxn, err := engine.(interface{ GetKV() storage.KV }).GetKV().NewTransaction(ctx)
 	require.NoError(t, err)
-	// Note: The snapshot will be closed by the transaction's Commit/Rollback methods
 
-	// Create a snapshot transaction
-	tx := NewSnapshotTransaction(engine, snapshot)
+	c := engine.GetCodec()
+	tx := NewRegularTransaction(engine, kvTxn, c)
 
 	// Test deleting rows with a condition
 	conditions := map[string]interface{}{

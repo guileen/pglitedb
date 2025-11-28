@@ -179,8 +179,12 @@ func (tx *SnapshotTransaction) UpdateRows(ctx context.Context, tenantID, tableID
 	}
 	
 	snapshotIter := tx.snapshot.NewIterator(iterOpts)
+	if snapshotIter == nil {
+		return 0, fmt.Errorf("failed to create snapshot iterator")
+	}
 	defer snapshotIter.Close()
 	
+	// Iterate through all rows in the snapshot
 	for snapshotIter.First(); snapshotIter.Valid(); snapshotIter.Next() {
 		_, _, rowID, err := tx.codec.DecodeTableKey(snapshotIter.Key())
 		if err != nil {
@@ -205,6 +209,11 @@ func (tx *SnapshotTransaction) UpdateRows(ctx context.Context, tenantID, tableID
 		if tx.matchesConditions(record, conditions) {
 			matchingRowIDs = append(matchingRowIDs, rowID)
 		}
+	}
+	
+	// Check for iterator errors
+	if err := snapshotIter.Error(); err != nil {
+		return 0, fmt.Errorf("snapshot iterator error: %w", err)
 	}
 	
 	// Then check mutations for newly inserted rows
@@ -294,8 +303,12 @@ func (tx *SnapshotTransaction) DeleteRows(ctx context.Context, tenantID, tableID
 	}
 	
 	snapshotIter := tx.snapshot.NewIterator(iterOpts)
+	if snapshotIter == nil {
+		return 0, fmt.Errorf("failed to create snapshot iterator")
+	}
 	defer snapshotIter.Close()
 	
+	// Iterate through all rows in the snapshot
 	for snapshotIter.First(); snapshotIter.Valid(); snapshotIter.Next() {
 		_, _, rowID, err := tx.codec.DecodeTableKey(snapshotIter.Key())
 		if err != nil {
@@ -320,6 +333,11 @@ func (tx *SnapshotTransaction) DeleteRows(ctx context.Context, tenantID, tableID
 		if tx.matchesConditions(record, conditions) {
 			matchingRowIDs = append(matchingRowIDs, rowID)
 		}
+	}
+	
+	// Check for iterator errors
+	if err := snapshotIter.Error(); err != nil {
+		return 0, fmt.Errorf("snapshot iterator error: %w", err)
 	}
 	
 	// Then check mutations for newly inserted rows
@@ -466,8 +484,27 @@ func (tx *SnapshotTransaction) Commit() error {
 	tx.closed = true
 	defer tx.snapshot.Close()
 
-	// In a real implementation, we would commit the mutations to the KV store
-	// For now, we'll just close the snapshot
+	// Apply mutations to the KV store
+	batch := tx.engine.GetKV().NewBatch()
+	defer batch.Close()
+	
+	for key, value := range tx.mutations {
+		if value == nil {
+			if err := batch.Delete([]byte(key)); err != nil {
+				return fmt.Errorf("delete key: %w", err)
+			}
+		} else {
+			if err := batch.Set([]byte(key), value); err != nil {
+				return fmt.Errorf("set key: %w", err)
+			}
+		}
+	}
+	
+	// Commit the batch
+	if err := tx.engine.GetKV().CommitBatch(context.Background(), batch); err != nil {
+		return fmt.Errorf("commit batch: %w", err)
+	}
+	
 	return nil
 }
 
