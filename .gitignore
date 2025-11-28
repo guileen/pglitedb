@@ -52,7 +52,7 @@ dist
 server
 vendor
 *.md
-spec/*.md
+!docs/*.md
 *.js
 *.json
 pglitedb
