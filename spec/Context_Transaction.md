@@ -2,6 +2,13 @@
 
 ★ Core Goal: Ensure reliable and efficient transaction processing with full ACID compliance and MVCC support
 
+## Implementation Insights from Reflection
+✅ **Key Learnings**:
+- Interface-driven development enabled clean separation between transaction logic and storage implementation
+- Transaction pattern consistency achieved with unified APIs for regular and snapshot transactions
+- Error handling importance highlighted through proper resource cleanup in error paths
+- Multi-tenancy considerations emphasized the need for consistent parameter passing
+
 ## Critical Infrastructure Issue
 ❗ **Priority 2 Fix Required**: Query execution path issues affecting transaction-integrated operations
 - System catalog lookup failures in transaction context
@@ -20,6 +27,13 @@
 ⚠️ **Integration Issues**: Transaction system complete but integration with system catalog lookups failing
 
 For detailed technical implementation, see [Transaction Management & MVCC Guide](./GUIDE_TRANSACTION_MVCC.md)
+
+## Transaction Management Improvements
+✅ **Enhanced Capabilities**:
+- Unified interface for both regular and snapshot transactions
+- Complete UpdateRows/DeleteRows functionality for bulk operations
+- Proper resource cleanup and error handling in transaction rollback
+- Consistent API design enabling extensibility
 
 ## Key Architectural Components
 
@@ -204,10 +218,40 @@ err = manager.Put(txn, key, value)
 if err != nil {
     return err
 }
-
 // Commit at the end
 return manager.Commit(txn)
 ```
+
+### Error Handling
+Provide clear error messages for transaction-related issues:
+```go
+if !txn.IsActive() {
+    return fmt.Errorf("transaction is not active")
+}
+```
+
+### Concurrency Control
+Use appropriate isolation levels for your use case:
+```go
+// For read-heavy workloads
+txn, err := manager.Begin(ctx, transaction.ReadCommitted)
+
+// For consistency-critical operations
+txn, err := manager.Begin(ctx, transaction.Serializable)
+```
+
+### Resource Management
+Always clean up resources properly:
+```go
+defer manager.Close()
+```
+
+## Implementation Quality Improvements
+✅ **Key Quality Enhancements**:
+- **Interface-Driven Design**: Well-defined interfaces enable clean separation of concerns
+- **Modular Architecture**: Breaking down large files into smaller, focused modules improves maintainability
+- **Comprehensive Testing**: Enhanced test coverage for error conditions and edge cases
+- **Performance Optimization**: Efficient transaction processing with proper resource management
 
 ### Error Handling
 Provide clear error messages for transaction-related issues:
@@ -249,6 +293,17 @@ defer manager.Close()
 - Acquire locks in consistent order to prevent deadlocks
 - Release locks as early as possible
 - Monitor lock contention and adjust accordingly
+
+## Future Improvements
+
+### Better Test Coverage
+The current test suite is minimal and lacks comprehensive coverage for error conditions and edge cases. More extensive unit tests would improve confidence in changes.
+
+### Performance Benchmarking
+Adding benchmark tests for transaction operations would help quantify improvements and prevent performance regressions.
+
+### Automated Code Generation
+For repetitive patterns like transaction method implementations, code generation tools could reduce manual effort and ensure consistency.
 
 ## Access Requirements
 
