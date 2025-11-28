@@ -248,39 +248,8 @@ func (c *memcodec) DecodeIndexKeyWithSchema(key []byte, indexColumnTypes []types
 	return tenantID, tableID, indexID, indexValues, rowID, nil
 }
 
-func (c *memcodec) EncodePKKey(tenantID, tableID int64, pkValue interface{}) ([]byte, error) {
-	buf := &bytes.Buffer{}
-	buf.WriteByte(byte(KeyTypeTable))
-	writeMemComparableInt64(buf, tenantID)
-	buf.WriteByte(byte(KeyTypePK))
-	writeMemComparableInt64(buf, tableID)
 
-	valueBytes, err := c.encodeMemComparableValue(pkValue)
-	if err != nil {
-		return nil, fmt.Errorf("encode pk value: %w", err)
-	}
-	buf.Write(valueBytes)
 
-	return buf.Bytes(), nil
-}
-
-func (c *memcodec) EncodeMetaKey(tenantID int64, metaType string, key string) []byte {
-	buf := &bytes.Buffer{}
-	buf.WriteByte(byte(KeyTypeMeta))
-	writeMemComparableInt64(buf, tenantID)
-	buf.WriteString(metaType)
-	buf.WriteByte(':')
-	buf.WriteString(key)
-	return buf.Bytes()
-}
-
-func (c *memcodec) EncodeSequenceKey(tenantID int64, seqName string) []byte {
-	buf := &bytes.Buffer{}
-	buf.WriteByte(byte(KeyTypeSequence))
-	writeMemComparableInt64(buf, tenantID)
-	buf.WriteString(seqName)
-	return buf.Bytes()
-}
 
 func (c *memcodec) DecodeTableKey(key []byte) (tenantID, tableID, rowID int64, err error) {
 	if len(key) < 1 || KeyType(key[0]) != KeyTypeTable {
@@ -604,7 +573,7 @@ func (c *memcodec) encodeMemComparableValue(value interface{}) ([]byte, error) {
 }
 
 // EncodeTableKeyBuffer encodes a table key into the provided buffer, reusing it when possible
-func (c *memcodec) EncodeTableKeyBuffer(tenantID, tableID, rowID int64, buf []byte) []byte {
+func (c *memcodec) EncodeTableKeyBuffer(tenantID, tableID, rowID int64, buf []byte) ([]byte, error) {
 	// Reuse buffer when possible to eliminate allocations
 	if buf == nil {
 		buf = make([]byte, 0, 32) // Pre-allocate with reasonable size
@@ -677,68 +646,11 @@ func (c *memcodec) EncodeCompositeIndexKeyBuffer(tenantID, tableID, indexID int6
 }
 
 // EncodeIndexScanStartKey creates a start key for index scanning
-func (c *memcodec) EncodeIndexScanStartKey(tenantID, tableID, indexID int64) []byte {
-	// Pre-allocate with a reasonable size for index scan keys
-	buf := make([]byte, 0, 32)
-	buf = append(buf, byte(KeyTypeTable))
-	buf = appendMemComparableInt64(buf, tenantID)
-	buf = append(buf, byte(KeyTypeIndex))
-	buf = appendMemComparableInt64(buf, tableID)
-	buf = appendMemComparableInt64(buf, indexID)
-	return buf
-}
 
 // EncodeIndexScanEndKey creates an end key for index scanning
-func (c *memcodec) EncodeIndexScanEndKey(tenantID, tableID, indexID int64) []byte {
-	// Pre-allocate with a reasonable size for index scan keys
-	buf := make([]byte, 0, 33)
-	buf = append(buf, byte(KeyTypeTable))
-	buf = appendMemComparableInt64(buf, tenantID)
-	buf = append(buf, byte(KeyTypeIndex))
-	buf = appendMemComparableInt64(buf, tableID)
-	buf = appendMemComparableInt64(buf, indexID)
-
-	// Add a max byte to ensure we scan all indexes for this table+index
-	buf = append(buf, maxFlag)
-	return buf
-}
 
 // EncodePKKey encodes a primary key
-func (c *memcodec) EncodePKKey(tenantID, tableID int64, pkValue interface{}) ([]byte, error) {
-	// Pre-allocate with a reasonable size for PK keys
-	buf := make([]byte, 0, 64)
-	buf = append(buf, byte(KeyTypeTable))
-	buf = appendMemComparableInt64(buf, tenantID)
-	buf = append(buf, byte(KeyTypePK))
-	buf = appendMemComparableInt64(buf, tableID)
-
-	valueBytes, err := c.encodeMemComparableValue(pkValue)
-	if err != nil {
-		return nil, fmt.Errorf("encode pk value: %w", err)
-	}
-	buf = append(buf, valueBytes...)
-
-	return buf, nil
-}
 
 // EncodeMetaKey encodes a metadata key
-func (c *memcodec) EncodeMetaKey(tenantID int64, metaType string, key string) []byte {
-	// Pre-allocate with a reasonable size for meta keys
-	buf := make([]byte, 0, 64)
-	buf = append(buf, byte(KeyTypeMeta))
-	buf = appendMemComparableInt64(buf, tenantID)
-	buf = append(buf, metaType...)
-	buf = append(buf, ':')
-	buf = append(buf, key...)
-	return buf
-}
 
 // EncodeSequenceKey encodes a sequence key
-func (c *memcodec) EncodeSequenceKey(tenantID int64, seqName string) []byte {
-	// Pre-allocate with a reasonable size for sequence keys
-	buf := make([]byte, 0, 32)
-	buf = append(buf, byte(KeyTypeSequence))
-	buf = appendMemComparableInt64(buf, tenantID)
-	buf = append(buf, seqName...)
-	return buf
-}
