@@ -3,6 +3,7 @@ package types
 import (
 	"context"
 
+	"github.com/guileen/pglitedb/codec"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/types"
 )
@@ -15,6 +16,15 @@ type StorageEngine interface {
 	IDGeneration
 
 	Close() error
+	
+	// GetCodec returns the codec used by the engine
+	GetCodec() codec.Codec
+	
+	// GetKV returns the KV store used by the engine
+	GetKV() storage.KV
+	
+	// CheckForConflicts checks for conflicts with the given key
+	CheckForConflicts(txn storage.Transaction, key []byte) error
 }
 
 type RowUpdate struct {
