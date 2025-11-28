@@ -133,3 +133,33 @@ pglitedb-server
 # Build artifacts
 pglitedb-server
 
+bench
+regress
+product-draft
+profiling_results
+*.md
+!docs/**/*.md
+# Profiling results
+*.prof
+profiling_results/
+
+# Build artifacts and binaries
+pglitedb-server
+bin/
+build/
+dist/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
