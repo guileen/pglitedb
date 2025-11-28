@@ -1,8 +1,16 @@
 # Project Context Navigation
 
-★ Core Goal: Maintain efficient context management for AI agents working with PGliteDB
+★ Core Goal: Maintain efficient context management for AI agents working with PGliteDB, focusing on maintainability and technical debt reduction
 
 This file serves as the central index for project context. All AI agents should reference this file first, then proceed to the relevant aspect-specific context files.
+
+## Current Focus: Maintainability & Technical Debt Reduction
+❗ **Immediate Focus**: Code quality improvements and structural refactoring to address architectural review findings
+- Large file decomposition (catalog/system_tables.go, engine/pebble_engine.go)
+- Package structure improvements for better modularity
+- Resource management enhancements (connection pooling, lifecycle management)
+- Performance optimizations (caching, indexing)
+- Concurrency and thread safety fixes
 
 ## Context Quality Feedback Loop
 ⚠️ **Continuous Improvement**: This context system incorporates user reflections to continuously improve quality and relevance. See [REFLECT.md](./REFLECT.md) for contribution guidelines.
@@ -14,12 +22,27 @@ This file serves as the central index for project context. All AI agents should 
 - Proper index management established complex but necessary relationships between catalog metadata and physical storage
 - Error handling and resource cleanup properly implemented in transaction rollback functionality
 
+## Maintainability Focus Updates
+✅ **Technical Debt Reduction Progress**:
+- Engine file decomposition initiatives underway to address monolithic components
+- Code duplication elimination efforts in progress
+- Incomplete implementations being completed (TODO resolution)
+- Concurrency and thread safety improvements being implemented
+
 ## Critical Infrastructure Fix Priority
 ✅ **Completed**: Critical infrastructure stabilization successfully completed
 - System table implementation fully functional with proper OID consistency and referential integrity
 - DDL operations properly persisting metadata in system tables with consistent OID generation
 - Query execution paths restored with system catalog lookup functionality
 - Complex system table relationships properly maintained (pg_class.oid ↔ pg_attribute.attrelid, etc.)
+
+## Current Focus: Maintainability & Technical Debt Reduction
+❗ **Immediate Focus**: Code quality improvements and structural refactoring to address architectural review findings
+- Large file decomposition (catalog/system_tables.go, engine/pebble_engine.go)
+- Package structure improvements for better modularity
+- Resource management enhancements (connection pooling, lifecycle management)
+- Performance optimizations (caching, indexing)
+- Concurrency and thread safety fixes
 
 ## Recent Fixes Status
 ✅ **Completed**: Critical infrastructure stabilization successfully completed
@@ -52,6 +75,7 @@ This file serves as the central index for project context. All AI agents should 
 - System Catalog: `spec/Context_Catalog.md` ⚠️ **Key Focus**: OID consistency and system table relationships
 - Storage Engine: `spec/Context_Engine.md` ⚠️ **Key Focus**: Interface-driven design and bulk operation efficiency
 - DDL Parser: `spec/Context_DDL.md` ⚠️ **Key Focus**: Metadata persistence with consistent OID generation
+- Technical Debt Reduction: `spec/Context_TechDebt.md` ⚠️ **Key Focus**: Maintainability improvements and refactoring efforts
 - Component Cross-Reference: `spec/Context_CrossReference.md`
 - Troubleshooting Guide: `spec/Context_Troubleshooting.md`
 - Logging System: `spec/Context_Logging.md` ⚠️ **Key Focus**: Structured logging with slog-based implementation
@@ -63,6 +87,13 @@ This file serves as the central index for project context. All AI agents should 
 - Advanced PostgreSQL Compatibility: `spec/GUIDE_POSTGRESQL_COMPATIBILITY.md`
 - Performance & Scalability: `spec/GUIDE_PERFORMANCE_SCALABILITY.md`
 - Reliability & Operations: `spec/GUIDE_RELIABILITY_OPERATIONS.md`
+
+## Technical Debt Reduction Plans
+- Maintainability & Technical Debt Reduction Plan: `spec/MAINTAINABILITY_TECHNICAL_DEBT_REDUCTION_PLAN.md`
+- Technical Debt Reduction Implementation Plan: `spec/TECHNICAL_DEBT_REDUCTION_IMPLEMENTATION_PLAN.md`
+- Immediate Actions Implementation Plan: `spec/IMMEDIATE_ACTIONS_IMPLEMENTATION_PLAN.md`
+- Resource Management Enhancement Plan: `spec/RESOURCE_MANAGEMENT_ENHANCEMENT_PLAN.md`
+- Comprehensive Improvement Plan Summary: `spec/COMPREHENSIVE_IMPROVEMENT_PLAN_SUMMARY.md`
 
 ## Component Interaction Diagram
 ```mermaid
@@ -159,6 +190,13 @@ For detailed technical implementation, see [Transaction Management & MVCC Guide]
 - **Executor Implementation**: Consolidated query execution with improved error handling and logging
 - **Enhanced Observability**: Detailed timing and status information throughout the system
 
+### Current Focus: Technical Debt Reduction
+✅ **In Progress**: Maintainability improvements and refactoring efforts
+- **Engine Decomposition**: Breaking down monolithic engine files into specialized components
+- **Code Quality Improvements**: Eliminating duplication and completing placeholder implementations
+- **Resource Management Enhancement**: Implementing comprehensive pooling and leak detection
+- **Package Structure Refactoring**: Improving modularity and separation of concerns
+
 ### Current Focus: Maintainability & Technical Debt Reduction
 ❗ **Immediate Focus**: Code quality improvements and structural refactoring
 - Large file decomposition (catalog/system_tables.go, engine/pebble_engine.go)
@@ -168,10 +206,22 @@ For detailed technical implementation, see [Transaction Management & MVCC Guide]
 
 ### Core Implementation Areas (Post-Critical Fixes)
 1. **Code Quality & Maintainability** - Refactor large files, improve package structure, reduce technical debt
+   - Engine decomposition (Priority 1)
+   - Code duplication elimination (Priority 1)
+   - Incomplete implementations completion (Priority 1)
+   - Concurrency fixes (Priority 1)
 2. **Resource Management** - Implement connection pooling, timeout mechanisms, proper cleanup
+   - Enhanced resource pooling (Priority 2)
+   - Memory management optimization (Priority 2)
 3. **Performance Optimization** - Add caching, optimize system table queries, improve scalability
+   - System table caching (Priority 2)
+   - Advanced concurrency patterns (Priority 3)
 4. **Testability & Observability** - Enhance testing infrastructure, add monitoring and metrics
+   - Test coverage enhancement (Priority 2)
+   - Documentation and governance (Priority 3)
 5. **Reliability & Operations** - Implement backup/restore, replication, and monitoring features
+   - Package organization enhancement (Priority 2)
+   - Interface segregation (Priority 2)
 
 ## Implementation Quality Improvements
 ✅ **Key Quality Enhancements**:
