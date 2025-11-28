@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	engineTypes "github.com/guileen/pglitedb/engine/types"
+	"github.com/guileen/pglitedb/engine/pebble/utils"
 	"github.com/guileen/pglitedb/storage"
 	dbTypes "github.com/guileen/pglitedb/types"
 )
@@ -187,15 +188,121 @@ func (tx *snapshotTransaction) DeleteRowBatch(ctx context.Context, tenantID, tab
 	return nil
 }
 
+// UpdateRowsBatch updates multiple rows in a single batch operation for snapshot transactions
+func (tx *snapshotTransaction) UpdateRowsBatch(ctx context.Context, tenantID, tableID int64, rowUpdates map[int64]map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
+	if tx.closed {
+		return storage.ErrClosed
+	}
+
+	// Process all updates in a single batch to minimize transaction overhead
+	for rowID, updates := range rowUpdates {
+		if err := tx.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
+			return fmt.Errorf("update row %d: %w", rowID, err)
+		}
+	}
+	return nil
+}
+
+// DeleteRowsBatch deletes multiple rows in a single batch operation for snapshot transactions
+func (tx *snapshotTransaction) DeleteRowsBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) error {
+	if tx.closed {
+		return storage.ErrClosed
+	}
+
+	// Process all deletions in a single batch to minimize transaction overhead
+	for _, rowID := range rowIDs {
+		if err := tx.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
+			return fmt.Errorf("delete row %d: %w", rowID, err)
+		}
+	}
+	return nil
+}
+
 // UpdateRows updates multiple rows that match the given conditions for snapshot transactions
 func (tx *snapshotTransaction) UpdateRows(ctx context.Context, tenantID, tableID int64, updates map[string]*dbTypes.Value, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
 	if tx.closed {
 		return 0, storage.ErrClosed
 	}
 
-	// This would need to be implemented with a proper row handler
-	// For now, we'll return an error indicating it's not implemented
-	return 0, fmt.Errorf("UpdateRows not implemented")
+	// Collect all matching row IDs by scanning through the table
+	var matchingRowIDs []int64
+	
+	pe := tx.engine
+	
+	// Create iterator options to scan the entire table
+	iterOpts := &storage.IteratorOptions{
+		LowerBound: pe.codec.EncodeTableKey(tenantID, tableID, 0),
+		UpperBound: pe.codec.EncodeTableKey(tenantID, tableID, int64(^uint64(0)>>1)),
+	}
+	
+	iter := tx.snapshot.NewIterator(iterOpts)
+	if iter == nil {
+		return 0, fmt.Errorf("failed to create iterator")
+	}
+	defer iter.Close()
+	
+	// Call First() and check if it succeeded
+	if !iter.First() {
+		// Check if there was an error
+		if err := iter.Error(); err != nil {
+			return 0, fmt.Errorf("iterator error: %w", err)
+		}
+		// No rows to iterate over, which is fine
+		return 0, nil
+	}
+	
+	// Continue with the iteration
+	for iter.Valid() {
+		_, _, rowID, err := pe.codec.DecodeTableKey(iter.Key())
+		if err != nil {
+			return 0, fmt.Errorf("decode table key: %w", err)
+		}
+		
+		// Decode the row
+		value := iter.Value()
+		record, err := pe.codec.DecodeRow(value, schemaDef)
+		if err != nil {
+			return 0, fmt.Errorf("decode row: %w", err)
+		}
+		
+		// Check conditions
+		if tx.matchesConditions(record, conditions) {
+			matchingRowIDs = append(matchingRowIDs, rowID)
+		}
+		
+		// Move to next row
+		if !iter.Next() {
+			break
+		}
+	}
+	
+	// If no rows match, return early
+	if len(matchingRowIDs) == 0 {
+		return 0, nil
+	}
+	
+	// Use batch update if there are multiple rows
+	if len(matchingRowIDs) > 1 {
+		rowUpdates := make(map[int64]map[string]*dbTypes.Value)
+		for _, rowID := range matchingRowIDs {
+			rowUpdates[rowID] = updates
+		}
+		if err := tx.UpdateRowsBatch(ctx, tenantID, tableID, rowUpdates, schemaDef); err != nil {
+			return 0, fmt.Errorf("batch update rows: %w", err)
+		}
+		return int64(len(matchingRowIDs)), nil
+	}
+	
+	// Fallback to individual updates
+	var count int64
+	for _, rowID := range matchingRowIDs {
+		if err := tx.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
+			return count, fmt.Errorf("update row %d: %w", rowID, err)
+		}
+		count++
+	}
+	
+	return count, nil
 }
 
 // DeleteRows deletes multiple rows that match the given conditions for snapshot transactions
@@ -204,31 +311,107 @@ func (tx *snapshotTransaction) DeleteRows(ctx context.Context, tenantID, tableID
 		return 0, storage.ErrClosed
 	}
 
-	// This would need to be implemented with a proper row handler
-	// For now, we'll return an error indicating it's not implemented
-	return 0, fmt.Errorf("DeleteRows not implemented")
-}
-
-// DeleteRowsBatch deletes multiple rows in batch for snapshot transactions
-func (tx *snapshotTransaction) DeleteRowsBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) error {
-	if tx.closed {
-		return storage.ErrClosed
+	// Collect all matching row IDs by scanning through the table
+	var matchingRowIDs []int64
+	
+	pe := tx.engine
+	
+	// Create iterator options to scan the entire table
+	iterOpts := &storage.IteratorOptions{
+		LowerBound: pe.codec.EncodeTableKey(tenantID, tableID, 0),
+		UpperBound: pe.codec.EncodeTableKey(tenantID, tableID, int64(^uint64(0)>>1)),
 	}
-
-	// This would need to be implemented with a proper row handler
-	// For now, we'll return an error indicating it's not implemented
-	return fmt.Errorf("DeleteRowsBatch not implemented")
-}
-
-// UpdateRowsBatch updates multiple rows in a single batch operation for snapshot transactions
-func (tx *snapshotTransaction) UpdateRowsBatch(ctx context.Context, tenantID, tableID int64, rowUpdates map[int64]map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
-	// Process all updates in a single batch to minimize transaction overhead
-	for rowID, updates := range rowUpdates {
-		if err := tx.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
-			return fmt.Errorf("update row %d: %w", rowID, err)
+	
+	iter := tx.snapshot.NewIterator(iterOpts)
+	if iter == nil {
+		return 0, fmt.Errorf("failed to create iterator")
+	}
+	defer iter.Close()
+	
+	// Call First() and check if it succeeded
+	if !iter.First() {
+		// Check if there was an error
+		if err := iter.Error(); err != nil {
+			return 0, fmt.Errorf("iterator error: %w", err)
+		}
+		// No rows to iterate over, which is fine
+		return 0, nil
+	}
+	
+	// Continue with the iteration
+	for iter.Valid() {
+		_, _, rowID, err := pe.codec.DecodeTableKey(iter.Key())
+		if err != nil {
+			return 0, fmt.Errorf("decode table key: %w", err)
+		}
+		
+		// Decode the row
+		value := iter.Value()
+		record, err := pe.codec.DecodeRow(value, schemaDef)
+		if err != nil {
+			return 0, fmt.Errorf("decode row: %w", err)
+		}
+		
+		// Check conditions
+		if tx.matchesConditions(record, conditions) {
+			matchingRowIDs = append(matchingRowIDs, rowID)
+		}
+		
+		// Move to next row
+		if !iter.Next() {
+			break
 		}
 	}
-	return nil
+	
+	// If no rows match, return early
+	if len(matchingRowIDs) == 0 {
+		return 0, nil
+	}
+	
+	// Use batch delete if there are multiple rows
+	if len(matchingRowIDs) > 1 {
+		if err := tx.DeleteRowsBatch(ctx, tenantID, tableID, matchingRowIDs, schemaDef); err != nil {
+			return 0, fmt.Errorf("batch delete rows: %w", err)
+		}
+		return int64(len(matchingRowIDs)), nil
+	}
+	
+	// Fallback to individual deletions
+	var count int64
+	for _, rowID := range matchingRowIDs {
+		if err := tx.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
+			return count, fmt.Errorf("delete row %d: %w", rowID, err)
+		}
+		count++
+	}
+	
+	return count, nil
+}
+
+// matchesConditions checks if a record matches the given conditions
+func (tx *snapshotTransaction) matchesConditions(record *dbTypes.Record, conditions map[string]interface{}) bool {
+	for col, val := range conditions {
+		field, exists := record.Data[col]
+		if !exists {
+			return false
+		}
+		
+		// Direct comparison first
+		if field.Data == val {
+			continue
+		}
+		
+		// Handle numeric type mismatches (e.g., int vs int64)
+		// This is a common issue when data is encoded/decoded
+		if utils.IsNumeric(field.Data) && utils.IsNumeric(val) {
+			if utils.CompareNumerics(field.Data, val) == 0 {
+				continue
+			}
+		}
+		
+		return false
+	}
+	return true
 }
 
 // Commit commits the transaction
