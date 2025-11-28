@@ -31,9 +31,11 @@ func IsRowIterator(iter engineTypes.RowIterator) bool {
 }
 
 type pebbleEngine struct {
-	kv          storage.KV
-	codec       codec.Codec
-	idGenerator *dbTypes.SnowflakeIDGenerator
+	kv             storage.KV
+	codec          codec.Codec
+	idGenerator    *IDGenerator
+	indexManager   *IndexManager
+	filterEvaluator *FilterEvaluator
 
 	tableIDCounters map[int64]*int64
 	indexIDCounters map[string]*int64
@@ -46,7 +48,9 @@ func NewPebbleEngine(kvStore storage.KV, c codec.Codec) engineTypes.StorageEngin
 	return &pebbleEngine{
 		kv:              kvStore,
 		codec:           c,
-		idGenerator:     dbTypes.NewSnowflakeIDGenerator(0),
+		idGenerator:     NewIDGenerator(),
+		indexManager:    NewIndexManager(kvStore, c),
+		filterEvaluator: NewFilterEvaluator(),
 		tableIDCounters: make(map[int64]*int64),
 		indexIDCounters: indexIDCounters,
 	}
@@ -57,7 +61,7 @@ func (e *pebbleEngine) Close() error {
 }
 
 func (e *pebbleEngine) NextRowID(ctx context.Context, tenantID, tableID int64) (int64, error) {
-	return e.idGenerator.Next()
+	return e.idGenerator.NextRowID(ctx, tenantID, tableID)
 }
 
 func (e *pebbleEngine) NextTableID(ctx context.Context, tenantID int64) (int64, error) {
@@ -400,89 +404,11 @@ func (e *pebbleEngine) LookupIndex(ctx context.Context, tenantID, tableID, index
 }
 
 func (e *pebbleEngine) updateIndexes(ctx context.Context, tenantID, tableID, rowID int64, row *dbTypes.Record, schemaDef *dbTypes.TableDefinition, isInsert bool) error {
-	if schemaDef.Indexes == nil {
-		return nil
-	}
-
-	for i, indexDef := range schemaDef.Indexes {
-		indexID := int64(i + 1)
-
-		indexValues := make([]interface{}, 0, len(indexDef.Columns))
-		allValuesPresent := true
-
-		for _, colName := range indexDef.Columns {
-			if val, ok := row.Data[colName]; ok && val != nil {
-				indexValues = append(indexValues, val.Data)
-			} else {
-				allValuesPresent = false
-				break
-			}
-		}
-
-		if allValuesPresent && len(indexValues) > 0 {
-			var indexKey []byte
-			var err error
-
-			if len(indexValues) == 1 {
-				indexKey, err = e.codec.EncodeIndexKey(tenantID, tableID, indexID, indexValues[0], rowID)
-			} else {
-				indexKey, err = e.codec.EncodeCompositeIndexKey(tenantID, tableID, indexID, indexValues, rowID)
-			}
-
-			if err != nil {
-				return fmt.Errorf("encode index key: %w", err)
-			}
-
-			if err := e.kv.Set(ctx, indexKey, []byte{}); err != nil {
-				return fmt.Errorf("set index: %w", err)
-			}
-		}
-	}
-
-	return nil
+	return e.indexManager.UpdateIndexes(ctx, tenantID, tableID, rowID, row, schemaDef, isInsert)
 }
 
 func (e *pebbleEngine) batchUpdateIndexes(batch storage.Batch, tenantID, tableID, rowID int64, row *dbTypes.Record, schemaDef *dbTypes.TableDefinition) error {
-	if schemaDef.Indexes == nil {
-		return nil
-	}
-
-	for i, indexDef := range schemaDef.Indexes {
-		indexID := int64(i + 1)
-
-		indexValues := make([]interface{}, 0, len(indexDef.Columns))
-		allValuesPresent := true
-
-		for _, colName := range indexDef.Columns {
-			if val, ok := row.Data[colName]; ok && val != nil {
-				indexValues = append(indexValues, val.Data)
-			} else {
-				allValuesPresent = false
-				break
-			}
-		}
-
-		if allValuesPresent && len(indexValues) > 0 {
-			var indexKey []byte
-			var err error
-
-			if len(indexValues) == 1 {
-				indexKey, err = e.codec.EncodeIndexKey(tenantID, tableID, indexID, indexValues[0], rowID)
-			} else {
-				indexKey, err = e.codec.EncodeCompositeIndexKey(tenantID, tableID, indexID, indexValues, rowID)
-			}
-
-			if err != nil {
-				return fmt.Errorf("encode index key: %w", err)
-			}
-
-			if err := batch.Set(indexKey, []byte{}); err != nil {
-				return fmt.Errorf("batch set index: %w", err)
-			}
-		}
-	}
-
-	return nil
+	return e.indexManager.BatchUpdateIndexes(batch, tenantID, tableID, rowID, row, schemaDef)
 }
 
 func (e *pebbleEngine) batchUpdateIndexesBulk(batch storage.Batch, tenantID, tableID int64, rows map[int64]*dbTypes.Record, schemaDef *dbTypes.TableDefinition) error {
@@ -531,311 +457,27 @@ func (e *pebbleEngine) batchUpdateIndexesBulk(batch storage.Batch, tenantID, tab
 }
 
 func (e *pebbleEngine) deleteIndexes(ctx context.Context, tenantID, tableID, rowID int64, row *dbTypes.Record, schemaDef *dbTypes.TableDefinition) error {
-	if schemaDef.Indexes == nil {
-		return nil
-	}
-
-	for i, indexDef := range schemaDef.Indexes {
-		indexID := int64(i + 1)
-
-		// Collect index values for all columns in this index
-		indexValues := make([]interface{}, 0, len(indexDef.Columns))
-		allValuesPresent := true
-
-		for _, colName := range indexDef.Columns {
-			if val, ok := row.Data[colName]; ok && val != nil {
-				indexValues = append(indexValues, val.Data)
-			} else {
-				// If any indexed column is null, we don't have an index entry for this row
-				allValuesPresent = false
-				break
-			}
-		}
-
-		// Only delete index entry if all values were present
-		if allValuesPresent && len(indexValues) > 0 {
-			var indexKey []byte
-			var err error
-
-			if len(indexValues) == 1 {
-				// Single column index
-				indexKey, err = e.codec.EncodeIndexKey(tenantID, tableID, indexID, indexValues[0], rowID)
-			} else {
-				// Composite index
-				indexKey, err = e.codec.EncodeCompositeIndexKey(tenantID, tableID, indexID, indexValues, rowID)
-			}
-
-			if err != nil {
-				return fmt.Errorf("encode index key: %w", err)
-			}
-
-			if err := e.kv.Delete(ctx, indexKey); err != nil {
-				return fmt.Errorf("delete index: %w", err)
-			}
-		}
-	}
-
-	return nil
+	return e.indexManager.DeleteIndexes(ctx, tenantID, tableID, rowID, row, schemaDef)
 }
 
 func (e *pebbleEngine) deleteIndexesInBatch(batch storage.Batch, tenantID, tableID, rowID int64, row *dbTypes.Record, schemaDef *dbTypes.TableDefinition) error {
-	if schemaDef.Indexes == nil {
-		return nil
-	}
-
-	for i, indexDef := range schemaDef.Indexes {
-		indexID := int64(i + 1)
-
-		indexValues := make([]interface{}, 0, len(indexDef.Columns))
-		allValuesPresent := true
-
-		for _, colName := range indexDef.Columns {
-			if val, ok := row.Data[colName]; ok && val != nil {
-				indexValues = append(indexValues, val.Data)
-			} else {
-				allValuesPresent = false
-				break
-			}
-		}
-
-		if allValuesPresent && len(indexValues) > 0 {
-			var indexKey []byte
-			var err error
-
-			if len(indexValues) == 1 {
-				indexKey, err = e.codec.EncodeIndexKey(tenantID, tableID, indexID, indexValues[0], rowID)
-			} else {
-				indexKey, err = e.codec.EncodeCompositeIndexKey(tenantID, tableID, indexID, indexValues, rowID)
-			}
-
-			if err != nil {
-				return fmt.Errorf("encode index key: %w", err)
-			}
-
-			if err := batch.Delete(indexKey); err != nil {
-				return fmt.Errorf("batch delete index: %w", err)
-			}
-		}
-	}
-
-	return nil
+	return e.indexManager.DeleteIndexesInBatch(batch, tenantID, tableID, rowID, row, schemaDef)
 }
 
 func (e *pebbleEngine) deleteIndexesBulk(batch storage.Batch, tenantID, tableID int64, rows map[int64]*dbTypes.Record, schemaDef *dbTypes.TableDefinition) error {
-	if schemaDef.Indexes == nil || len(rows) == 0 {
-		return nil
-	}
-
-	for i, indexDef := range schemaDef.Indexes {
-		indexID := int64(i + 1)
-
-		for rowID, row := range rows {
-			indexValues := make([]interface{}, 0, len(indexDef.Columns))
-			allValuesPresent := true
-
-			for _, colName := range indexDef.Columns {
-				if val, ok := row.Data[colName]; ok && val != nil {
-					indexValues = append(indexValues, val.Data)
-				} else {
-					allValuesPresent = false
-					break
-				}
-			}
-
-			if allValuesPresent && len(indexValues) > 0 {
-				var indexKey []byte
-				var err error
-
-				if len(indexValues) == 1 {
-					indexKey, err = e.codec.EncodeIndexKey(tenantID, tableID, indexID, indexValues[0], rowID)
-				} else {
-					indexKey, err = e.codec.EncodeCompositeIndexKey(tenantID, tableID, indexID, indexValues, rowID)
-				}
-
-				if err != nil {
-					return fmt.Errorf("encode index key: %w", err)
-				}
-
-				if err := batch.Delete(indexKey); err != nil {
-					return fmt.Errorf("batch delete index: %w", err)
-				}
-			}
-		}
-	}
-
-	return nil
+	return e.indexManager.DeleteIndexesBulk(batch, tenantID, tableID, rows, schemaDef)
 }
 
 // EvaluateFilter evaluates a filter expression against a record
 func (e *pebbleEngine) EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool {
-	if filter == nil {
-		return true
-	}
-	
-	switch filter.Type {
-	case "simple":
-		return e.evaluateSimpleFilter(filter, record)
-		
-	case "and":
-		for _, child := range filter.Children {
-			if !e.EvaluateFilter(child, record) {
-				return false
-			}
-		}
-		return true
-		
-	case "or":
-		for _, child := range filter.Children {
-			if e.EvaluateFilter(child, record) {
-				return true
-			}
-		}
-		return false
-		
-	case "not":
-		if len(filter.Children) > 0 {
-			return !e.EvaluateFilter(filter.Children[0], record)
-		}
-		return true
-		
-	default:
-		return true
-	}
+	return e.filterEvaluator.EvaluateFilter(filter, record)
 }
 
-// evaluateSimpleFilter evaluates a simple filter condition
-func (e *pebbleEngine) evaluateSimpleFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool {
-	val, exists := record.Data[filter.Column]
-	if !exists {
-		return false
-	}
 
-	if val.Data == nil {
-		return filter.Value == nil
-	}
 
-	switch filter.Operator {
-	case "=":
-		return e.compareValues(val.Data, filter.Value) == 0
-	case ">":
-		return e.compareValues(val.Data, filter.Value) > 0
-	case ">=":
-		return e.compareValues(val.Data, filter.Value) >= 0
-	case "<":
-		return e.compareValues(val.Data, filter.Value) < 0
-	case "<=":
-		return e.compareValues(val.Data, filter.Value) <= 0
-	case "IN":
-		for _, v := range filter.Values {
-			if e.compareValues(val.Data, v) == 0 {
-				return true
-			}
-		}
-		return false
-	case "BETWEEN":
-		if len(filter.Values) >= 2 {
-			return e.compareValues(val.Data, filter.Values[0]) >= 0 &&
-				e.compareValues(val.Data, filter.Values[1]) <= 0
-		}
-		return false
-	default:
-		return true
-	}
-}
 
-// compareValues compares two values, returns -1/0/1 like strcmp
-func (e *pebbleEngine) compareValues(a, b interface{}) int {
-	// Handle nil cases
-	if a == nil && b == nil {
-		return 0
-	}
-	if a == nil {
-		return -1
-	}
-	if b == nil {
-		return 1
-	}
-	
-	// Type-specific comparison
-	switch av := a.(type) {
-	case int64:
-		bv := toInt64(b)
-		if av < bv {
-			return -1
-		} else if av > bv {
-			return 1
-		}
-		return 0
-		
-	case int:
-		return e.compareValues(int64(av), b)
-		
-	case float64:
-		bv := toFloat64(b)
-		if av < bv {
-			return -1
-		} else if av > bv {
-			return 1
-		}
-		return 0
-		
-	case string:
-		bv, ok := b.(string)
-		if !ok {
-			return 1
-		}
-		if av < bv {
-			return -1
-		} else if av > bv {
-			return 1
-		}
-		return 0
-		
-	case bool:
-		bv, ok := b.(bool)
-		if !ok {
-			return 1
-		}
-		if av == bv {
-			return 0
-		}
-		if !av && bv {
-			return -1
-		}
-		return 1
-		
-	default:
-		return 0
-	}
-}
 
-func toInt64(v interface{}) int64 {
-	switch val := v.(type) {
-	case int64:
-		return val
-	case int:
-		return int64(val)
-	case int32:
-		return int64(val)
-	case float64:
-		return int64(val)
-	default:
-		return 0
-	}
-}
 
-func toFloat64(v interface{}) float64 {
-	switch val := v.(type) {
-	case float64:
-		return val
-	case int64:
-		return float64(val)
-	case int:
-		return float64(val)
-	default:
-		return 0
-	}
-}
 
 // buildFilterExpression converts a simple map filter to a complex FilterExpression
 func (e *pebbleEngine) buildFilterExpression(conditions map[string]interface{}) *engineTypes.FilterExpression {

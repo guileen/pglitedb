@@ -5,7 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	interfaces "github.com/guileen/pglitedb/interfaces"
 )
+
+// Ensure Record implements interfaces.RecordInterface
+// var _ interfaces.RecordInterface = &Record{}
 
 // ColumnDefinition defines a table column
 type ColumnDefinition struct {
@@ -185,6 +190,19 @@ type Record struct {
 	CreatedAt time.Time              `json:"created_at"`
 	UpdatedAt time.Time              `json:"updated_at"`
 	Version   int                    `json:"version"`
+}
+
+// GetData returns the data map of the record
+func (r *Record) GetData() map[string]*interfaces.Value {
+	// Convert types.Value to interfaces.Value
+	data := make(map[string]*interfaces.Value)
+	for k, v := range r.Data {
+		data[k] = &interfaces.Value{
+			Data: v.Data,
+			Type: string(v.Type),
+		}
+	}
+	return data
 }
 
 // Migration represents a database migration
