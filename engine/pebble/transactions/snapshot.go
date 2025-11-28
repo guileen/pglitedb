@@ -232,6 +232,13 @@ func (tx *SnapshotTransaction) UpdateRows(ctx context.Context, tenantID, tableID
 	
 	// Continue with the iteration
 	for iter.Valid() {
+		// Check for context cancellation
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		default:
+		}
+		
 		_, _, rowID, err := tx.codec.DecodeTableKey(iter.Key())
 		if err != nil {
 			return 0, fmt.Errorf("decode table key: %w", err)
@@ -275,6 +282,13 @@ func (tx *SnapshotTransaction) UpdateRows(ctx context.Context, tenantID, tableID
 	// Fallback to individual updates
 	var count int64
 	for _, rowID := range matchingRowIDs {
+		// Check for context cancellation
+		select {
+		case <-ctx.Done():
+			return count, ctx.Err()
+		default:
+		}
+		
 		if err := tx.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
 			return count, fmt.Errorf("update row %d: %w", rowID, err)
 		}
@@ -317,6 +331,13 @@ func (tx *SnapshotTransaction) DeleteRows(ctx context.Context, tenantID, tableID
 	
 	// Continue with the iteration
 	for iter.Valid() {
+		// Check for context cancellation
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		default:
+		}
+		
 		_, _, rowID, err := tx.codec.DecodeTableKey(iter.Key())
 		if err != nil {
 			return 0, fmt.Errorf("decode table key: %w", err)
@@ -356,6 +377,13 @@ func (tx *SnapshotTransaction) DeleteRows(ctx context.Context, tenantID, tableID
 	// Fallback to individual deletions
 	var count int64
 	for _, rowID := range matchingRowIDs {
+		// Check for context cancellation
+		select {
+		case <-ctx.Done():
+			return count, ctx.Err()
+		default:
+		}
+		
 		if err := tx.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
 			return count, fmt.Errorf("delete row %d: %w", rowID, err)
 		}
