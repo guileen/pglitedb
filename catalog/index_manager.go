@@ -80,6 +80,21 @@ func (m *indexManager) DropIndex(ctx context.Context, tenantID int64, tableName 
 	return nil
 }
 
+func (m *indexManager) ListIndexes(ctx context.Context, tenantID int64, tableName string) ([]*types.IndexDefinition, error) {
+	schema, _, err := m.getTableSchema(tenantID, tableName)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Convert slice of IndexDefinition to slice of *IndexDefinition
+	indexes := make([]*types.IndexDefinition, len(schema.Indexes))
+	for i := range schema.Indexes {
+		indexes[i] = &schema.Indexes[i]
+	}
+	
+	return indexes, nil
+}
+
 func (m *indexManager) getTableSchema(tenantID int64, tableName string) (*types.TableDefinition, int64, error) {
 	key := makeTableKey(tenantID, tableName)
 

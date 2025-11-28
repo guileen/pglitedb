@@ -27,6 +27,7 @@ type tableManager struct {
 	cache    *internal.SchemaCache
 	statsCollector interfaces.StatsManager
 	systemCatalog system.SystemCatalog
+	enhancedStats system.StatisticsManager // Enhanced statistics manager for cost-based optimization
 }
 
 // GetEngine returns the storage engine
@@ -60,6 +61,7 @@ func NewTableManager(eng engineTypes.StorageEngine) Manager {
 	tm.QueryManager = newQueryManager(tm.scanOps, cache, tm)
 	tm.statsCollector = NewStatsCollector(interfaces.TableManager(tm))
 	tm.systemCatalog = system.NewCatalog(interfaces.TableManager(tm))
+	tm.enhancedStats = NewEnhancedStatsManager(tm)
 	return tm
 }
 
@@ -88,6 +90,7 @@ func NewTableManagerWithKV(eng engineTypes.StorageEngine, kv storage.KV) Manager
 	tm.QueryManager = newQueryManager(tm.scanOps, cache, tm)
 	tm.statsCollector = NewStatsCollector(interfaces.TableManager(tm))
 	tm.systemCatalog = system.NewCatalog(interfaces.TableManager(tm))
+	tm.enhancedStats = NewEnhancedStatsManager(tm)
 	return tm
 }
 
@@ -123,6 +126,11 @@ func (tm *tableManager) DeleteRows(ctx context.Context, tenantID int64, tableNam
 // GetStatsCollector returns the statistics collector for this manager
 func (tm *tableManager) GetStatsCollector() interfaces.StatsManager {
 	return tm.statsCollector
+}
+
+// GetEnhancedStatsManager returns the enhanced statistics manager for cost-based optimization
+func (tm *tableManager) GetEnhancedStatsManager() system.StatisticsManager {
+	return tm.enhancedStats
 }
 
 // QuerySystemTable implements the Manager interface

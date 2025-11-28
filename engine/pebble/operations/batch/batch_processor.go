@@ -3,6 +3,7 @@ package batch
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/guileen/pglitedb/codec"
 	engineTypes "github.com/guileen/pglitedb/engine/types"
@@ -11,17 +12,57 @@ import (
 	dbTypes "github.com/guileen/pglitedb/types"
 )
 
+// BatchProcessorConfig holds configuration for batch processing
+type BatchProcessorConfig struct {
+	MaxBatchSize     int // Maximum batch size
+	MinBatchSize     int // Minimum batch size
+	TargetBatchSize  int // Target batch size for optimal performance
+	AdaptiveBatching bool // Whether to use adaptive batching
+}
+
+// DefaultBatchProcessorConfig returns the default batch processor configuration
+func DefaultBatchProcessorConfig() *BatchProcessorConfig {
+	return &BatchProcessorConfig{
+		MaxBatchSize:     10000,
+		MinBatchSize:     100,
+		TargetBatchSize:  1000,
+		AdaptiveBatching: true,
+	}
+}
+
 // BatchProcessorImpl implements batch processing operations
 type BatchProcessorImpl struct {
-	kv    storage.KV
-	codec codec.Codec
+	kv     storage.KV
+	codec  codec.Codec
+	config *BatchProcessorConfig
+	stats  *BatchProcessorStats
+}
+
+// BatchProcessorStats holds statistics for batch processing
+type BatchProcessorStats struct {
+	TotalBatchesProcessed int64
+	TotalRowsProcessed    int64
+	AverageBatchSize      float64
+	QueueLength           int64
 }
 
 // NewBatchProcessor creates a new batch processor
 func NewBatchProcessor(kv storage.KV, codec codec.Codec) *BatchProcessorImpl {
 	return &BatchProcessorImpl{
-		kv:    kv,
-		codec: codec,
+		kv:     kv,
+		codec:  codec,
+		config: DefaultBatchProcessorConfig(),
+		stats:  &BatchProcessorStats{},
+	}
+}
+
+// NewBatchProcessorWithConfig creates a new batch processor with custom configuration
+func NewBatchProcessorWithConfig(kv storage.KV, codec codec.Codec, config *BatchProcessorConfig) *BatchProcessorImpl {
+	return &BatchProcessorImpl{
+		kv:     kv,
+		codec:  codec,
+		config: config,
+		stats:  &BatchProcessorStats{},
 	}
 }
 
@@ -191,4 +232,83 @@ func (bp *BatchProcessorImpl) getRow(ctx context.Context, tenantID, tableID, row
 	}
 
 	return record, nil
+}
+
+// Helper functions for min/max
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// getOptimalBatchSize determines the optimal batch size based on current queue length and configuration
+func (bp *BatchProcessorImpl) getOptimalBatchSize(currentQueueLength int) int {
+	if !bp.config.AdaptiveBatching {
+		return bp.config.TargetBatchSize
+	}
+	
+	// Adjust batch size based on queue length
+	if currentQueueLength > bp.config.MaxBatchSize*2 {
+		// High queue load, increase batch size to reduce queue pressure
+		return min(bp.config.MaxBatchSize, bp.config.TargetBatchSize*2)
+	} else if currentQueueLength < bp.config.MinBatchSize {
+		// Low queue load, decrease batch size for better responsiveness
+		return max(bp.config.MinBatchSize, bp.config.TargetBatchSize/2)
+	}
+	
+	// Normal conditions, use target batch size
+	return bp.config.TargetBatchSize
+}
+
+// processBatchInsertInChunks processes large batch inserts in smaller chunks
+func (bp *BatchProcessorImpl) processBatchInsertInChunks(ctx context.Context, tenantID, tableID int64, rows []*dbTypes.Record, schemaDef *dbTypes.TableDefinition, chunkSize int) ([]int64, error) {
+	totalRows := len(rows)
+	allRowIDs := make([]int64, 0, totalRows)
+	
+	for i := 0; i < totalRows; i += chunkSize {
+		end := i + chunkSize
+		if end > totalRows {
+			end = totalRows
+		}
+		
+		chunk := rows[i:end]
+		rowIDs, err := bp.ProcessBatchInsert(ctx, tenantID, tableID, chunk, schemaDef)
+		if err != nil {
+			return nil, err
+		}
+		
+		allRowIDs = append(allRowIDs, rowIDs...)
+	}
+	
+	return allRowIDs, nil
+}
+
+// GetStats returns the current batch processor statistics
+func (bp *BatchProcessorImpl) GetStats() *BatchProcessorStats {
+	return &BatchProcessorStats{
+		TotalBatchesProcessed: atomic.LoadInt64(&bp.stats.TotalBatchesProcessed),
+		TotalRowsProcessed:    atomic.LoadInt64(&bp.stats.TotalRowsProcessed),
+		AverageBatchSize:      bp.calculateAverageBatchSize(),
+		QueueLength:           atomic.LoadInt64(&bp.stats.QueueLength),
+	}
+}
+
+// calculateAverageBatchSize calculates the average batch size
+func (bp *BatchProcessorImpl) calculateAverageBatchSize() float64 {
+	totalBatches := atomic.LoadInt64(&bp.stats.TotalBatchesProcessed)
+	totalRows := atomic.LoadInt64(&bp.stats.TotalRowsProcessed)
+	
+	if totalBatches == 0 {
+		return 0
+	}
+	
+	return float64(totalRows) / float64(totalBatches)
 }

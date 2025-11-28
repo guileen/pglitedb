@@ -35,12 +35,17 @@ type ResourceManager struct {
 	largeBufferPool  sync.Pool  // 1024-byte buffers
 	hugeBufferPool   sync.Pool  // 4096-byte buffers
 	
+	// Adaptive pool sizing fields
+	poolSizes        map[string]int // Track current pool sizes
+	poolHitRates     map[string]float64 // Track pool hit rates
+	poolAdjustmentMu sync.RWMutex   // Mutex for pool adjustment operations
+	
 	metrics          *ResourceMetricsCollector
 }
 
 // NewResourceManager creates a new resource manager
 func NewResourceManager() *ResourceManager {
-	return &ResourceManager{
+	rm := &ResourceManager{
 		iteratorPool: sync.Pool{
 			New: func() interface{} {
 				return &scan.RowIterator{}
@@ -130,8 +135,27 @@ func NewResourceManager() *ResourceManager {
 				return make([]byte, 0, 4096)
 			},
 		},
+		poolSizes: make(map[string]int),
+		poolHitRates: make(map[string]float64),
 		metrics: NewResourceMetricsCollector(),
 	}
+	
+	// Initialize default pool sizes
+	rm.poolSizes["iterator"] = 100
+	rm.poolSizes["batch"] = 100
+	rm.poolSizes["txn"] = 100
+	rm.poolSizes["record"] = 1000
+	rm.poolSizes["value"] = 1000
+	rm.poolSizes["buffer"] = 1000
+	rm.poolSizes["keyEncoder"] = 100
+	rm.poolSizes["filterExpr"] = 100
+	rm.poolSizes["scanResult"] = 100
+	rm.poolSizes["indexKey"] = 100
+	rm.poolSizes["tableKey"] = 100
+	rm.poolSizes["metaKey"] = 100
+	rm.poolSizes["compositeKey"] = 100
+	
+	return rm
 }
 
 // batchWrapper wraps a storage batch for pooling
@@ -485,4 +509,86 @@ var defaultResourceManager = NewResourceManager()
 // GetResourceManager returns the default resource manager
 func GetResourceManager() *ResourceManager {
 	return defaultResourceManager
+}
+
+// adjustPoolSizes adapts pool sizes based on hit rates and usage patterns
+func (rm *ResourceManager) adjustPoolSizes() {
+	rm.poolAdjustmentMu.Lock()
+	defer rm.poolAdjustmentMu.Unlock()
+	
+	// Get current metrics
+	metrics := rm.metrics.GetMetrics()
+	
+	// Calculate hit rates for major pools
+	if metrics.IteratorAcquired > 0 {
+		hitRate := float64(metrics.PoolHits) / float64(metrics.IteratorAcquired)
+		rm.poolHitRates["iterator"] = hitRate
+		
+		// Adjust pool size based on hit rate
+		if hitRate < 0.8 { // Low hit rate, increase pool size
+			rm.poolSizes["iterator"] = int(float64(rm.poolSizes["iterator"]) * 1.2)
+		} else if hitRate > 0.95 { // High hit rate, pool might be too large
+			rm.poolSizes["iterator"] = int(float64(rm.poolSizes["iterator"]) * 0.95)
+		}
+	}
+	
+	// Similar adjustments for other pools
+	if metrics.BatchAcquired > 0 {
+		hitRate := float64(metrics.PoolHits) / float64(metrics.BatchAcquired)
+		rm.poolHitRates["batch"] = hitRate
+		
+		if hitRate < 0.8 {
+			rm.poolSizes["batch"] = int(float64(rm.poolSizes["batch"]) * 1.2)
+		} else if hitRate > 0.95 {
+			rm.poolSizes["batch"] = int(float64(rm.poolSizes["batch"]) * 0.95)
+		}
+	}
+	
+	if metrics.TxnAcquired > 0 {
+		hitRate := float64(metrics.PoolHits) / float64(metrics.TxnAcquired)
+		rm.poolHitRates["txn"] = hitRate
+		
+		if hitRate < 0.8 {
+			rm.poolSizes["txn"] = int(float64(rm.poolSizes["txn"]) * 1.2)
+		} else if hitRate > 0.95 {
+			rm.poolSizes["txn"] = int(float64(rm.poolSizes["txn"]) * 0.95)
+		}
+	}
+	
+	// Ensure minimum pool sizes
+	for poolName, size := range rm.poolSizes {
+		if size < 10 {
+			rm.poolSizes[poolName] = 10
+		}
+	}
+}
+
+// GetPoolHitRate returns the current hit rate for a specific pool
+func (rm *ResourceManager) GetPoolHitRate(poolName string) float64 {
+	rm.poolAdjustmentMu.RLock()
+	defer rm.poolAdjustmentMu.RUnlock()
+	
+	if hitRate, exists := rm.poolHitRates[poolName]; exists {
+		return hitRate
+	}
+	return 0.0
+}
+
+// GetPoolSize returns the current size for a specific pool
+func (rm *ResourceManager) GetPoolSize(poolName string) int {
+	rm.poolAdjustmentMu.RLock()
+	defer rm.poolAdjustmentMu.RUnlock()
+	
+	if size, exists := rm.poolSizes[poolName]; exists {
+		return size
+	}
+	return 0
+}
+
+// SetPoolSize manually sets the size for a specific pool
+func (rm *ResourceManager) SetPoolSize(poolName string, size int) {
+	rm.poolAdjustmentMu.Lock()
+	defer rm.poolAdjustmentMu.Unlock()
+	
+	rm.poolSizes[poolName] = size
 }

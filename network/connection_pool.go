@@ -24,6 +24,17 @@ type PoolConfig struct {
 	
 	// Metrics configuration
 	MetricsEnabled bool
+	
+	// Adaptive pooling configuration
+	AdaptivePoolingEnabled bool
+	TargetHitRate          float64 // Target hit rate percentage (0-100)
+	MinHitRateThreshold    float64 // Minimum hit rate threshold to trigger expansion (0-100)
+	MaxHitRateThreshold    float64 // Maximum hit rate threshold to trigger contraction (0-100)
+	AdaptationInterval     time.Duration // How often to check and adapt pool size
+	ExpansionFactor        float64 // Factor by which to expand pool (e.g., 1.5 = 50% increase)
+	ContractionFactor      float64 // Factor by which to contract pool (e.g., 0.8 = 20% decrease)
+	MaxAdaptiveConnections int     // Maximum connections when using adaptive sizing
+	MinAdaptiveConnections int     // Minimum connections when using adaptive sizing
 }
 
 // ConnectionPoolError represents errors specific to connection pool operations
@@ -56,6 +67,10 @@ type ConnectionPool struct {
 	activeCount int32 // atomic counter
 	stats       PoolStats
 	done        chan struct{}
+	
+	// Adaptive pooling fields
+	lastAdaptationTime time.Time
+	hitRateHistory     []float64
 }
 
 // PoolStats contains statistics about the pool
@@ -119,12 +134,40 @@ func NewConnectionPool(config PoolConfig, factory ConnectionFactory) *Connection
 	if config.HealthCheckPeriod <= 0 {
 		config.HealthCheckPeriod = 1 * time.Minute
 	}
+	
+	// Set adaptive pooling defaults
+	if config.TargetHitRate <= 0 {
+		config.TargetHitRate = 80.0 // 80% target hit rate
+	}
+	if config.MinHitRateThreshold <= 0 {
+		config.MinHitRateThreshold = 50.0 // Expand if hit rate drops below 50%
+	}
+	if config.MaxHitRateThreshold <= 0 {
+		config.MaxHitRateThreshold = 95.0 // Contract if hit rate exceeds 95%
+	}
+	if config.AdaptationInterval <= 0 {
+		config.AdaptationInterval = 5 * time.Minute // Adapt every 5 minutes
+	}
+	if config.ExpansionFactor <= 1.0 {
+		config.ExpansionFactor = 1.5 // Expand by 50%
+	}
+	if config.ContractionFactor <= 0 || config.ContractionFactor >= 1.0 {
+		config.ContractionFactor = 0.8 // Contract by 20%
+	}
+	if config.MaxAdaptiveConnections <= 0 {
+		config.MaxAdaptiveConnections = config.MaxConnections * 2 // Double the max connections
+	}
+	if config.MinAdaptiveConnections <= 0 {
+		config.MinAdaptiveConnections = config.MinConnections
+	}
 
 	pool := &ConnectionPool{
-		config:      config,
-		factory:     factory,
-		connections: make(chan *PooledConnection, config.MaxConnections),
-		done:        make(chan struct{}),
+		config:             config,
+		factory:            factory,
+		connections:        make(chan *PooledConnection, config.MaxAdaptiveConnections),
+		done:               make(chan struct{}),
+		lastAdaptationTime: time.Now(),
+		hitRateHistory:     make([]float64, 0, 10), // Keep last 10 hit rate measurements
 	}
 
 	// Pre-create minimum connections
@@ -134,6 +177,11 @@ func NewConnectionPool(config PoolConfig, factory ConnectionFactory) *Connection
 
 	// Start background maintenance
 	go pool.maintenance()
+	
+	// Start adaptive pooling if enabled
+	if config.AdaptivePoolingEnabled {
+		go pool.adaptationLoop()
+	}
 
 	return pool
 }
@@ -397,6 +445,21 @@ func (p *ConnectionPool) GetMetrics() PoolMetrics {
 	}
 }
 
+// IsAdaptivePoolingEnabled returns whether adaptive pooling is enabled
+func (p *ConnectionPool) IsAdaptivePoolingEnabled() bool {
+	return p.config.AdaptivePoolingEnabled
+}
+
+// GetAdaptiveConfig returns the adaptive pooling configuration
+func (p *ConnectionPool) GetAdaptiveConfig() (target, minThreshold, maxThreshold float64) {
+	return p.config.TargetHitRate, p.config.MinHitRateThreshold, p.config.MaxHitRateThreshold
+}
+
+// GetPoolCapacity returns the current and maximum pool capacities
+func (p *ConnectionPool) GetPoolCapacity() (current, max int) {
+	return int(atomic.LoadInt32(&p.activeCount)), p.config.MaxConnections
+}
+
 // maintenance performs periodic cleanup of idle and expired connections
 func (p *ConnectionPool) maintenance() {
 	healthTicker := time.NewTicker(p.config.HealthCheckPeriod)
@@ -412,6 +475,142 @@ func (p *ConnectionPool) maintenance() {
 			p.cleanupIdleConnections()
 		case <-p.done:
 			return
+		}
+	}
+}
+
+// adaptationLoop performs periodic adaptation of pool size based on usage patterns
+func (p *ConnectionPool) adaptationLoop() {
+	if !p.config.AdaptivePoolingEnabled {
+		return
+	}
+	
+	adaptTicker := time.NewTicker(p.config.AdaptationInterval)
+	defer adaptTicker.Stop()
+
+	for {
+		select {
+		case <-adaptTicker.C:
+			p.adaptPoolSize()
+		case <-p.done:
+			return
+		}
+	}
+}
+
+// adaptPoolSize adjusts the pool size based on hit rate metrics and usage patterns
+func (p *ConnectionPool) adaptPoolSize() {
+	if atomic.LoadInt32(&p.closed) == 1 {
+		return
+	}
+	
+	// Calculate current hit rate
+	metrics := p.GetMetrics()
+	currentHitRate := metrics.HitRate
+	
+	// Store hit rate in history for trend analysis
+	p.mu.Lock()
+	p.hitRateHistory = append(p.hitRateHistory, currentHitRate)
+	if len(p.hitRateHistory) > 10 {
+		p.hitRateHistory = p.hitRateHistory[1:] // Keep only last 10 measurements
+	}
+	p.mu.Unlock()
+	
+	// Determine if we need to adapt based on hit rate trends
+	shouldExpand := currentHitRate < p.config.MinHitRateThreshold
+	shouldContract := currentHitRate > p.config.MaxHitRateThreshold
+	
+	// Get current pool configuration
+	currentActive := int(atomic.LoadInt32(&p.activeCount))
+	currentMax := p.config.MaxConnections
+	targetMax := currentMax
+	
+	if shouldExpand {
+		// Expand pool size
+		newMax := int(float64(currentMax) * p.config.ExpansionFactor)
+		if newMax > p.config.MaxAdaptiveConnections {
+			newMax = p.config.MaxAdaptiveConnections
+		}
+		if newMax > currentMax {
+			targetMax = newMax
+		}
+	} else if shouldContract {
+		// Contract pool size only if we're above min connections
+		if currentMax > p.config.MinAdaptiveConnections {
+			newMax := int(float64(currentMax) * p.config.ContractionFactor)
+			if newMax < p.config.MinAdaptiveConnections {
+				newMax = p.config.MinAdaptiveConnections
+			}
+			// Only contract if we're not using most of the connections
+			idleConns := int(atomic.LoadUint64(&p.stats.IdleConns))
+			if newMax < currentMax && (currentActive-idleConns) < newMax {
+				targetMax = newMax
+			}
+		}
+	}
+	
+	// Update pool size if needed
+	if targetMax != currentMax {
+		p.adjustPoolCapacity(targetMax)
+	}
+	
+	// Update last adaptation time
+	p.mu.Lock()
+	p.lastAdaptationTime = time.Now()
+	p.mu.Unlock()
+}
+
+// adjustPoolCapacity changes the maximum capacity of the connection pool
+func (p *ConnectionPool) adjustPoolCapacity(newMax int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	
+	if newMax <= 0 || newMax == p.config.MaxConnections {
+		return
+	}
+	
+	// Create new channel with adjusted capacity
+	oldConnections := p.connections
+	newConnections := make(chan *PooledConnection, newMax)
+	
+	// Transfer existing connections to new channel
+	close(oldConnections) // Close old channel to prevent further writes
+	transferred := 0
+	
+	for conn := range oldConnections {
+		if transferred < newMax {
+			select {
+			case newConnections <- conn:
+				transferred++
+			default:
+				// New channel is full, close extra connections
+				conn.forceClose()
+				atomic.AddInt32(&p.activeCount, -1)
+				atomic.AddUint64(&p.stats.IdleConns, ^uint64(0)) // decrement
+				atomic.AddUint64(&p.stats.ClosedConns, 1)
+			}
+		} else {
+			// Close excess connections
+			conn.forceClose()
+			atomic.AddInt32(&p.activeCount, -1)
+			atomic.AddUint64(&p.stats.IdleConns, ^uint64(0)) // decrement
+			atomic.AddUint64(&p.stats.ClosedConns, 1)
+		}
+	}
+	
+	// Update pool configuration and channel
+	p.config.MaxConnections = newMax
+	p.connections = newConnections
+	
+	// If we expanded and are below the new max, create new connections
+	currentActive := int(atomic.LoadInt32(&p.activeCount))
+	if newMax > currentActive {
+		connectionsToCreate := newMax - currentActive
+		if connectionsToCreate > 5 { // Limit burst creation
+			connectionsToCreate = 5
+		}
+		for i := 0; i < connectionsToCreate; i++ {
+			go p.createConnection()
 		}
 	}
 }
