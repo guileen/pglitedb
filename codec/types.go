@@ -20,6 +20,7 @@ const (
 
 type Codec interface {
 	EncodeTableKey(tenantID, tableID, rowID int64) []byte
+	EncodeTableKeyBuffer(tenantID, tableID, rowID int64, buf []byte) ([]byte, error)
 	EncodeIndexKey(tenantID, tableID, indexID int64, indexValue interface{}, rowID int64) ([]byte, error)
 	EncodeCompositeIndexKey(tenantID, tableID, indexID int64, indexValues []interface{}, rowID int64) ([]byte, error)
 	EncodePKKey(tenantID, tableID int64, pkValue interface{}) ([]byte, error)

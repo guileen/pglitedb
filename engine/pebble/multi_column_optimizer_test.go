@@ -32,6 +32,7 @@ func (mc *mockCodec) EncodeIndexScanEndKey(tenantID, tableID, indexID int64) []b
 
 // Add required methods to satisfy the interface
 func (mc *mockCodec) EncodeTableKey(tenantID, tableID, rowID int64) []byte { return nil }
+func (mc *mockCodec) EncodeTableKeyBuffer(tenantID, tableID, rowID int64, buf []byte) ([]byte, error) { return nil, nil }
 func (mc *mockCodec) EncodePKKey(tenantID, tableID int64, pkValue interface{}) ([]byte, error) { return nil, nil }
 func (mc *mockCodec) EncodeMetaKey(tenantID int64, metaType string, key string) []byte { return nil }
 func (mc *mockCodec) EncodeSequenceKey(tenantID int64, seqName string) []byte { return nil }

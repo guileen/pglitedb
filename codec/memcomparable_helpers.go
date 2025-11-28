@@ -469,3 +469,49 @@ func toFloat64(v interface{}) float64 {
 		return 0
 	}
 }
+
+// appendMemComparableInt64 appends a memcomparable encoded int64 to a byte slice
+func appendMemComparableInt64(buf []byte, v int64) []byte {
+	var tmp [8]byte
+	u := uint64(v)
+	u ^= 0x8000000000000000
+	binary.BigEndian.PutUint64(tmp[:], u)
+	return append(buf, tmp[:]...)
+}
+
+// appendMemComparableUint64 appends a memcomparable encoded uint64 to a byte slice
+func appendMemComparableUint64(buf []byte, v uint64) []byte {
+	var tmp [8]byte
+	binary.BigEndian.PutUint64(tmp[:], v)
+	return append(buf, tmp[:]...)
+}
+
+// appendMemComparableFloat64 appends a memcomparable encoded float64 to a byte slice
+func appendMemComparableFloat64(buf []byte, f float64) []byte {
+	u := math.Float64bits(f)
+	if f >= 0 {
+		u |= 0x8000000000000000
+	} else {
+		u = ^u
+	}
+	var tmp [8]byte
+	binary.BigEndian.PutUint64(tmp[:], u)
+	return append(buf, tmp[:]...)
+}
+
+// appendMemComparableString appends a memcomparable encoded string to a byte slice
+func appendMemComparableString(buf []byte, s string) []byte {
+	return appendMemComparableBytes(buf, []byte(s))
+}
+
+// appendMemComparableBytes appends a memcomparable encoded byte slice to a byte slice
+func appendMemComparableBytes(buf []byte, b []byte) []byte {
+	for _, ch := range b {
+		buf = append(buf, ch)
+		if ch == 0x00 {
+			buf = append(buf, 0xFF)
+		}
+	}
+	buf = append(buf, 0x00, 0x00)
+	return buf
+}
