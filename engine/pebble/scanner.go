@@ -7,6 +7,7 @@ import (
 	"github.com/guileen/pglitedb/codec"
 	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/engine/pebble/operations/scan"
+	"github.com/guileen/pglitedb/engine/pebble/utils"
 	"github.com/guileen/pglitedb/storage"
 	dbTypes "github.com/guileen/pglitedb/types"
 )
@@ -19,6 +20,7 @@ type Scanner struct {
 		EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool
 		GetRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) (map[int64]*dbTypes.Record, error)
 	}
+	rangeBuilder *utils.RangeBuilder
 }
 
 // NewScanner creates a new Scanner
@@ -30,6 +32,7 @@ func NewScanner(kv storage.KV, c codec.Codec, engine interface {
 		kv:    kv,
 		codec: c,
 		engine: engine,
+		rangeBuilder: utils.NewRangeBuilder(c),
 	}
 }
 
@@ -163,73 +166,15 @@ func (s *Scanner) buildIndexRangeFromFilter(tenantID, tableID, indexID int64, fi
 
 // extractSimpleFilter finds a simple filter for the given column in a complex filter tree
 func (s *Scanner) extractSimpleFilter(filter *engineTypes.FilterExpression, columnName string) *engineTypes.FilterExpression {
-	if filter.Type == "simple" && filter.Column == columnName {
-		return filter
-	}
-	
-	if filter.Type == "and" {
-		// For AND, we can use any matching condition
-		for _, child := range filter.Children {
-			if result := s.extractSimpleFilter(child, columnName); result != nil {
-				return result
-			}
-		}
-	}
-	
-	// For OR/NOT, we cannot safely extract a simple filter
-	return nil
+	return utils.ExtractSimpleFilter(filter, columnName)
 }
 
 // buildRangeFromSimpleFilter constructs index range for a simple filter
-// This is a simplified version - the full implementation should be in the engine
 func (s *Scanner) buildRangeFromSimpleFilter(tenantID, tableID, indexID int64, filter *engineTypes.FilterExpression) ([]byte, []byte) {
-	maxRowID := int64(^uint64(0) >> 1)
-	
-	switch filter.Operator {
-	case "=":
-		start, _ := s.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, 0)
-		end, _ := s.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, maxRowID)
-		return start, end
-		
-	case ">":
-		start, _ := s.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, maxRowID)
-		end := s.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
-		return start, end
-		
-	case ">=":
-		start, _ := s.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, 0)
-		end := s.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
-		return start, end
-		
-	case "<":
-		start := s.codec.EncodeIndexScanStartKey(tenantID, tableID, indexID)
-		end, _ := s.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, 0)
-		return start, end
-		
-	case "<=":
-		start := s.codec.EncodeIndexScanStartKey(tenantID, tableID, indexID)
-		end, _ := s.codec.EncodeIndexKey(tenantID, tableID, indexID, filter.Value, maxRowID)
-		return start, end
-		
-	default:
-		// Unsupported operator, full scan
-		return s.codec.EncodeIndexScanStartKey(tenantID, tableID, indexID),
-			s.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID)
-	}
+	return s.rangeBuilder.BuildRangeFromSimpleFilter(tenantID, tableID, indexID, filter)
 }
 
 // isIndexCovering checks if an index covers all projection columns
 func (s *Scanner) isIndexCovering(indexDef *dbTypes.IndexDefinition, projection []string) bool {
-	indexColSet := make(map[string]bool)
-	for _, col := range indexDef.Columns {
-		indexColSet[col] = true
-	}
-	
-	for _, col := range projection {
-		if col != "_rowid" && !indexColSet[col] {
-			return false
-		}
-	}
-	
-	return true
+	return utils.IsIndexCovering(indexDef, projection)
 }
