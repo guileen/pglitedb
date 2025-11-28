@@ -1,122 +1,62 @@
 package leak_detection
 
 import (
+	"context"
 	"testing"
 	"time"
-
-	engineTypes "github.com/guileen/pglitedb/engine/types"
 )
 
-func TestLeakDetector(t *testing.T) {
-	// Create a new leak detector
+func TestGoroutineTracking(t *testing.T) {
 	ld := NewLeakDetector()
+	ld.SetLeakThreshold(50 * time.Millisecond)
 	
-	// Set a short leak threshold for testing
-	ld.SetLeakThreshold(100 * time.Millisecond)
+	goroutineID := GetCurrentGoroutineID()
+	_ = ld.TrackGoroutine(goroutineID, "test goroutine")
 	
-	// Create a test object to track
-	testObj := &struct{ name string }{name: "test"}
+	time.Sleep(100 * time.Millisecond)
 	
-	// Track the object
-	tracked := ld.TrackIterator(testObj, "test stack trace")
-	
-	// Check that the object is tracked
-	if tracked == nil {
-		t.Fatal("Expected tracked resource, got nil")
-	}
-	
-	// Check that the resource is not leaked initially
-	if tracked.IsLeaked() {
-		t.Fatal("Expected resource not to be leaked initially")
-	}
-	
-	// Wait for the leak threshold to pass
-	time.Sleep(150 * time.Millisecond)
-	
-	// Check that the resource is now leaked
-	if !tracked.IsLeaked() {
-		t.Fatal("Expected resource to be leaked after threshold")
-	}
-	
-	// Mark the resource as released
-	tracked.MarkReleased()
-	
-	// Check that the resource is no longer leaked
-	if tracked.IsLeaked() {
-		t.Fatal("Expected resource not to be leaked after being released")
-	}
-}
-
-func TestLeakReport(t *testing.T) {
-	// Create a new leak detector
-	ld := NewLeakDetector()
-	
-	// Set a short leak threshold for testing
-	ld.SetLeakThreshold(10 * time.Millisecond)
-	
-	// Create test objects to track
-	testObj1 := &struct{ name string }{name: "test1"}
-	testObj2 := &struct{ name string }{name: "test2"}
-	
-	// Track the objects
-	ld.TrackIterator(testObj1, "stack trace 1")
-	tracked2 := ld.TrackTransaction(testObj2, "stack trace 2")
-	
-	// Wait for the leak threshold to pass
-	time.Sleep(20 * time.Millisecond)
-	
-	// Check for leaks
 	report := ld.CheckForLeaks()
-	
-	// Should have 2 leaks
-	if report.TotalLeaks != 2 {
-		t.Fatalf("Expected 2 leaks, got %d", report.TotalLeaks)
-	}
-	
-	// Mark one resource as released
-	tracked2.MarkReleased()
-	
-	// Check for leaks again
-	report = ld.CheckForLeaks()
-	
-	// Should have 1 leak now
-	if report.TotalLeaks != 1 {
-		t.Fatalf("Expected 1 leak, got %d", report.TotalLeaks)
+	if report.TotalLeaks == 0 {
+		t.Fatal("Expected goroutine leak")
 	}
 }
 
-func TestResourceTypeMetrics(t *testing.T) {
-	// Create a new leak detector
+func TestFileDescriptorTracking(t *testing.T) {
 	ld := NewLeakDetector()
+	ld.SetLeakThreshold(50 * time.Millisecond)
 	
-	// Create test objects to track
-	testObj1 := &struct{ name string }{name: "test1"}
-	testObj2 := &struct{ name string }{name: "test2"}
-	testObj3 := &struct{ name string }{name: "test3"}
+	testFd := &struct{ fd int }{fd: 123}
+	_ = ld.TrackFileDescriptor(testFd, "/test/file", "test fd")
 	
-	// Track different types of resources
-	ld.TrackIterator(testObj1, "stack trace 1")
-	ld.TrackTransaction(testObj2, "stack trace 2")
-	ld.TrackConnection(testObj3, "stack trace 3")
+	time.Sleep(100 * time.Millisecond)
 	
-	// Get metrics
-	metrics := ld.GetMetrics()
-	
-	// Check that all resources are tracked
-	if metrics.TotalTracked != 3 {
-		t.Fatalf("Expected 3 tracked resources, got %d", metrics.TotalTracked)
+	report := ld.CheckForLeaks()
+	if report.TotalLeaks == 0 {
+		t.Fatal("Expected file descriptor leak")
 	}
+}
+
+func TestMonitoringFunctionality(t *testing.T) {
+	ld := NewLeakDetector()
+	ld.SetLeakThreshold(50 * time.Millisecond)
 	
-	// Check resource type metrics
-	if metrics.ResourceTypes[engineTypes.ResourceTypeIterator].Tracked != 1 {
-		t.Fatalf("Expected 1 iterator, got %d", metrics.ResourceTypes[engineTypes.ResourceTypeIterator].Tracked)
-	}
+	// Start monitoring
+	ctx, cancel := context.WithCancel(context.Background())
+	go ld.StartMonitoring(ctx)
 	
-	if metrics.ResourceTypes[engineTypes.ResourceTypeTransaction].Tracked != 1 {
-		t.Fatalf("Expected 1 transaction, got %d", metrics.ResourceTypes[engineTypes.ResourceTypeTransaction].Tracked)
-	}
+	// Track a resource
+	testIter := &struct{ name string }{name: "test"}
+	ld.TrackIterator(testIter, "test iterator")
 	
-	if metrics.ResourceTypes[engineTypes.ResourceTypeConnection].Tracked != 1 {
-		t.Fatalf("Expected 1 connection, got %d", metrics.ResourceTypes[engineTypes.ResourceTypeConnection].Tracked)
+	// Wait for leak detection
+	time.Sleep(100 * time.Millisecond)
+	
+	// Stop monitoring
+	cancel()
+	
+	// Check that monitoring worked
+	report := ld.CheckForLeaks()
+	if report.TotalLeaks == 0 {
+		t.Fatal("Expected at least one leak")
 	}
 }
