@@ -1,4 +1,4 @@
-package pebble
+package resources
 
 import (
 	"context"

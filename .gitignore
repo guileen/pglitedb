@@ -39,6 +39,7 @@ api-logs/
 data/
 project_log.md
 *.sh
+!scripts/*.sh
 *.txt
 metabase
 .trae
@@ -52,7 +53,7 @@ dist
 server
 vendor
 *.md
-!docs/*.md
+!docs/**/*.md
 *.js
 *.json
 pglitedb
