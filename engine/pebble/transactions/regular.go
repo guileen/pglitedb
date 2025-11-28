@@ -167,16 +167,162 @@ func (t *RegularTransaction) UpdateRowBatch(ctx context.Context, tenantID, table
 
 // UpdateRows updates multiple rows that match the given conditions
 func (t *RegularTransaction) UpdateRows(ctx context.Context, tenantID, tableID int64, updates map[string]*dbTypes.Value, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
-	// This would need to be implemented with a proper row handler
-	// For now, we'll return an error indicating it's not implemented
-	return 0, fmt.Errorf("UpdateRows not implemented")
+	// Collect all matching row IDs by scanning through the table
+	var matchingRowIDs []int64
+	
+	// Create iterator options to scan the entire table
+	iterOpts := &storage.IteratorOptions{
+		LowerBound: t.codec.EncodeTableKey(tenantID, tableID, 0),
+		UpperBound: t.codec.EncodeTableKey(tenantID, tableID, int64(^uint64(0)>>1)),
+	}
+	
+	iter := t.kvTxn.NewIterator(iterOpts)
+	if iter == nil {
+		return 0, fmt.Errorf("failed to create iterator")
+	}
+	defer iter.Close()
+	
+	// Defensive check to ensure iterator is not nil before calling methods on it
+	if iter == nil {
+		return 0, fmt.Errorf("iterator became nil after creation")
+	}
+	
+	// Call First() and check if it succeeded
+	firstResult := iter.First()
+	if !firstResult {
+		// Check if there was an error
+		if err := iter.Error(); err != nil {
+			return 0, fmt.Errorf("iterator error: %w", err)
+		}
+		// No rows to iterate over, which is fine
+		return 0, nil
+	}
+	
+	// Continue with the iteration
+	for ; iter.Valid(); iter.Next() {
+		_, _, rowID, err := t.codec.DecodeTableKey(iter.Key())
+		if err != nil {
+			return 0, fmt.Errorf("decode table key: %w", err)
+		}
+		
+		// Decode the row
+		value := iter.Value()
+		record, err := t.codec.DecodeRow(value, schemaDef)
+		if err != nil {
+			return 0, fmt.Errorf("decode row: %w", err)
+		}
+		
+		// Check conditions
+		if t.matchesConditions(record, conditions) {
+			matchingRowIDs = append(matchingRowIDs, rowID)
+		}
+	}
+	
+	// If no rows match, return early
+	if len(matchingRowIDs) == 0 {
+		return 0, nil
+	}
+	
+	// Use batch update if there are multiple rows
+	if len(matchingRowIDs) > 1 {
+		rowUpdates := make(map[int64]map[string]*dbTypes.Value)
+		for _, rowID := range matchingRowIDs {
+			rowUpdates[rowID] = updates
+		}
+		if err := t.UpdateRowsBatch(ctx, tenantID, tableID, rowUpdates, schemaDef); err != nil {
+			return 0, fmt.Errorf("batch update rows: %w", err)
+		}
+		return int64(len(matchingRowIDs)), nil
+	}
+	
+	// Fallback to individual updates
+	var count int64
+	for _, rowID := range matchingRowIDs {
+		if err := t.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
+			return count, fmt.Errorf("update row %d: %w", rowID, err)
+		}
+		count++
+	}
+	
+	return count, nil
 }
 
 // DeleteRows deletes multiple rows that match the given conditions
 func (t *RegularTransaction) DeleteRows(ctx context.Context, tenantID, tableID int64, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
-	// This would need to be implemented with a proper row handler
-	// For now, we'll return an error indicating it's not implemented
-	return 0, fmt.Errorf("DeleteRows not implemented")
+	// Collect all matching row IDs by scanning through the table
+	var matchingRowIDs []int64
+	
+	// Create iterator options to scan the entire table
+	iterOpts := &storage.IteratorOptions{
+		LowerBound: t.codec.EncodeTableKey(tenantID, tableID, 0),
+		UpperBound: t.codec.EncodeTableKey(tenantID, tableID, int64(^uint64(0)>>1)),
+	}
+	
+	iter := t.kvTxn.NewIterator(iterOpts)
+	if iter == nil {
+		return 0, fmt.Errorf("failed to create iterator")
+	}
+	defer iter.Close()
+	
+	// Defensive check to ensure iterator is not nil before calling methods on it
+	if iter == nil {
+		return 0, fmt.Errorf("iterator became nil after creation")
+	}
+	
+	// Call First() and check if it succeeded
+	firstResult := iter.First()
+	if !firstResult {
+		// Check if there was an error
+		if err := iter.Error(); err != nil {
+			return 0, fmt.Errorf("iterator error: %w", err)
+		}
+		// No rows to iterate over, which is fine
+		return 0, nil
+	}
+	
+	// Continue with the iteration
+	for ; iter.Valid(); iter.Next() {
+		_, _, rowID, err := t.codec.DecodeTableKey(iter.Key())
+		if err != nil {
+			return 0, fmt.Errorf("decode table key: %w", err)
+		}
+		
+		// Decode the row
+		value := iter.Value()
+		record, err := t.codec.DecodeRow(value, schemaDef)
+		if err != nil {
+			return 0, fmt.Errorf("decode row: %w", err)
+		}
+		
+		// Check conditions
+		if t.matchesConditions(record, conditions) {
+			matchingRowIDs = append(matchingRowIDs, rowID)
+		}
+	}
+	
+	// If no rows match, return early
+	if len(matchingRowIDs) == 0 {
+		return 0, nil
+	}
+	
+	// Use batch delete if there are multiple rows
+	if len(matchingRowIDs) > 1 {
+		if err := t.DeleteRowsBatch(ctx, tenantID, tableID, matchingRowIDs, schemaDef); err != nil {
+			return 0, fmt.Errorf("batch delete rows: %w", err)
+		}
+		return int64(len(matchingRowIDs)), nil
+	}
+	
+	// Fallback to individual deletions
+	var count int64
+	for _, rowID := range matchingRowIDs {
+		if err := t.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
+			return count, fmt.Errorf("delete row %d: %w", rowID, err)
+		}
+		count++
+	}
+	
+	return count, nil
 }
 
 // Commit commits the transaction
@@ -216,4 +362,18 @@ func (t *RegularTransaction) SetIsolation(level storage.IsolationLevel) error {
 // Isolation returns the isolation level of the transaction
 func (t *RegularTransaction) Isolation() storage.IsolationLevel {
 	return t.isolation
+}
+
+// matchesConditions checks if a record matches the given conditions
+func (t *RegularTransaction) matchesConditions(record *dbTypes.Record, conditions map[string]interface{}) bool {
+	for col, val := range conditions {
+		field, exists := record.Data[col]
+		if !exists {
+			return false
+		}
+		if field.Data != val {
+			return false
+		}
+	}
+	return true
 }

@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document outlines a focused strategic plan for PGLiteDB, emphasizing maintainability as the highest priority while targeting a 30% performance improvement (3,245 TPS, 3.2ms latency) from the current baseline of 2,496 TPS and 4.005ms latency. Building upon the successful completion of Phases 1-4 of our architectural improvement initiative, this plan addresses specific issues identified in the architectural review while establishing a foundation for long-term sustainability.
+This document outlines a focused strategic plan for PGLiteDB, emphasizing maintainability as the highest priority while targeting a 30% performance improvement (3,245 TPS, 3.2ms latency) from the current baseline of 2,474 TPS and 4.041ms latency. Building upon the successful completion of Phases 1-4 of our architectural improvement initiative, this plan addresses specific issues identified in the architectural review while establishing a foundation for long-term sustainability.
 
 ## Current Status Overview
 
@@ -14,7 +14,7 @@ This document outlines a focused strategic plan for PGLiteDB, emphasizing mainta
 
 ### Key Achievements
 - 100% PostgreSQL regress test compliance (228/228 tests passing)
-- Performance: 2,496 TPS with 4.005 ms average latency
+- Performance: 2,474 TPS with 4.041 ms average latency
 - Comprehensive resource leak detection system implemented
 - Dynamic pool sizing capabilities with adaptive connection pooling
 - System catalog caching with LRU eviction
@@ -161,8 +161,8 @@ Validate all improvements through comprehensive testing and ensure production re
 ## Target Performance Metrics
 
 ### Current Baseline
-- TPS: 2,496 transactions per second
-- Latency: 4.005 ms average latency
+- TPS: 2,474 transactions per second
+- Latency: 4.041 ms average latency
 - Memory Usage: ~156MB typical workload
 - Test Coverage: 90%+ for core packages
 
