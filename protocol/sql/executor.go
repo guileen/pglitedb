@@ -157,6 +157,12 @@ func (e *Executor) executeSelect(ctx context.Context, plan *Plan) (*types.Result
 		return nil, fmt.Errorf("catalog not initialized")
 	}
 
+	// Check if this is a function call (fields start with "func:")
+	if len(plan.Fields) > 0 && strings.HasPrefix(plan.Fields[0], "func:") {
+		return e.executeFunctionCall(ctx, plan)
+	}
+
+	// Handle regular table queries
 	if isSystemTable(plan.Table) {
 		return e.executeSystemTableQuery(ctx, plan)
 	}
@@ -205,6 +211,62 @@ func (e *Executor) executeSelect(ctx context.Context, plan *Plan) (*types.Result
 	result.Count = int(queryResult.Count)
 
 	return result, nil
+}
+
+// executeFunctionCall handles function calls in SELECT statements
+func (e *Executor) executeFunctionCall(ctx context.Context, plan *Plan) (*types.ResultSet, error) {
+	if len(plan.Fields) == 0 {
+		return nil, fmt.Errorf("no fields specified in function call")
+	}
+
+	// Extract function name (remove "func:" prefix)
+	funcName := strings.TrimPrefix(plan.Fields[0], "func:")
+
+	// Handle specific functions
+	switch funcName {
+	case "version":
+		// Return version information
+		result := types.AcquireExecutorResultSet()
+		result.Columns = []string{funcName}
+		result.Rows = [][]interface{}{
+			{"PGLiteDB 0.1.0 (compatible with PostgreSQL 14.0)"},
+		}
+		result.Count = 1
+		return result, nil
+
+	case "current_database", "current_catalog":
+		// Return current database name
+		result := types.AcquireExecutorResultSet()
+		result.Columns = []string{funcName}
+		result.Rows = [][]interface{}{
+			{"pglitedb"},
+		}
+		result.Count = 1
+		return result, nil
+
+	case "current_user", "user", "session_user", "current_role":
+		// Return current user (placeholder)
+		result := types.AcquireExecutorResultSet()
+		result.Columns = []string{funcName}
+		result.Rows = [][]interface{}{
+			{"postgres"},
+		}
+		result.Count = 1
+		return result, nil
+
+	case "current_schema":
+		// Return current schema (placeholder)
+		result := types.AcquireExecutorResultSet()
+		result.Columns = []string{funcName}
+		result.Rows = [][]interface{}{
+			{"public"},
+		}
+		result.Count = 1
+		return result, nil
+
+	default:
+		return nil, fmt.Errorf("function %s not implemented", funcName)
+	}
 }
 
 func (e *Executor) ExecuteParsed(ctx context.Context, parsed *ParsedQuery) (*types.ResultSet, error) {

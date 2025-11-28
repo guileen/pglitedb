@@ -243,6 +243,30 @@ func (p *Planner) extractSelectInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 								fields = append(fields, str.GetSval())
 							}
 						}
+					} else if funcCall := val.GetFuncCall(); funcCall != nil {
+						// Handle function calls
+						if len(funcCall.GetFuncname()) > 0 {
+							if str := funcCall.GetFuncname()[0].GetString_(); str != nil {
+								// Mark this as a function call by prefixing with "func:"
+								fields = append(fields, "func:"+str.GetSval())
+							}
+						}
+					} else if sqlValueFunc := val.GetSqlvalueFunction(); sqlValueFunc != nil {
+						// Handle SQL value functions like current_user, current_database, etc.
+						switch sqlValueFunc.GetOp() {
+						case pg_query.SQLValueFunctionOp_SVFOP_CURRENT_USER:
+							fields = append(fields, "func:current_user")
+						case pg_query.SQLValueFunctionOp_SVFOP_CURRENT_CATALOG:
+							fields = append(fields, "func:current_database")
+						case pg_query.SQLValueFunctionOp_SVFOP_CURRENT_SCHEMA:
+							fields = append(fields, "func:current_schema")
+						case pg_query.SQLValueFunctionOp_SVFOP_CURRENT_ROLE:
+							fields = append(fields, "func:current_role")
+						case pg_query.SQLValueFunctionOp_SVFOP_SESSION_USER:
+							fields = append(fields, "func:session_user")
+						case pg_query.SQLValueFunctionOp_SVFOP_USER:
+							fields = append(fields, "func:user")
+						}
 					} else if aConst := val.GetAConst(); aConst != nil {
 						// Handle constants like '*'
 						fields = append(fields, "*")
