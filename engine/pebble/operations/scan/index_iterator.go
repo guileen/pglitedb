@@ -81,7 +81,7 @@ func NewIndexIterator(
 		tableID:     tableID,
 		engine:      engine,
 		count:       0,
-		batchSize:   100,
+		batchSize:   1000,
 		rowCache:    make(map[int64]*dbTypes.Record, 100),
 	}
 }
@@ -97,7 +97,7 @@ func (ii *IndexIterator) Next() bool {
 		if len(ii.rowIDBuffer) == 0 || ii.cacheIdx >= len(ii.rowIDBuffer) {
 			// Reuse buffer slices to reduce allocations
 			if ii.rowIDBuffer == nil {
-				ii.rowIDBuffer = make([]int64, 0, 100)
+				ii.rowIDBuffer = make([]int64, 0, 1000)
 			} else {
 				ii.rowIDBuffer = ii.rowIDBuffer[:0]
 			}
@@ -107,7 +107,7 @@ func (ii *IndexIterator) Next() bool {
 			if !ii.started {
 				// First call: initialize and position iterator
 				ii.started = true
-				ii.batchSize = 100
+				ii.batchSize = 1000
 				// Reuse rowCache map to reduce allocations
 				if ii.rowCache == nil {
 					ii.rowCache = make(map[int64]*dbTypes.Record, ii.batchSize)
