@@ -6,7 +6,7 @@ This file serves as the central index for project context. All AI agents should 
 
 ## Current Focus: Quality Assurance & Stability
 
-✅ **Latest Achievement**: Achieved 100% PostgreSQL regress test pass rate (228/228 tests) with strong performance benchmarks (2,534 TPS). Successfully completed all Phase 1-3 architectural improvements including comprehensive resource leak detection, dynamic pool sizing, system catalog caching, and query result streaming.
+✅ **Latest Achievement**: Achieved 100% PostgreSQL regress test pass rate (228/228 tests) with strong performance benchmarks (2,534 TPS). Successfully completed all Phase 1-3 architectural improvements including comprehensive resource leak detection, dynamic pool sizing, system catalog caching, and query result streaming. Established detailed performance optimization roadmap in [PERFORMANCE_OPTIMIZATION_PLAN.md](./PERFORMANCE_OPTIMIZATION_PLAN.md) targeting 6,500 TPS.
 ✅ **Phase 1 Status**: Fully completed with all engine decomposition initiatives successfully implemented
 ✅ **Phase 2 Status**: Fully completed with interface refinement and protocol layer enhancements
 ✅ **Phase 3 Status**: Fully completed with performance optimization and resource management enhancements
@@ -128,7 +128,8 @@ This file serves as the central index for project context. All AI agents should 
 - Advanced PostgreSQL Compatibility: `spec/GUIDE_POSTGRESQL_COMPATIBILITY.md`
 - Performance & Scalability: `spec/GUIDE_PERFORMANCE_SCALABILITY.md`
 - Reliability & Operations: `spec/GUIDE_RELIABILITY_OPERATIONS.md`
-- Phases Completed Summary: `spec/PHASES_COMPLETED_SUMMARY.md` ⚠️ **NEW SUMMARY DOCUMENT**
+- Phases Completed Summary: `spec/PHASES_COMPLETED_SUMMARY.md`
+- Performance Optimization Plan: `spec/PERFORMANCE_OPTIMIZATION_PLAN.md` ⚠️ **NEW PERFORMANCE ROADMAP** ⚠️ **NEW SUMMARY DOCUMENT**
 
 ## Technical Debt Reduction Plans
 - Maintainability & Technical Debt Reduction Plan: `spec/MAINTAINABILITY_TECHNICAL_DEBT_REDUCTION_PLAN.md`

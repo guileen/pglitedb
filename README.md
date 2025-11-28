@@ -358,6 +358,26 @@ We're actively seeking contributors to help make PGLiteDB the best PostgreSQL-co
 
 All contributions are reviewed by our AI agents to ensure code quality and performance standards.
 
+## Documentation
+
+Comprehensive documentation is available to help you understand and contribute to PGLiteDB:
+
+### 📚 Core Documentation
+- [Project Context](spec/Context.md) - Current project status and immediate focus areas
+- [Development Roadmap](spec/GUIDE.md) - Long-term development roadmap
+- [Architectural Review](spec/ARCHITECT-REVIEW.md) - Detailed architectural assessment
+- [Performance Optimization Plan](spec/PERFORMANCE_OPTIMIZATION_PLAN.md) - Performance targets and optimization strategies
+
+### 🗂 Documentation Navigation
+For a complete list of all documentation files, see [DOCUMENTATION_NAVIGATION.md](spec/DOCUMENTATION_NAVIGATION.md) which organizes all project documentation by category and priority.
+
+### 🎯 Key Documentation Categories
+- **Architecture & Design**: Technical architecture, maintainability guides, and technical debt reduction plans
+- **Implementation Guides**: Component-specific implementation details and best practices
+- **Testing & Quality Assurance**: Testing strategies, coverage plans, and quality metrics
+- **Performance & Benchmarking**: Performance optimization plans and benchmark results
+- **Reflection & Learning**: Implementation reflections and lessons learned
+
 ## License
 
 MIT License - see LICENSE file for details
