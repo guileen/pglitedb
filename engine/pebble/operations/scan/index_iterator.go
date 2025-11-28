@@ -57,9 +57,7 @@ func (ii *IndexIterator) Reset() {
 	ii.tenantID = 0
 	ii.tableID = 0
 	ii.batchSize = 0
-	if ii.rowIDBuffer != nil {
-		ii.rowIDBuffer = ii.rowIDBuffer[:0]
-	}
+	ii.rowIDBuffer = nil
 	// Clear the map without reallocating
 	for k := range ii.rowCache {
 		delete(ii.rowCache, k)
