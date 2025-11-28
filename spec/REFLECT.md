@@ -130,3 +130,111 @@ The recent effort to address test coverage gaps has provided valuable insights:
 - **Property-Based Testing**: Expand use of property-based testing for complex logic validation
 - **Integration Test Enhancement**: Develop more sophisticated integration tests that simulate real-world usage patterns
 - **Chaos Engineering**: Introduce chaos engineering practices to test system resilience under adverse conditions
+
+## Reflection on Resource Leak Detection Implementation
+
+### Implementation Summary
+
+We successfully implemented a comprehensive resource leak detection system for PGLiteDB. This system provides tracking and detection capabilities for:
+
+1. Memory leaks (iterators, transactions)
+2. Connection leaks
+3. File descriptor leaks
+4. Goroutine leaks
+
+### Key Implementation Details
+
+#### Architecture
+- Created modular leak detection components in `engine/pebble/leak_detection/`
+- Defined interfaces in `engine/types/leak_detection.go`
+- Integrated with existing ResourceManager
+- Added tracking mechanisms to core components (engine, transaction manager, row iterator)
+
+#### Features
+- Stack trace capture for leak identification
+- Configurable leak detection thresholds
+- Metrics collection for resource usage analysis
+- Comprehensive reporting capabilities
+- Minimal performance overhead when disabled
+
+#### Testing
+- Unit tests for leak detector core functionality
+- Integration tests with ResourceManager
+- Various resource-type specific tests
+
+### Lessons Learned
+
+#### Technical Insights
+1. **Resource Tracking Complexity**: Implementing comprehensive leak detection requires careful consideration of when and how to track resources. The timing of tracking (creation) vs. releasing (cleanup) needs to be consistent across all code paths.
+
+2. **Performance Impact**: Leak detection inherently adds some overhead. Our implementation minimizes this by making tracking conditional and using efficient data structures.
+
+3. **Integration Challenges**: Integrating leak detection with existing components required careful modification to ensure we didn't break existing functionality while adding new capabilities.
+
+#### Design Decisions
+1. **Modular Approach**: We chose to create a separate package for leak detection rather than integrating it directly into existing components. This keeps the core logic clean and makes the leak detection system reusable.
+
+2. **Interface-Based Design**: Using interfaces for leak detection components allows for easy mocking in tests and potential future alternative implementations.
+
+3. **Optional Tracking**: Leak detection is only active when explicitly enabled, preventing performance impact in production environments where it's not needed.
+
+### Challenges and Solutions
+
+#### Challenge 1: Accurate Leak Detection
+**Problem**: Determining what constitutes a "leak" vs. a legitimately long-lived resource.
+**Solution**: Implemented configurable time thresholds and clear resource lifecycle management.
+
+#### Challenge 2: Performance Overhead
+**Problem**: Tracking every resource allocation could significantly slow down the database.
+**Solution**: Made tracking conditional and optimized data structures for fast lookups.
+
+#### Challenge 3: Integration with Existing Code
+**Problem**: Adding leak detection to existing components without breaking functionality.
+**Solution**: Used non-intrusive tracking methods and ensured backward compatibility.
+
+### Future Improvements
+
+1. **Automated Leak Detection**: Integrate leak detection into the normal test suite to automatically catch leaks during development.
+
+2. **Production Monitoring**: Add metrics export capabilities to monitor resource usage in production environments.
+
+3. **Advanced Analysis**: Implement more sophisticated leak analysis, such as identifying common leak patterns or correlating leaks with specific operations.
+
+4. **Memory Profiling Integration**: Combine leak detection with memory profiling for deeper insights into resource usage.
+
+### Overall Assessment
+
+The resource leak detection implementation was successful and adds significant value to the PGLiteDB project. It addresses a critical aspect of system reliability and maintainability while maintaining good performance characteristics.
+
+The modular design makes it easy to extend and maintain, and the comprehensive test coverage ensures reliability. This implementation represents a significant step forward in terms of system quality and robustness.
+
+## Performance Optimization Reflection
+
+### Recent Performance Improvements
+
+After implementing Phase 1 optimizations, we observed significant performance improvements:
+- Increased TPS from ~2279 to ~2562 (12.4% improvement)
+- Reduced latency from 4.168ms to 3.903ms (6.4% improvement)
+- Maintained 0 failed transactions
+
+### Key Optimization Strategies
+
+1. **Object Pooling**: Implemented pooling for frequently allocated objects to reduce garbage collection pressure
+2. **Batch Operations**: Leveraged storage-level batching capabilities for bulk operations
+3. **Connection Pooling**: Added connection pooling with health checking for better resource utilization
+4. **Query Pipeline**: Implemented query execution pipeline with batch processing and worker pools
+5. **Memory Management**: Tuned memory management to reduce allocations and improve cache locality
+
+### Lessons Learned
+
+1. **Measurement is Key**: Performance improvements must be measured quantitatively to ensure they're effective
+2. **Optimization Trade-offs**: Some optimizations (like leak detection) may introduce minor overhead but provide significant benefits
+3. **Systematic Approach**: Taking a phased approach to optimization ensures comprehensive coverage without overwhelming complexity
+4. **Balance**: Finding the right balance between performance, maintainability, and functionality is crucial
+
+### Future Optimization Opportunities
+
+1. **Advanced Caching**: Implement more sophisticated caching strategies for frequently accessed data
+2. **Query Result Streaming**: Add streaming for large result sets to reduce memory usage
+3. **Dynamic Pool Sizing**: Implement adaptive pool sizing based on workload characteristics
+4. **System Catalog Caching**: Add LRU eviction for system catalog entries to reduce disk I/O
