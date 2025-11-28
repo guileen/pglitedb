@@ -8,7 +8,7 @@ import (
     "time"
 
     engineTypes "github.com/guileen/pglitedb/engine/types"
-    "github.com/guileen/pglitedb/engine/pebble"
+    "github.com/guileen/pglitedb/engine/pebble/resources"
     "github.com/guileen/pglitedb/types"
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/require"
@@ -163,7 +163,7 @@ func TestRaceConditions(t *testing.T) {
                 
                 for j := 0; j < numOperations; j++ {
                     // Acquire and release various resources concurrently
-                    rm := pebble.GetResourceManager()
+                    rm := resources.GetResourceManager()
                     
                     // Use goroutineID to make operations unique
                     _ = goroutineID
