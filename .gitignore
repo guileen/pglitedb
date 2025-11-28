@@ -62,3 +62,73 @@ main
 test_mem_pool
 *.prof
 pglitedb-server
+# Binary files and executables
+*.exe
+*.dll
+*.so
+*.dylib
+*.app
+*.jar
+*.war
+*.ear
+*.class
+*.o
+*.obj
+*.pyc
+*.pyo
+*.swp
+*.swo
+
+# Archives and compressed files
+*.zip
+*.tar
+*.gz
+*.bz2
+*.rar
+*.7z
+
+# Documents
+*.pdf
+*.doc
+*.xls
+*.ppt
+*.xlsx
+*.docx
+*.pptx
+*.odt
+*.ods
+*.odp
+
+# Media files
+*.mp3
+*.mp4
+*.avi
+*.mov
+*.wmv
+*.flv
+*.wav
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.ico
+
+# Fonts
+*.woff
+*.woff2
+*.ttf
+*.eot
+
+# Database files
+*.db
+*.sqlite
+*.dat
+
+# Profile and log files
+*.prof
+*.log
+
+# Build artifacts
+pglitedb-server
