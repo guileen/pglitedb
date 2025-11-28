@@ -82,6 +82,9 @@ func TestIndexHandler_LookupIndex(t *testing.T) {
 	// Test LookupIndex - should return empty slice instead of error when index doesn't exist
 	rowIDs, err := handler.LookupIndex(ctx, tenantID, tableID, indexID, "test_value")
 	assert.NoError(t, err)
-	// Should be empty slice when no matching index entries found (not nil)
-	assert.Empty(t, rowIDs)
+	// Should be empty slice when no matching index entries found
+	// Using len() check instead of assert.Empty() which had issues with nil vs empty slice
+	if len(rowIDs) != 0 {
+		t.Errorf("Expected empty slice, got %v", rowIDs)
+	}
 }
