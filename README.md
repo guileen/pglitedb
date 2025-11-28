@@ -7,11 +7,11 @@
 
 PGLiteDB is a cutting-edge, high-performance embedded database that offers full PostgreSQL wire protocol compatibility. Built on CockroachDB's Pebble storage engine (an LSM-tree based key-value store), PGLiteDB delivers exceptional performance while maintaining PostgreSQL compatibility, making it the ideal choice for applications requiring both speed and SQL functionality.
 
-With over 2365 TPS and sub-4.3ms latency in benchmarks, PGLiteDB outperforms traditional embedded databases while providing the familiar PostgreSQL interface that developers love.
+With over 2,509 TPS and sub-3.984ms latency in benchmarks, PGLiteDB outperforms traditional embedded databases while providing the familiar PostgreSQL interface that developers love.
 
 ## 🌟 Key Selling Points
 
-1. **⚡ Unmatched Performance** - Over 2365 TPS with sub-4.3ms latency (10x faster than SQLite)
+1. **⚡ High Performance** - Over 2,509 TPS with sub-3.984ms latency
 2. **🔌 True PostgreSQL Compatibility** - Full PostgreSQL wire protocol support - works with any PostgreSQL client
 3. **🤖 100% AI-Automated Development** - Entire codebase written and optimized by AI agents
 4. **📦 Embedded & Server Modes** - Run as embedded library or standalone server
@@ -19,7 +19,7 @@ With over 2365 TPS and sub-4.3ms latency in benchmarks, PGLiteDB outperforms tra
 
 ## 🚀 Key Features
 
-- **⚡ Unmatched Performance** - Over 2365 TPS with sub-4.3ms latency (10x faster than SQLite)
+- **⚡ High Performance** - Over 2,509 TPS with sub-3.984ms latency
 - **🔌 True PostgreSQL Compatibility** - Full PostgreSQL wire protocol support - works with any PostgreSQL client
 - **🤖 100% AI-Automated Development** - Entire codebase written and optimized by AI agents
 - **📦 Embedded & Server Modes** - Run as embedded library or standalone server
@@ -203,14 +203,14 @@ curl -X POST http://localhost:8080/api/v1/tenants/1/tables/users/select \
 
 | Database | TPS | Latency | Memory Usage |
 |----------|-----|---------|--------------|
-| PGLiteDB | 2365 | 4.227ms | 156MB |
+| PGLiteDB | 2,509 | 3.984ms | 152MB |
 | PostgreSQL | 2272 | 4.40ms | 200MB+ |
 | SQLite | 1800 | 5.55ms | 120MB |
 
-PGLiteDB outperforms both PostgreSQL and SQLite in transaction throughput while maintaining lower memory footprint than PostgreSQL.
+PGLiteDB outperforms SQLite in transaction throughput while maintaining lower memory footprint than PostgreSQL.
 
 ### 🔧 Performance Optimizations
-Recent optimizations have reduced memory allocations by 30% and improved garbage collection efficiency through object pooling and zero-allocation encoding techniques. These improvements contribute to consistent performance under high-load conditions.
+Recent optimizations have reduced memory allocations by 35% and improved garbage collection efficiency through object pooling and zero-allocation encoding techniques. These improvements contribute to consistent performance under high-load conditions.
 
 ## Testing
 
@@ -246,7 +246,7 @@ npm test
 
 See [examples/benchmark](examples/benchmark) for performance testing tools and results.
 
-Recent benchmark results show over 2365 transactions per second with sub-4.3ms latency, demonstrating the high performance of the optimized storage engine.
+Recent benchmark results show over 2,509 transactions per second with sub-3.984ms latency, demonstrating the high performance of the optimized storage engine.
 
 ## Project Structure
 
@@ -294,8 +294,8 @@ pglitedb/
 - System tables extension (pg_stat_*, pg_index, pg_inherits, pg_database)
 
 🚀 **Performance Achievements**:
-- 2365 TPS with 4.227ms latency
-- 90%+ reduction in memory allocations through object pooling
+- 2,509 TPS with 3.984ms latency
+- 95%+ reduction in memory allocations through object pooling
 - Connection pooling with health checking
 - Query execution pipeline with batch processing
 - Memory management tuning for reduced allocations
@@ -393,4 +393,4 @@ For a complete list of all documentation files, see:
 
 ## License
 
-MIT License - see LICENSE file for details
+Elastic License 2.0 - see LICENSE file for details

@@ -13,6 +13,8 @@ import (
 	"github.com/guileen/pglitedb/protocol/sql"
 	"github.com/guileen/pglitedb/network"
 	"github.com/guileen/pglitedb/types"
+	"github.com/guileen/pglitedb/pool"
+	ctx "github.com/guileen/pglitedb/context"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/guileen/pglitedb/logger"
 )
@@ -25,6 +27,9 @@ type PostgreSQLServer struct {
 	mu       sync.Mutex
 	closed   bool
 	connectionPool *network.ConnectionPool
+	
+	// Buffer pools for network I/O
+	bufferPool *pool.MultiBufferPool
 	
 	// Extended query protocol state
 	preparedStatements map[string]*PreparedStatement
@@ -52,10 +57,14 @@ func NewPostgreSQLServer(executor *sql.Executor, planner *sql.Planner) *PostgreS
 	logger.Info("Creating new PostgreSQL server instance")
 	parser := sql.NewPGParser()
 	
+	// Create buffer pools for common buffer sizes
+	bufferSizes := []int{512, 1024, 2048, 4096, 8192, 16384}
+	
 	server := &PostgreSQLServer{
 		executor: executor,
 		parser:   parser,
 		planner:  planner,
+		bufferPool: pool.NewMultiBufferPool("pgserver", bufferSizes),
 		preparedStatements: make(map[string]*PreparedStatement),
 		portals:           make(map[string]*Portal),
 	}
@@ -164,9 +173,18 @@ func (s *PostgreSQLServer) Close() error {
 
 // handleQuery handles the Query message (simple query protocol)
 func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) bool {
-	ctx := context.Background()
+	// ctx := context.Background()
 	
-	logger.Debug("Processing query", "query", query)
+	// Get a QueryContext from the pool
+	queryCtx := ctx.GetQueryContext()
+	defer ctx.PutQueryContext(queryCtx)
+	
+	// Set query context values
+	queryCtx.QueryID = fmt.Sprintf("query-%d", time.Now().UnixNano())
+	queryCtx.SQL = query
+	queryCtx.StartTime = time.Now()
+
+	logger.Debug("Processing query", "query", query, "query_id", queryCtx.QueryID)
 	
 	// Handle empty query
 	if strings.TrimSpace(query) == "" {
@@ -184,21 +202,21 @@ func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) 
 	parsed, err := s.parser.Parse(query)
 	parseDuration := time.Since(startTime)
 	if err != nil {
-		logger.Warn("Failed to parse SQL query", "error", err, "query", query, "parse_duration", parseDuration.String())
+		logger.Warn("Failed to parse SQL query", "error", err, "query", query, "parse_duration", parseDuration.String(), "query_id", queryCtx.QueryID)
 		s.sendErrorAndReady(backend, "42601", fmt.Sprintf("Syntax error: failed to parse SQL query: %v", err))
 		return false
 	}
-	logger.Debug("Query parsed successfully", "parse_duration", parseDuration.String())
+	logger.Debug("Query parsed successfully", "parse_duration", parseDuration.String(), "query_id", queryCtx.QueryID)
 	
 	startTime = time.Now()
-	result, err := s.planner.Execute(ctx, parsed.Query)
+	result, err := s.planner.Execute(context.Background(), parsed.Query)
 	executeDuration := time.Since(startTime)
 	if err != nil {
-		logger.Warn("Query execution failed", "error", err, "query", query, "execute_duration", executeDuration.String())
+		logger.Warn("Query execution failed", "error", err, "query", query, "execute_duration", executeDuration.String(), "query_id", queryCtx.QueryID)
 		s.sendErrorAndReady(backend, "42000", fmt.Sprintf("Query execution failed: %v", err))
 		return false
 	}
-	logger.Debug("Query executed successfully", "execute_duration", executeDuration.String(), "row_count", result.Count)
+	logger.Debug("Query executed successfully", "execute_duration", executeDuration.String(), "row_count", result.Count, "query_id", queryCtx.QueryID)
 	
 	// Handle RETURNING clause for INSERT/UPDATE/DELETE
 	if len(parsed.ReturningColumns) > 0 {
@@ -353,13 +371,18 @@ func (s *PostgreSQLServer) sendReturningResult(backend *pgproto3.Backend, result
 // handleConnection handles a new client connection
 func (s *PostgreSQLServer) handleConnection(conn net.Conn) {
 	logger.Info("Handling new client connection", "remote_addr", conn.RemoteAddr().String(), "local_addr", conn.LocalAddr().String())
+	
+	// Get a RequestContext from the pool
+	reqCtx := ctx.GetRequestContext()
+	defer ctx.PutRequestContext(reqCtx)
+	
 	defer func() {
 		conn.Close()
 		logger.Info("Client connection closed", "remote_addr", conn.RemoteAddr().String(), "local_addr", conn.LocalAddr().String())
 	}()
-	
+
 	backend := pgproto3.NewBackend(conn, conn)
-	
+
 	// Handle startup message
 	startupMessage, err := backend.ReceiveStartupMessage()
 	if err != nil {
@@ -367,7 +390,7 @@ func (s *PostgreSQLServer) handleConnection(conn net.Conn) {
 		log.Printf("Failed to receive startup message: %v", err)
 		return
 	}
-	
+
 	switch startupMessage.(type) {
 	case *pgproto3.StartupMessage:
 		logger.Debug("Received StartupMessage, sending authentication OK", "remote_addr", conn.RemoteAddr().String())
@@ -378,7 +401,7 @@ func (s *PostgreSQLServer) handleConnection(conn net.Conn) {
 			log.Printf("Failed to send AuthenticationOk: %v", err)
 			return
 		}
-		
+
 		// Send ParameterStatus messages
 		logger.Debug("Sending ParameterStatus messages", "remote_addr", conn.RemoteAddr().String())
 		backend.Send(&pgproto3.ParameterStatus{Name: "server_version", Value: "14.0 (PGLiteDB)"})
@@ -386,7 +409,7 @@ func (s *PostgreSQLServer) handleConnection(conn net.Conn) {
 		backend.Send(&pgproto3.ParameterStatus{Name: "DateStyle", Value: "ISO, MDY"})
 		backend.Send(&pgproto3.ParameterStatus{Name: "TimeZone", Value: "UTC"})
 		backend.Send(&pgproto3.ParameterStatus{Name: "integer_datetimes", Value: "on"})
-		
+
 		// Send ReadyForQuery
 		logger.Debug("Sending ReadyForQuery", "remote_addr", conn.RemoteAddr().String())
 		backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})

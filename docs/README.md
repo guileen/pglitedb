@@ -91,7 +91,7 @@ Contributions to PGLiteDB are welcome! Please see our [contribution guidelines](
 
 ## License
 
-PGLiteDB is released under the MIT License. See the [LICENSE](../LICENSE) file for details.
+PGLiteDB is released under the Elastic License 2.0. See the [LICENSE](../LICENSE) file for details.
 
 ---
 
