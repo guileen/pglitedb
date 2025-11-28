@@ -5,22 +5,22 @@ import (
 	"fmt"
 
 	"github.com/guileen/pglitedb/catalog/internal"
-	"github.com/guileen/pglitedb/engine"
+	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/types"
 )
 
 type indexManager struct {
-	engine engine.StorageEngine
-	kv     storage.KV
-	cache  *internal.SchemaCache
+	indexOps engineTypes.IndexOperations
+	kv       storage.KV
+	cache    *internal.SchemaCache
 }
 
-func newIndexManager(eng engine.StorageEngine, kv storage.KV, cache *internal.SchemaCache) IndexManager {
+func newIndexManager(indexOps engineTypes.IndexOperations, kv storage.KV, cache *internal.SchemaCache) IndexManager {
 	return &indexManager{
-		engine: eng,
-		kv:     kv,
-		cache:  cache,
+		indexOps: indexOps,
+		kv:       kv,
+		cache:    cache,
 	}
 }
 
@@ -30,7 +30,7 @@ func (m *indexManager) CreateIndex(ctx context.Context, tenantID int64, tableNam
 		return err
 	}
 
-	if err := m.engine.CreateIndex(ctx, tenantID, tableID, indexDef); err != nil {
+	if err := m.indexOps.CreateIndex(ctx, tenantID, tableID, indexDef); err != nil {
 		return fmt.Errorf("create index: %w", err)
 	}
 
@@ -61,7 +61,7 @@ func (m *indexManager) DropIndex(ctx context.Context, tenantID int64, tableName 
 		return fmt.Errorf("index %s not found", indexName)
 	}
 
-	if err := m.engine.DropIndex(ctx, tenantID, tableID, indexID); err != nil {
+	if err := m.indexOps.DropIndex(ctx, tenantID, tableID, indexID); err != nil {
 		return fmt.Errorf("drop index: %w", err)
 	}
 

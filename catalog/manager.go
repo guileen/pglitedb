@@ -7,7 +7,7 @@ import (
 	"github.com/guileen/pglitedb/catalog/internal"
 	"github.com/guileen/pglitedb/catalog/system"
 	"github.com/guileen/pglitedb/catalog/system/interfaces"
-	"github.com/guileen/pglitedb/engine"
+	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/types"
 )
@@ -18,48 +18,74 @@ type tableManager struct {
 	QueryManager
 	IndexManager
 
-	engine engine.StorageEngine
-	cache  *internal.SchemaCache
+	rowOps   engineTypes.RowOperations
+	indexOps engineTypes.IndexOperations
+	scanOps  engineTypes.ScanOperations
+	txOps    engineTypes.TransactionOperations
+	idGen    engineTypes.IDGeneration
+	engine   engineTypes.StorageEngine // Store reference to original engine for GetEngine
+	cache    *internal.SchemaCache
 	statsCollector interfaces.StatsManager
 	systemCatalog system.SystemCatalog
 }
 
 // GetEngine returns the storage engine
-func (tm *tableManager) GetEngine() engine.StorageEngine {
+func (tm *tableManager) GetEngine() engineTypes.StorageEngine {
+	// Return the original engine
 	return tm.engine
 }
 
-func NewTableManager(eng engine.StorageEngine) Manager {
+func NewTableManager(eng engineTypes.StorageEngine) Manager {
 	cache := internal.NewSchemaCache()
 	sm := newSchemaManager(eng, nil, cache)
+	dm := newDataManager(eng, eng, cache, sm)
+	qm := newQueryManager(eng, cache, nil) // Will be set below
+	im := newIndexManager(eng, nil, cache)
+	
 	tm := &tableManager{
 		SchemaManager: sm,
-		DataManager:   newDataManager(eng, cache, sm),
-		QueryManager:  newQueryManager(eng, cache, nil), // Will be set below
-		IndexManager:  newIndexManager(eng, nil, cache),
-		engine:        eng,
+		DataManager:   dm,
+		QueryManager:  qm,
+		IndexManager:  im,
+		rowOps:        eng,
+		indexOps:      eng,
+		scanOps:       eng,
+		txOps:         eng,
+		idGen:         eng,
+		engine:        eng, // Store reference to original engine
 		cache:         cache,
 	}
+	
 	// Set the manager reference in QueryManager
-	tm.QueryManager = newQueryManager(eng, cache, tm)
+	tm.QueryManager = newQueryManager(tm.scanOps, cache, tm)
 	tm.statsCollector = NewStatsCollector(interfaces.TableManager(tm))
 	tm.systemCatalog = system.NewCatalog(interfaces.TableManager(tm))
 	return tm
 }
 
-func NewTableManagerWithKV(eng engine.StorageEngine, kv storage.KV) Manager {
+func NewTableManagerWithKV(eng engineTypes.StorageEngine, kv storage.KV) Manager {
 	cache := internal.NewSchemaCache()
 	sm := newSchemaManager(eng, kv, cache)
+	dm := newDataManager(eng, eng, cache, sm)
+	qm := newQueryManager(eng, cache, nil) // Will be set below
+	im := newIndexManager(eng, kv, cache)
+	
 	tm := &tableManager{
 		SchemaManager: sm,
-		DataManager:   newDataManager(eng, cache, sm),
-		QueryManager:  newQueryManager(eng, cache, nil), // Will be set below
-		IndexManager:  newIndexManager(eng, kv, cache),
-		engine:        eng,
+		DataManager:   dm,
+		QueryManager:  qm,
+		IndexManager:  im,
+		rowOps:        eng,
+		indexOps:      eng,
+		scanOps:       eng,
+		txOps:         eng,
+		idGen:         eng,
+		engine:        eng, // Store reference to original engine
 		cache:         cache,
 	}
+	
 	// Set the manager reference in QueryManager
-	tm.QueryManager = newQueryManager(eng, cache, tm)
+	tm.QueryManager = newQueryManager(tm.scanOps, cache, tm)
 	tm.statsCollector = NewStatsCollector(interfaces.TableManager(tm))
 	tm.systemCatalog = system.NewCatalog(interfaces.TableManager(tm))
 	return tm

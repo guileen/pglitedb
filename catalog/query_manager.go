@@ -8,19 +8,18 @@ import (
 
 	"github.com/guileen/pglitedb/catalog/internal"
 	engineTypes "github.com/guileen/pglitedb/engine/types"
-	"github.com/guileen/pglitedb/engine"
 	"github.com/guileen/pglitedb/types"
 )
 
 type queryManager struct {
-	engine  engine.StorageEngine
+	scanOps engineTypes.ScanOperations
 	cache   *internal.SchemaCache
 	manager Manager // Add reference to the full manager
 }
 
-func newQueryManager(eng engine.StorageEngine, cache *internal.SchemaCache, manager Manager) QueryManager {
+func newQueryManager(scanOps engineTypes.ScanOperations, cache *internal.SchemaCache, manager Manager) QueryManager {
 	return &queryManager{
-		engine:  eng,
+		scanOps: scanOps,
 		cache:   cache,
 		manager: manager,
 	}
@@ -71,12 +70,12 @@ func (m *queryManager) Query(ctx context.Context, tenantID int64, tableName stri
 		candidate, err := optimizer.SelectBestIndex(opts, schema)
 		
 		if err == nil && candidate != nil {
-			iter, err = m.engine.ScanIndex(ctx, tenantID, tableID, candidate.IndexID, schema, scanOpts)
+			iter, err = m.scanOps.ScanIndex(ctx, tenantID, tableID, candidate.IndexID, schema, scanOpts)
 		} else {
-			iter, err = m.engine.ScanRows(ctx, tenantID, tableID, schema, scanOpts)
+			iter, err = m.scanOps.ScanRows(ctx, tenantID, tableID, schema, scanOpts)
 		}
 	} else {
-		iter, err = m.engine.ScanRows(ctx, tenantID, tableID, schema, scanOpts)
+		iter, err = m.scanOps.ScanRows(ctx, tenantID, tableID, schema, scanOpts)
 	}
 
 	if err != nil {
@@ -147,7 +146,7 @@ func (m *queryManager) Count(ctx context.Context, tenantID int64, tableName stri
 		return 0, err
 	}
 
-	iter, err := m.engine.ScanRows(ctx, tenantID, tableID, schema, nil)
+	iter, err := m.scanOps.ScanRows(ctx, tenantID, tableID, schema, nil)
 	if err != nil {
 		return 0, fmt.Errorf("scan rows: %w", err)
 	}

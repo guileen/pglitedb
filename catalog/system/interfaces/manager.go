@@ -3,6 +3,8 @@ package interfaces
 import (
 	"context"
 	"time"
+	
+	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/types"
 )
 
@@ -13,6 +15,7 @@ type TableManager interface {
 	GetStatsCollector() StatsManager
 	QuerySystemTable(ctx context.Context, fullTableName string, filter map[string]interface{}) (*types.QueryResult, error)
 	SystemTableQuery(ctx context.Context, fullTableName string, filter map[string]interface{}) (*types.QueryResult, error)
+	GetEngine() engineTypes.StorageEngine
 }
 
 // ColumnManager interface defines the methods for column operations

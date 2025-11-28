@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/guileen/pglitedb/catalog/internal"
-	"github.com/guileen/pglitedb/engine"
+	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/types"
 )
@@ -19,14 +19,14 @@ const (
 )
 
 type schemaManager struct {
-	engine engine.StorageEngine
-	kv     storage.KV
-	cache  *internal.SchemaCache
+	idGen engineTypes.IDGeneration
+	kv    storage.KV
+	cache *internal.SchemaCache
 }
 
-func newSchemaManager(eng engine.StorageEngine, kv storage.KV, cache *internal.SchemaCache) SchemaManager {
+func newSchemaManager(idGen engineTypes.IDGeneration, kv storage.KV, cache *internal.SchemaCache) SchemaManager {
 	return &schemaManager{
-		engine: eng,
+		idGen:  idGen,
 		kv:     kv,
 		cache:  cache,
 	}
@@ -53,7 +53,7 @@ func (m *schemaManager) CreateTable(ctx context.Context, tenantID int64, def *ty
 		}
 	}
 
-	tableID, err := m.engine.NextTableID(ctx, tenantID)
+	tableID, err := m.idGen.NextTableID(ctx, tenantID)
 	if err != nil {
 		return fmt.Errorf("generate table id: %w", err)
 	}
@@ -263,7 +263,7 @@ func (m *schemaManager) LoadSchemas(ctx context.Context) error {
 
 		key := makeTableKey(tenantID, tableName)
 
-		tableID, err := m.engine.NextTableID(ctx, tenantID)
+		tableID, err := m.idGen.NextTableID(ctx, tenantID)
 		if err != nil {
 			log.Printf("Warning: failed to generate table id, skipping: %v", err)
 			continue

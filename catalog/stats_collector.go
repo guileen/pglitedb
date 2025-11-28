@@ -9,7 +9,6 @@ import (
 	"time"
 
 	engineTypes "github.com/guileen/pglitedb/engine/types"
-	"github.com/guileen/pglitedb/engine"
 	"github.com/guileen/pglitedb/catalog/system/interfaces"
 	"github.com/guileen/pglitedb/types"
 )
@@ -313,7 +312,7 @@ func (sc *statsCollector) collectActualTableStats(ctx context.Context, tableID u
 	}
 
 	// Get storage engine
-	eng := tableManager.(interface{ GetEngine() engine.StorageEngine }).GetEngine()
+	eng := tableManager.GetEngine()
 
 	// Scan all rows to collect statistics
 	scanOpts := &engineTypes.ScanOptions{
@@ -387,7 +386,7 @@ func (sc *statsCollector) collectActualColumnStats(ctx context.Context, tableID 
 	}
 
 	// Get storage engine
-	eng := tableManager.(interface{ GetEngine() engine.StorageEngine }).GetEngine()
+	eng := tableManager.GetEngine()
 
 	// Get column definition
 	if columnID <= 0 || columnID > len(tableDef.Columns) {
@@ -544,7 +543,7 @@ func (sc *statsCollector) collectActualColumnStats(ctx context.Context, tableID 
 // This method implements a basic random sampling algorithm that can be used
 // for statistical analysis. For large tables, a more sophisticated reservoir
 // sampling approach would be more appropriate.
-func (sc *statsCollector) simpleRandomSample(ctx context.Context, eng engine.StorageEngine, tableID uint64, tableDef *types.TableDefinition, sampleSize int) ([]*types.Record, error) {
+func (sc *statsCollector) simpleRandomSample(ctx context.Context, eng engineTypes.ScanOperations, tableID uint64, tableDef *types.TableDefinition, sampleSize int) ([]*types.Record, error) {
 	// First, get total count of rows (simplified approach)
 	scanOpts := &engineTypes.ScanOptions{
 		Limit: sampleSize,

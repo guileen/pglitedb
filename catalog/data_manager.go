@@ -9,19 +9,21 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/guileen/pglitedb/catalog/internal"
-	"github.com/guileen/pglitedb/engine"
+	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/types"
 )
 
 type dataManager struct {
-	engine        engine.StorageEngine
+	rowOps        engineTypes.RowOperations
+	idGen         engineTypes.IDGeneration
 	cache         *internal.SchemaCache
 	schemaManager SchemaManager
 }
 
-func newDataManager(eng engine.StorageEngine, cache *internal.SchemaCache, sm SchemaManager) DataManager {
+func newDataManager(rowOps engineTypes.RowOperations, idGen engineTypes.IDGeneration, cache *internal.SchemaCache, sm SchemaManager) DataManager {
 	return &dataManager{
-		engine:        eng,
+		rowOps:        rowOps,
+		idGen:         idGen,
 		cache:         cache,
 		schemaManager: sm,
 	}
@@ -50,7 +52,7 @@ func (m *dataManager) Insert(ctx context.Context, tenantID int64, tableName stri
 	record.UpdatedAt = time.Now()
 	record.Version = 1
 
-	rowID, err := m.engine.InsertRow(ctx, tenantID, tableID, record, schema)
+	rowID, err := m.rowOps.InsertRow(ctx, tenantID, tableID, record, schema)
 	if err != nil {
 		return nil, fmt.Errorf("insert row: %w", err)
 	}
@@ -83,7 +85,7 @@ func (m *dataManager) InsertBatch(ctx context.Context, tenantID int64, tableName
 		records = append(records, record)
 	}
 
-	rowIDs, err := m.engine.InsertRowBatch(ctx, tenantID, tableID, records, schema)
+	rowIDs, err := m.rowOps.InsertRowBatch(ctx, tenantID, tableID, records, schema)
 	if err != nil {
 		return nil, fmt.Errorf("insert batch: %w", err)
 	}
@@ -115,7 +117,7 @@ func (m *dataManager) Update(ctx context.Context, tenantID int64, tableName stri
 		updates[k] = val
 	}
 
-	if err := m.engine.UpdateRow(ctx, tenantID, tableID, rowID, updates, schema); err != nil {
+	if err := m.rowOps.UpdateRow(ctx, tenantID, tableID, rowID, updates, schema); err != nil {
 		return nil, fmt.Errorf("update row: %w", err)
 	}
 
@@ -128,7 +130,7 @@ func (m *dataManager) Delete(ctx context.Context, tenantID int64, tableName stri
 		return err
 	}
 
-	if err := m.engine.DeleteRow(ctx, tenantID, tableID, rowID, schema); err != nil {
+	if err := m.rowOps.DeleteRow(ctx, tenantID, tableID, rowID, schema); err != nil {
 		return fmt.Errorf("delete row: %w", err)
 	}
 
@@ -141,7 +143,7 @@ func (m *dataManager) Get(ctx context.Context, tenantID int64, tableName string,
 		return nil, err
 	}
 
-	record, err := m.engine.GetRow(ctx, tenantID, tableID, rowID, schema)
+	record, err := m.rowOps.GetRow(ctx, tenantID, tableID, rowID, schema)
 	if err != nil {
 		return nil, fmt.Errorf("get row: %w", err)
 	}
@@ -544,7 +546,7 @@ func (m *dataManager) UpdateRows(ctx context.Context, tenantID int64, tableName 
 	}
 
 	// Perform the update operation
-	affected, err := m.engine.UpdateRows(ctx, tenantID, tableID, updates, conditions, schema)
+	affected, err := m.rowOps.UpdateRows(ctx, tenantID, tableID, updates, conditions, schema)
 	if err != nil {
 		return 0, fmt.Errorf("update rows: %w", err)
 	}
@@ -559,7 +561,7 @@ func (m *dataManager) DeleteRows(ctx context.Context, tenantID int64, tableName 
 	}
 
 	// Perform the delete operation
-	affected, err := m.engine.DeleteRows(ctx, tenantID, tableID, conditions, schema)
+	affected, err := m.rowOps.DeleteRows(ctx, tenantID, tableID, conditions, schema)
 	if err != nil {
 		return 0, fmt.Errorf("delete rows: %w", err)
 	}
