@@ -13,6 +13,46 @@ import (
 	"github.com/guileen/pglitedb/types"
 )
 
+// mapPostgreSQLTypeToInternal maps PostgreSQL type names to internal column types
+func mapPostgreSQLTypeToInternal(pgType string) string {
+	originalType := pgType
+	switch pgType {
+	case "int4":
+		pgType = "integer"
+	case "int2":
+		pgType = "smallint"
+	case "int8":
+		pgType = "bigint"
+	case "float4":
+		pgType = "real"
+	case "float8":
+		pgType = "double"
+	case "bool":
+		pgType = "boolean"
+	case "varchar", "character varying":
+		pgType = "varchar"
+	case "char", "character", "bpchar":
+		pgType = "char"
+	case "timestamp", "timestamp without time zone":
+		pgType = "timestamp"
+	case "serial":
+		pgType = "serial"
+	case "bigserial":
+		pgType = "bigserial"
+	case "smallserial":
+		pgType = "smallserial"
+	default:
+		// Return the original type if no mapping is found
+	}
+	
+	// Debug logging
+	if originalType != pgType {
+		fmt.Printf("Mapped PostgreSQL type '%s' to internal type '%s'\n", originalType, pgType)
+	}
+	
+	return pgType
+}
+
 const (
 	schemaKeyPrefix = "\x00schema\x00"
 	viewKeyPrefix   = "\x00view\x00"
@@ -48,7 +88,19 @@ func (m *schemaManager) CreateTable(ctx context.Context, tenantID int64, def *ty
 			// Mark as auto-increment (no need to add PrimaryKey here, assume it's set by caller)
 		}
 		
+		// Map PostgreSQL type names to our internal type names
+		originalType := string(col.Type)
+		mappedType := mapPostgreSQLTypeToInternal(originalType)
+		col.Type = types.ColumnType(mappedType)
+		
+		// Debug logging
+		if originalType != mappedType {
+			fmt.Printf("Mapped column type from '%s' to '%s' for column '%s'\n", originalType, mappedType, col.Name)
+		}
+		
+		fmt.Printf("Validating column '%s' with type '%s'\n", col.Name, col.Type)
 		if !types.IsValidColumnType(col.Type) {
+			fmt.Printf("Invalid column type '%s' for column '%s'\n", col.Type, col.Name)
 			return fmt.Errorf("invalid column type '%s' for column '%s'", col.Type, col.Name)
 		}
 	}

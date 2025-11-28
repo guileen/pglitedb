@@ -11,6 +11,38 @@ import (
 	"github.com/guileen/pglitedb/types"
 )
 
+// mapPostgreSQLTypeToInternal maps PostgreSQL type names to internal column types
+func mapPostgreSQLTypeToInternal(pgType string) string {
+	switch pgType {
+	case "int4":
+		return "integer"
+	case "int2":
+		return "smallint"
+	case "int8":
+		return "bigint"
+	case "float4":
+		return "real"
+	case "float8":
+		return "double"
+	case "bool":
+		return "boolean"
+	case "varchar", "character varying":
+		return "varchar"
+	case "char", "character", "bpchar":
+		return "char"
+	case "timestamp", "timestamp without time zone":
+		return "timestamp"
+	case "serial":
+		return "serial"
+	case "bigserial":
+		return "bigserial"
+	case "smallserial":
+		return "smallserial"
+	default:
+		return pgType
+	}
+}
+
 type Executor struct {
 	planner *Planner
 	catalog catalog.Manager
@@ -757,9 +789,11 @@ func (e *Executor) executeCreateTable(ctx context.Context, ddlStmt *DDLStatement
 	// Convert DDL column definitions to catalog column definitions
 	columns := make([]types.ColumnDefinition, len(ddlStmt.Columns))
 	for i, col := range ddlStmt.Columns {
+		// Map PostgreSQL type names to our internal type names
+		mappedType := mapPostgreSQLTypeToInternal(col.Type)
 		columns[i] = types.ColumnDefinition{
 			Name:       col.Name,
-			Type:       types.ColumnType(col.Type),
+			Type:       types.ColumnType(mappedType),
 			Nullable:   !col.NotNull,
 			PrimaryKey: col.PrimaryKey,
 			Unique:     col.Unique,

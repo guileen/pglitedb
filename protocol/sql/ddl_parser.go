@@ -7,37 +7,7 @@ import (
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 )
 
-// mapPostgreSQLTypeToInternal maps PostgreSQL type names to internal column types
-func mapPostgreSQLTypeToInternal(pgType string) string {
-	switch pgType {
-	case "int4":
-		return "integer"
-	case "int2":
-		return "smallint"
-	case "int8":
-		return "bigint"
-	case "float4":
-		return "real"
-	case "float8":
-		return "double"
-	case "bool":
-		return "boolean"
-	case "varchar", "character varying":
-		return "varchar"
-	case "char", "character":
-		return "char"
-	case "timestamp", "timestamp without time zone":
-		return "timestamp"
-	case "serial":
-		return "serial"
-	case "bigserial":
-		return "bigserial"
-	case "smallserial":
-		return "smallserial"
-	default:
-		return pgType
-	}
-}
+
 
 // DDLParser handles parsing of Data Definition Language statements
 type DDLParser struct{}
