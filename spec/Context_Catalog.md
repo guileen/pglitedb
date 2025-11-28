@@ -1,8 +1,8 @@
 # System Catalog Context
 
-★ Core Goal: Document system catalog implementation and management for PGliteDB with focus on maintainability
+★ Core Goal: Document system catalog implementation and management for PGLiteDB with focus on maintainability and architectural alignment
 
-This file provides context about the system catalog implementation, including system tables like pg_indexes and pg_constraint, and their integration with the database engine, with emphasis on ongoing refactoring for improved maintainability.
+This file provides context about the system catalog implementation, including system tables like pg_indexes and pg_constraint, and their integration with the database engine, with emphasis on ongoing refactoring for improved maintainability aligned with the architectural review findings.
 
 ## Implementation Insights from Reflection
 ✅ **Key Learnings**:
@@ -21,11 +21,12 @@ This file provides context about the system catalog implementation, including sy
 
 Weight: ★★★★★ (Critical for system table integrity)
 
-## Critical Infrastructure Issue
-❗ **Priority 1 Fix Required**: System table implementation deficiencies causing "table not found" errors in all benchmark tests
-- Missing or incomplete core PostgreSQL system tables: pg_class, pg_attribute, pg_namespace, pg_type
-- Impact: Prevents basic database operations requiring system catalog lookups
-- See master plan in [GUIDE.md](./GUIDE.md) for detailed fix approach
+## System Table Implementation Status
+✅ **Completed**: System table implementation deficiencies have been successfully resolved
+- Complete implementation of core PostgreSQL system tables: pg_class, pg_attribute, pg_namespace, pg_type
+- All system tables properly integrated with consistent OID generation
+- Full support for database operations requiring system catalog lookups
+- See validation report in [SYSTEM_TABLE_FIXES_VALIDATION.md](./SYSTEM_TABLE_FIXES_VALIDATION.md)
 
 ## System Table Relationships
 ⚠️ **Complex Interdependencies**: System tables have intricate relationships that must be maintained for proper database functionality:
@@ -61,12 +62,21 @@ Weight: ★★★★★ (Critical for system table integrity)
 - Integration with storage engine for physical index operations
 - Consistent API design enabling extensibility through interface contracts
 
-## Maintainability Improvements
-✅ **Refactoring Progress**:
-- System table modularization to address large file issues
-- Consistent OID generation for referential integrity
-- Interface-driven design for clean separation of concerns
-- Enhanced test coverage for system table operations
+## Current Architectural Alignment Focus
+
+### Priority 1: Code Structure and Modularity
+⚠️ **Technical Debt Reduction Priority**: The `catalog/system_tables.go` file requires refactoring to improve maintainability and code organization in alignment with the architectural review findings.
+
+**Refactoring Strategy Based on Architectural Review**:
+1. **Modularization** - Split the 1844-line file into smaller, focused modules
+2. **Package Restructuring** - Move related functionality into separate packages following the target architecture
+3. **Interface Abstraction** - Define clear interfaces for system table operations aligned with segregated StorageEngine interfaces
+4. **Test Coverage** - Ensure comprehensive test coverage during refactoring
+
+**Implementation Approach**:
+- Following the phased implementation plan from [GUIDE.md](./GUIDE.md)
+- Refactoring aligned with engine decomposition initiatives
+- Maintaining system stability through incremental changes
 
 ## System Table Implementation Best Practices
 ⚠️ **Key Implementation Principles**:
@@ -95,6 +105,23 @@ Weight: ★★★★★ (Critical for system table integrity)
 - PostgreSQL-compatible metadata queries with proper system table relationships
 
 For detailed implementation approach, see [GUIDE.md](./GUIDE.md) and [System Tables Enhancement Guide](./GUIDE_SYSTEM_TABLES_ENHANCEMENT.md)
+
+## Current Refactoring Focus Based on Architectural Review
+
+### 1. Code Structure and Modularity (Priority 1)
+- Breaking down `catalog/system_tables.go` into specialized components
+- Creating focused modules for different system table types
+- Improving package structure with better separation of concerns
+
+### 2. Interface Design Issues (Priority 2)
+- Aligning catalog interfaces with segregated StorageEngine interfaces
+- Updating dependent code to use specific interfaces
+- Maintaining backward compatibility through adapter patterns
+
+### 3. Resource Management Gaps (Priority 3)
+- Enhancing system table caching mechanisms
+- Implementing resource leak detection for catalog operations
+- Optimizing memory allocation patterns in catalog queries
 
 ## Key Architectural Components
 
@@ -249,7 +276,7 @@ For detailed implementation approach, see [GUIDE.md](./GUIDE.md) and [System Tab
 
 1. **PostgreSQL Compatibility**
    - Required for PostgreSQL-compatible database introspection
-   - Enables standard tools and applications to work with PGliteDB
+   - Enables standard tools and applications to work with PGLiteDB
    - Supports INFORMATION_SCHEMA and other standard metadata queries
    - Weight: ★★★★★ (Critical for compatibility)
 
