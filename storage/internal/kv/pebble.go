@@ -34,16 +34,24 @@ type PebbleConfig struct {
 	MaxOpenFiles          int
 	CompactionConcurrency int
 	FlushInterval         time.Duration
+	BlockSize             int           // Block size for SSTable blocks
+	L0CompactionThreshold int           // Number of L0 files to trigger compaction
+	L0StopWritesThreshold int           // Number of L0 files to stop writes
+	CompressionEnabled    bool          // Enable Snappy compression
 }
 
 func DefaultPebbleConfig(path string) *PebbleConfig {
 	return &PebbleConfig{
 		Path:                  path,
-		CacheSize:             512 * 1024 * 1024, // Increased cache size
-		MemTableSize:          64 * 1024 * 1024,
-		MaxOpenFiles:          10000, // Increased max open files
-		CompactionConcurrency: 4,     // Increased compaction concurrency
-		FlushInterval:         5 * time.Second, // Less aggressive flushing
+		CacheSize:             1024 * 1024 * 1024, // 1GB cache size for better performance
+		MemTableSize:          64 * 1024 * 1024,   // 64MB memtables for write-heavy workloads
+		MaxOpenFiles:          50000,              // Increased max open files
+		CompactionConcurrency: 8,                  // Increased compaction concurrency
+		FlushInterval:         10 * time.Second,   // Less aggressive flushing
+		BlockSize:             64 << 10,           // 64KB block size for better sequential read performance
+		L0CompactionThreshold: 8,                  // Increased threshold to reduce write amplification
+		L0StopWritesThreshold: 32,                 // Increased threshold to reduce write stalls
+		CompressionEnabled:    true,               // Enable compression for better space efficiency
 	}
 }
 
@@ -51,19 +59,33 @@ func NewPebbleKV(config *PebbleConfig) (*PebbleKV, error) {
 	cache := pebble.NewCache(config.CacheSize)
 	defer cache.Unref()
 	
+	// Configure compression levels
+	compression := make([]pebble.Compression, 3)
+	if config.CompressionEnabled {
+		// Enable Snappy compression for better space efficiency
+		compression[0] = pebble.SnappyCompression
+		compression[1] = pebble.SnappyCompression
+		compression[2] = pebble.SnappyCompression
+	} else {
+		// Disable compression
+		compression[0] = pebble.NoCompression
+		compression[1] = pebble.NoCompression
+		compression[2] = pebble.NoCompression
+	}
+	
 	opts := &pebble.Options{
 		Cache: cache,
 		MaxOpenFiles:   config.MaxOpenFiles,
 		MemTableSize:   uint64(config.MemTableSize),
-		MemTableStopWritesThreshold: 4,
-		L0CompactionThreshold: 2,
-		L0StopWritesThreshold: 12,
-		LBaseMaxBytes:         64 << 20, // 64 MB
+		MemTableStopWritesThreshold: 8,  // Increased threshold to reduce write stalls
+		L0CompactionThreshold: config.L0CompactionThreshold,    // Configurable L0 compaction threshold to reduce write amplification
+		L0StopWritesThreshold: config.L0StopWritesThreshold,    // Configurable L0 stop writes threshold to reduce write stalls
+		LBaseMaxBytes:         128 << 20, // 128 MB for better space efficiency
 		MaxConcurrentCompactions: func() int { return config.CompactionConcurrency },
 		Levels: []pebble.LevelOptions{
-			{TargetFileSize: 2 << 20},  // 2 MB
-			{TargetFileSize: 8 << 20},  // 8 MB
-			{TargetFileSize: 32 << 20}, // 32 MB
+			{TargetFileSize: 8 << 20, BlockSize: config.BlockSize, Compression: compression[0]},   // 8 MB - increased block size for better sequential read performance
+			{TargetFileSize: 32 << 20, BlockSize: config.BlockSize, Compression: compression[1]},  // 32 MB
+			{TargetFileSize: 128 << 20, BlockSize: config.BlockSize, Compression: compression[2]}, // 128 MB
 		},
 	}
 

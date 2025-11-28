@@ -869,3 +869,60 @@ func TestConflictDetection(t *testing.T) {
 	txn1.Rollback()
 	txn2.Rollback()
 }
+
+func TestPebbleKV_Configuration(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "pebble-config-test-*")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	config := DefaultPebbleConfig(filepath.Join(tmpDir, "db"))
+	
+	// Test that our new configuration options are set correctly in default config
+	if config.BlockSize != 64<<10 {
+		t.Errorf("expected BlockSize 65536, got %d", config.BlockSize)
+	}
+	
+	if config.L0CompactionThreshold != 8 {
+		t.Errorf("expected L0CompactionThreshold 8, got %d", config.L0CompactionThreshold)
+	}
+	
+	if config.L0StopWritesThreshold != 32 {
+		t.Errorf("expected L0StopWritesThreshold 32, got %d", config.L0StopWritesThreshold)
+	}
+	
+	if !config.CompressionEnabled {
+		t.Error("expected CompressionEnabled to be true")
+	}
+
+	// Test that we can override the configuration
+	config.BlockSize = 32 << 10 // 32KB
+	config.L0CompactionThreshold = 4
+	config.L0StopWritesThreshold = 12
+	config.CompressionEnabled = false
+
+	kv, err := NewPebbleKV(config)
+	if err != nil {
+		t.Fatalf("create pebble kv: %v", err)
+	}
+	defer kv.Close()
+
+	// Basic test to ensure the KV store works with our custom configuration
+	ctx := context.Background()
+	key := []byte("test-key")
+	value := []byte("test-value")
+
+	if err := kv.Set(ctx, key, value); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+
+	got, err := kv.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	
+	if string(got) != string(value) {
+		t.Errorf("expected %s, got %s", value, got)
+	}
+}
