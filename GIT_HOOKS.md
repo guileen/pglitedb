@@ -47,3 +47,14 @@ Additionally, all files without extensions are now ignored by default in the `.g
 ```bash
 echo "!filename" >> .gitignore
 ```
+
+## Recent Improvements
+
+We've recently enhanced our binary file prevention system:
+
+1. Added more comprehensive rules to `.gitignore` to exclude profiling results and build artifacts
+2. Improved the pre-commit hook to be more accurate in detecting binary files
+3. Removed all existing binary files from the repository history
+4. Added specific exclusions for profiling directories and files
+
+These changes ensure that binary files will not accidentally be committed to the repository in the future.
