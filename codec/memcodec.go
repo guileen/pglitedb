@@ -2,6 +2,9 @@ package codec
 
 import (
 	"sync"
+	"time"
+
+	"github.com/guileen/pglitedb/types"
 )
 
 // Global pool for EncodedRow objects
@@ -9,6 +12,15 @@ var encodedRowPool = &sync.Pool{
 	New: func() interface{} {
 		return &EncodedRow{
 			Columns: make(map[string][]byte),
+		}
+	},
+}
+
+// Global pool for decoded Record objects
+var decodedRecordPool = &sync.Pool{
+	New: func() interface{} {
+		return &types.Record{
+			Data: make(map[string]*types.Value),
 		}
 	},
 }
@@ -46,6 +58,40 @@ func ReleaseEncodedRow(er *EncodedRow) {
 	}
 	
 	encodedRowPool.Put(er)
+}
+
+// AcquireDecodedRecord gets a Record from the pool
+func AcquireDecodedRecord() *types.Record {
+	obj := decodedRecordPool.Get()
+	if obj != nil {
+		record := obj.(*types.Record)
+		// Clear the map without reallocating
+		for k := range record.Data {
+			delete(record.Data, k)
+		}
+		record.ID = ""
+		record.Table = ""
+		record.CreatedAt = time.Time{}
+		record.UpdatedAt = time.Time{}
+		record.Version = 0
+		return record
+	}
+	
+	// Create a new record
+	record := &types.Record{
+		Data: make(map[string]*types.Value),
+	}
+	return record
+}
+
+// ReleaseDecodedRecord returns a Record to the pool
+func ReleaseDecodedRecord(record *types.Record) {
+	// Clear the map without reallocating
+	for k := range record.Data {
+		delete(record.Data, k)
+	}
+	
+	decodedRecordPool.Put(record)
 }
 
 type memcodec struct {
