@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/bloom"
 	"github.com/guileen/pglitedb/storage/shared"
 )
 
@@ -25,6 +26,9 @@ type PebbleKV struct {
 	activeTransactions map[uint64]*PebbleTransaction
 	transactionMu      sync.RWMutex
 	nextTxnID          uint64
+	
+	// Compaction monitor for performance tracking
+	compactionMonitor *CompactionMonitor
 }
 
 type PebbleConfig struct {
@@ -37,7 +41,14 @@ type PebbleConfig struct {
 	BlockSize             int           // Block size for SSTable blocks
 	L0CompactionThreshold int           // Number of L0 files to trigger compaction
 	L0StopWritesThreshold int           // Number of L0 files to stop writes
+	LBaseMaxBytes         int64         // Maximum size of L1 level in bytes
 	CompressionEnabled    bool          // Enable Snappy compression
+	EnableRateLimiting    bool          // Enable write rate limiting
+	RateLimitBytesPerSec  int64         // Rate limit in bytes per second
+	EnableBloomFilter     bool          // Enable bloom filters for better read performance
+	BloomFilterBitsPerKey float64       // Bloom filter bits per key
+	TargetFileSize        int64         // Target file size for SSTables
+	MaxManifestFileSize   int64         // Maximum manifest file size
 }
 
 // DefaultPebbleConfig creates a default configuration for Pebble KV store optimized for production
@@ -52,7 +63,14 @@ func DefaultPebbleConfig(path string) *PebbleConfig {
 		BlockSize:             64 << 10,                // Increase to 64KB for better performance
 		L0CompactionThreshold: 8,                       // Increase to reduce write amplification
 		L0StopWritesThreshold: 32,                      // Increase to prevent write stalls
+		LBaseMaxBytes:         128 << 20,               // 128MB for L1, better space efficiency
 		CompressionEnabled:    true,
+		EnableRateLimiting:    true,                    // Enable rate limiting for consistent performance
+		RateLimitBytesPerSec:  100 << 20,               // 100MB/s rate limit to prevent resource exhaustion
+		EnableBloomFilter:     true,                    // Enable bloom filters for better read performance
+		BloomFilterBitsPerKey: 10,                      // 10 bits per key for good balance
+		TargetFileSize:        32 << 20,                // 32MB target file size for better sequential reads
+		MaxManifestFileSize:   128 << 20,               // 128MB max manifest file size
 	}
 }
 
@@ -69,7 +87,37 @@ func TestOptimizedPebbleConfig(path string) *PebbleConfig {
 		BlockSize:             4 << 10,                 // Reduce to 4KB for testing
 		L0CompactionThreshold: 2,                       // Reduce to trigger compactions sooner
 		L0StopWritesThreshold: 10,                      // Reduce to prevent write stalls
+		LBaseMaxBytes:         32 << 20,                // 32MB for L1 in testing
 		CompressionEnabled:    false,                   // Disable compression for speed
+		EnableRateLimiting:    false,                   // Disable rate limiting for testing
+		EnableBloomFilter:     true,                    // Keep bloom filters for testing
+		BloomFilterBitsPerKey: 5,                       // Lower bits per key for testing
+		TargetFileSize:        8 << 20,                // 8MB target file size for testing
+		MaxManifestFileSize:   32 << 20,                // 32MB max manifest file size for testing
+	}
+}
+
+// PostgreSQLOptimizedPebbleConfig creates a configuration optimized for PostgreSQL-like workloads
+// Balances read/write performance with space efficiency
+func PostgreSQLOptimizedPebbleConfig(path string) *PebbleConfig {
+	return &PebbleConfig{
+		Path:                  path,
+		CacheSize:             1 * 1024 * 1024 * 1024, // 1GB cache for balanced performance
+		MemTableSize:          64 * 1024 * 1024,        // 64MB memtable for balanced flush frequency
+		MaxOpenFiles:          50000,                   // Balanced file descriptor usage
+		CompactionConcurrency: 8,                       // Moderate concurrency for mixed workloads
+		FlushInterval:         2 * time.Second,         // Balanced flushing
+		BlockSize:             32 << 10,                // 32KB block size for good balance
+		L0CompactionThreshold: 4,                       // Moderate L0 compaction threshold
+		L0StopWritesThreshold: 12,                      // Prevent write stalls
+		LBaseMaxBytes:         64 << 20,                // 64MB for L1
+		CompressionEnabled:    true,                    // Enable compression for space efficiency
+		EnableRateLimiting:    true,                    // Enable rate limiting for consistent performance
+		RateLimitBytesPerSec:  50 << 20,                // 50MB/s rate limit for balanced performance
+		EnableBloomFilter:     true,                    // Enable bloom filters for better read performance
+		BloomFilterBitsPerKey: 8,                       // 8 bits per key for good balance
+		TargetFileSize:        16 << 20,                // 16MB target file size
+		MaxManifestFileSize:   64 << 20,                // 64MB max manifest file size
 	}
 }
 
@@ -98,13 +146,34 @@ func NewPebbleKV(config *PebbleConfig) (*PebbleKV, error) {
 		MemTableStopWritesThreshold: 8,  // Increased threshold to reduce write stalls
 		L0CompactionThreshold: config.L0CompactionThreshold,    // Configurable L0 compaction threshold to reduce write amplification
 		L0StopWritesThreshold: config.L0StopWritesThreshold,    // Configurable L0 stop writes threshold to reduce write stalls
-		LBaseMaxBytes:         128 << 20, // 128 MB for better space efficiency
+		LBaseMaxBytes:         config.LBaseMaxBytes,            // Configurable LBase max bytes
 		MaxConcurrentCompactions: func() int { return config.CompactionConcurrency },
 		Levels: []pebble.LevelOptions{
-			{TargetFileSize: 8 << 20, BlockSize: config.BlockSize, Compression: compression[0]},   // 8 MB - increased block size for better sequential read performance
-			{TargetFileSize: 32 << 20, BlockSize: config.BlockSize, Compression: compression[1]},  // 32 MB
-			{TargetFileSize: 128 << 20, BlockSize: config.BlockSize, Compression: compression[2]}, // 128 MB
+			{TargetFileSize: config.TargetFileSize, BlockSize: config.BlockSize, Compression: compression[0]},   // Configurable target file size
+			{TargetFileSize: config.TargetFileSize * 4, BlockSize: config.BlockSize, Compression: compression[1]},  // 4x target file size
+			{TargetFileSize: config.TargetFileSize * 16, BlockSize: config.BlockSize, Compression: compression[2]}, // 16x target file size
 		},
+		MaxManifestFileSize: config.MaxManifestFileSize, // Configurable max manifest file size
+	}
+	
+	// Configure rate limiter if enabled
+	// Note: In Pebble v1.1.5, rate limiting is handled via TargetByteDeletionRate
+	if config.EnableRateLimiting && config.RateLimitBytesPerSec > 0 {
+		opts.TargetByteDeletionRate = int(config.RateLimitBytesPerSec)
+	}
+
+	// Configure bloom filters if enabled
+	if config.EnableBloomFilter {
+		for i := range opts.Levels {
+			opts.Levels[i].FilterPolicy = bloom.FilterPolicy(config.BloomFilterBitsPerKey)
+			opts.Levels[i].FilterType = pebble.TableFilter
+		}
+	}
+
+	// Rate limiting is handled via TargetByteDeletionRate
+	// No need to set a separate rate limiter object
+	if config.EnableRateLimiting && config.RateLimitBytesPerSec > 0 {
+		opts.TargetByteDeletionRate = int(config.RateLimitBytesPerSec)
 	}
 
 	db, err := pebble.Open(config.Path, opts)
@@ -121,6 +190,10 @@ func NewPebbleKV(config *PebbleConfig) (*PebbleKV, error) {
 		activeTransactions: make(map[uint64]*PebbleTransaction),
 		nextTxnID:          1, // Start from 1 to avoid issues with ID 0
 	}
+
+	// Initialize compaction monitor for performance tracking
+	pkv.compactionMonitor = NewCompactionMonitor(pkv, 5*time.Second)
+	pkv.compactionMonitor.Start()
 
 	go pkv.backgroundFlush()
 
@@ -338,6 +411,34 @@ func (p *PebbleKV) Stats() shared.KVStats {
 		keyCount += int64(level.NumFiles)
 	}
 	
+	// Calculate amplification factors
+	var readAmp int64 = 0
+	var totalFiles int64 = 0
+	for i, level := range metrics.Levels {
+		if i < len(metrics.Levels)-1 { // Don't count the last level for read amplification
+			readAmp += int64(level.Sublevels)
+		}
+		totalFiles += int64(level.NumFiles)
+	}
+	
+	// Write amplification calculation (approximate)
+	var writeAmp float64 = 1.0
+	var totalBytesFlushed, totalBytesCompacted uint64
+	for _, level := range metrics.Levels {
+		totalBytesFlushed += level.BytesFlushed
+		totalBytesCompacted += level.BytesCompacted
+	}
+	if metrics.Flush.Count > 0 || totalBytesFlushed > 0 || totalBytesCompacted > 0 {
+		// Simplified write amplification calculation
+		writeAmp = float64(totalBytesFlushed+totalBytesCompacted) / float64(totalBytesFlushed+1)
+	}
+	
+	// Space amplification calculation
+	var spaceAmp float64 = 1.0
+	if metrics.Total().Size > 0 {
+		spaceAmp = float64(metrics.DiskSpaceUsage()) / float64(metrics.Total().Size)
+	}
+	
 	return shared.KVStats{
 		KeyCount:        keyCount,
 		ApproximateSize: int64(metrics.DiskSpaceUsage()),
@@ -345,6 +446,15 @@ func (p *PebbleKV) Stats() shared.KVStats {
 		FlushCount:      int64(metrics.Flush.Count),
 		CompactionCount: int64(metrics.Compact.Count),
 		PendingWrites:   atomic.LoadInt64(&p.pendingWrites),
+		
+		// Compaction-specific statistics
+		L0FileCount:     int64(metrics.Levels[0].NumFiles),
+		L1FileCount:     int64(metrics.Levels[1].NumFiles),
+		L2FileCount:     int64(metrics.Levels[2].NumFiles),
+		ReadAmplification: readAmp,
+		WriteAmplification: writeAmp,
+		SpaceAmplification: spaceAmp,
+		CompactionBytesWritten: int64(totalBytesCompacted),
 	}
 }
 
@@ -425,6 +535,11 @@ func (p *PebbleKV) Close() error {
 	}
 
 	p.closed = true
+
+	// Stop the compaction monitor
+	if p.compactionMonitor != nil {
+		p.compactionMonitor.Stop()
+	}
 
 	if p.flushTicker != nil {
 		p.flushTicker.Stop()

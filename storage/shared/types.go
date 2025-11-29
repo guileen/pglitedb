@@ -134,6 +134,15 @@ type KVStats struct {
 	FlushCount      int64
 	CompactionCount int64
 	PendingWrites   int64
+	
+	// Compaction-specific statistics
+	L0FileCount     int64
+	L1FileCount     int64
+	L2FileCount     int64
+	ReadAmplification int64  // Read amplification factor
+	WriteAmplification float64 // Write amplification factor
+	SpaceAmplification float64 // Space amplification factor
+	CompactionBytesWritten int64 // Total bytes written during compactions
 }
 
 // Error types
