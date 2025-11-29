@@ -89,15 +89,19 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 	switch {
 	case stmt.GetSelectStmt() != nil:
 		plan.Type = SelectStatement
+		plan.Operation = "select"
 		p.extractSelectInfoFromPGNode(stmt, plan)
 	case stmt.GetInsertStmt() != nil:
 		plan.Type = InsertStatement
+		plan.Operation = "insert"
 		p.extractInsertInfoFromPGNode(stmt, plan)
 	case stmt.GetUpdateStmt() != nil:
 		plan.Type = UpdateStatement
+		plan.Operation = "update"
 		p.extractUpdateInfoFromPGNode(stmt, plan)
 	case stmt.GetDeleteStmt() != nil:
 		plan.Type = DeleteStatement
+		plan.Operation = "delete"
 		p.extractDeleteInfoFromPGNode(stmt, plan)
 	case stmt.GetCreateStmt() != nil:
 		plan.Type = CreateTableStatement

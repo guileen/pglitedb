@@ -25,6 +25,14 @@ type ConnectionPool struct {
 
 // NewConnectionPool creates a new connection pool with the given configuration
 func NewConnectionPool(config PoolConfig, factory ConnectionFactory) *ConnectionPool {
+	// Set default values for config
+	if config.AdaptationInterval <= 0 {
+		config.AdaptationInterval = 30 * time.Second
+	}
+	if config.HealthCheckPeriod <= 0 {
+		config.HealthCheckPeriod = 1 * time.Minute
+	}
+	
 	pool := &ConnectionPool{
 		config:      config,
 		factory:     factory,
@@ -48,7 +56,8 @@ func NewConnectionPool(config PoolConfig, factory ConnectionFactory) *Connection
 
 // createConnection creates a new connection and adds it to the pool
 func (p *ConnectionPool) createConnection() {
-	conn, err := p.factory.CreateConnection()
+	ctx := context.Background()
+	conn, err := p.factory.CreateConnection(ctx)
 	if err != nil {
 		// Log error but don't fail the pool creation
 		atomic.AddUint64(&p.stats.ConnectionErrors, 1)
@@ -62,6 +71,12 @@ func (p *ConnectionPool) createConnection() {
 		lastUsedAt: time.Now(),
 	}
 	
+	// Check if pool is closed before sending
+	if atomic.LoadInt32(&p.closed) == 1 {
+		pooledConn.forceClose()
+		return
+	}
+	
 	select {
 	case p.connections <- pooledConn:
 		atomic.AddUint64(&p.stats.TotalConns, 1)
@@ -72,12 +87,49 @@ func (p *ConnectionPool) createConnection() {
 	}
 }
 
-// Get retrieves a connection from the pool
+// Get retrieves a connection from the pool, creating one on demand if necessary
 func (p *ConnectionPool) Get(ctx context.Context) (*PooledConnection, error) {
 	if atomic.LoadInt32(&p.closed) == 1 {
 		return nil, &ConnectionPoolError{Op: "get", Err: ErrPoolClosed}
 	}
 
+	// Try to get an existing connection from the pool first
+	select {
+	case conn := <-p.connections:
+		atomic.AddUint64(&p.stats.Hits, 1)
+		atomic.AddUint64(&p.stats.IdleConns, ^uint64(0)) // decrement
+		atomic.AddInt32(&p.activeCount, 1)
+		conn.updateLastUsed()
+		return conn, nil
+	default:
+		// No connections available, try to create a new one if under limit
+		currentActive := atomic.LoadInt32(&p.activeCount)
+		currentIdle := atomic.LoadUint64(&p.stats.IdleConns)
+		currentTotal := int(currentActive) + int(currentIdle)
+		
+		if currentTotal < p.config.MaxConnections {
+			// Create a new connection on demand
+			conn, err := p.factory.CreateConnection(ctx)
+			if err != nil {
+				atomic.AddUint64(&p.stats.ConnectionErrors, 1)
+				return nil, &ConnectionPoolError{Op: "get", Err: err}
+			}
+			
+			pooledConn := &PooledConnection{
+				conn:       conn,
+				pool:       p,
+				createdAt:  time.Now(),
+				lastUsedAt: time.Now(),
+			}
+			
+			atomic.AddUint64(&p.stats.Misses, 1)
+			atomic.AddUint64(&p.stats.TotalConns, 1)
+			atomic.AddInt32(&p.activeCount, 1)
+			return pooledConn, nil
+		}
+	}
+
+	// Pool is at max capacity, wait for an existing connection
 	select {
 	case conn := <-p.connections:
 		atomic.AddUint64(&p.stats.Hits, 1)
@@ -87,7 +139,7 @@ func (p *ConnectionPool) Get(ctx context.Context) (*PooledConnection, error) {
 		return conn, nil
 	case <-ctx.Done():
 		atomic.AddUint64(&p.stats.Timeouts, 1)
-		return nil, ctx.Err()
+		return nil, &ConnectionPoolError{Op: "get", Err: ctx.Err()}
 	case <-time.After(p.config.ConnectionTimeout):
 		atomic.AddUint64(&p.stats.Timeouts, 1)
 		return nil, &ConnectionPoolError{Op: "get", Err: ErrTimeout}
@@ -158,12 +210,19 @@ func (p *ConnectionPool) GetMetrics() PoolMetrics {
 		hitRate = float64(stats.Hits) / float64(totalRequests) * 100
 	}
 	
+	currentSize := int(atomic.LoadInt32(&p.activeCount)) + int(atomic.LoadUint64(&stats.IdleConns))
+	
 	return PoolMetrics{
-		CurrentSize:     int(atomic.LoadInt32(&p.activeCount)) + int(atomic.LoadUint64(&stats.IdleConns)),
+		CurrentSize:     currentSize,
 		MaxSize:         p.config.MaxConnections,
 		Available:       int(atomic.LoadUint64(&stats.IdleConns)),
 		Active:          int(atomic.LoadInt32(&p.activeCount)),
 		PendingRequests: len(p.connections),
 		HitRate:         hitRate,
+		
+		// Additional fields for backward compatibility with tests
+		CurrentConnections: currentSize,
+		ConnectionHits:     stats.Hits,
+		ConnectionMisses:   stats.Misses,
 	}
 }

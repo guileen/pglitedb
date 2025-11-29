@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync/atomic"
 	"time"
 )
 
@@ -96,7 +97,7 @@ func (cf *UnixConnectionFactory) CreateConnection(ctx context.Context) (net.Conn
 // MockConnectionFactory implements ConnectionFactory for testing
 type MockConnectionFactory struct {
 	failCount    int
-	currentCount int
+	currentCount int32 // Use atomic for thread safety
 	shouldFail   bool
 }
 
@@ -110,12 +111,12 @@ func NewMockConnectionFactory(shouldFail bool, failCount int) *MockConnectionFac
 
 // CreateConnection creates a mock connection for testing
 func (cf *MockConnectionFactory) CreateConnection(ctx context.Context) (net.Conn, error) {
-	cf.currentCount++
+	currentCount := atomic.AddInt32(&cf.currentCount, 1)
 	
-	if cf.shouldFail && cf.currentCount <= cf.failCount {
+	if cf.shouldFail && currentCount <= int32(cf.failCount) {
 		return nil, &ConnectionPoolError{
 			Op:  "mock_dial",
-			Err: fmt.Errorf("mock connection failure %d", cf.currentCount),
+			Err: fmt.Errorf("mock connection failure %d", currentCount),
 		}
 	}
 

@@ -1,6 +1,8 @@
 package sql
 
 import (
+	"strings"
+	
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 )
 
@@ -28,12 +30,21 @@ func (p *Planner) extractSelectInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 
 		for _, target := range targetList {
 			if targetEntry := target.GetResTarget(); targetEntry != nil {
+				// Extract alias if available
+				alias := targetEntry.GetName()
+				
 				if val := targetEntry.GetVal(); val != nil {
 					// Handle aggregate functions
 					if funcCall := val.GetFuncCall(); funcCall != nil {
 						agg := p.extractAggregateFunction(funcCall)
 						if agg.Function != "" {
+							// Set alias if available
+							if alias != "" {
+								agg.Alias = alias
+							}
 							aggregates = append(aggregates, agg)
+							// Add the aggregate function to fields with "func:" prefix
+							fields = append(fields, "func:"+strings.ToLower(agg.Function))
 							continue
 						}
 					}
@@ -131,24 +142,37 @@ func (p *Planner) extractAggregateFunction(funcCall *pg_query.FuncCall) Aggregat
 
 	if funcName := funcCall.GetFuncname(); len(funcName) > 0 {
 		if str := funcName[0].GetString_(); str != nil {
-			agg.Function = str.GetSval()
+			agg.Function = strings.ToUpper(str.GetSval())
 		}
 	}
 
-	if agg.Function != "" && funcCall.GetArgs() != nil {
-		args := funcCall.GetArgs()
-		if len(args) > 0 {
-			if arg := args[0]; arg != nil {
-				if columnRef := arg.GetColumnRef(); columnRef != nil {
-					if fieldsList := columnRef.GetFields(); len(fieldsList) > 0 {
-						if str := fieldsList[len(fieldsList)-1].GetString_(); str != nil {
-							agg.Field = str.GetSval()
+	if agg.Function != "" {
+		// Handle COUNT(*) case - no arguments
+		if funcCall.GetArgs() == nil {
+			// This is COUNT(*) or similar
+			agg.Field = "*"
+		} else {
+			// Handle regular aggregate functions with arguments
+			args := funcCall.GetArgs()
+			if len(args) > 0 {
+				if arg := args[0]; arg != nil {
+					if columnRef := arg.GetColumnRef(); columnRef != nil {
+						if fieldsList := columnRef.GetFields(); len(fieldsList) > 0 {
+							if str := fieldsList[len(fieldsList)-1].GetString_(); str != nil {
+								agg.Field = str.GetSval()
+							}
 						}
+					} else if aStar := arg.GetAStar(); aStar != nil {
+						// Handle explicit * argument
+						agg.Field = "*"
 					}
 				}
 			}
 		}
 	}
 
+	// Extract alias if available
+	// Note: The alias is typically set on the ResTarget that contains this FuncCall
+	
 	return agg
 }
