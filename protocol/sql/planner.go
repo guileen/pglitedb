@@ -14,6 +14,7 @@ type Planner struct {
 	parser    Parser
 	executor  *Executor
 	optimizer *QueryOptimizer
+	planCache *LRUCache
 }
 
 // NewPlanner creates a new query planner
@@ -23,17 +24,25 @@ func NewPlanner(parser Parser) *Planner {
 		parser = NewHybridPGParser()
 	}
 	
+	// Initialize plan cache with 1000 entries capacity
+	planCache := NewLRUCache(1000)
+	
 	return &Planner{
 		parser:    parser,
 		optimizer: NewQueryOptimizer(),
+		planCache: planCache,
 	}
 }
 
 // NewPlannerWithCatalog creates a new query planner with catalog
 func NewPlannerWithCatalog(parser Parser, catalogMgr catalog.Manager) *Planner {
+	// Initialize plan cache with 1000 entries capacity
+	planCache := NewLRUCache(1000)
+	
 	planner := &Planner{
 		parser:    parser,
 		optimizer: NewQueryOptimizerWithDataManager(catalogMgr),
+		planCache: planCache,
 	}
 	// Create executor with this planner and catalog
 	planner.executor = NewExecutorWithCatalog(planner, catalogMgr)
@@ -63,8 +72,42 @@ func (p *Planner) SetCatalog(catalogMgr catalog.Manager) {
 	}
 }
 
+// EnablePlanCaching enables or disables query plan caching
+func (p *Planner) EnablePlanCaching(enabled bool) {
+	if enabled && p.planCache == nil {
+		p.planCache = NewLRUCache(1000)
+	} else if !enabled {
+		p.planCache = nil
+	}
+}
+
+// ClearPlanCache clears the query plan cache
+func (p *Planner) ClearPlanCache() {
+	if p.planCache != nil {
+		p.planCache.Clear()
+	}
+}
+
+// PlanCacheSize returns the number of cached plans
+func (p *Planner) PlanCacheSize() int {
+	if p.planCache != nil {
+		return p.planCache.Len()
+	}
+	return 0
+}
+
 // CreatePlan creates an execution plan from a SQL query
 func (p *Planner) CreatePlan(query string) (*Plan, error) {
+	// Check cache first
+	if p.planCache != nil {
+		if cachedPlan, ok := p.planCache.Get(query); ok {
+			if plan, ok := cachedPlan.(*Plan); ok {
+				// Return a copy of the cached plan to avoid concurrency issues
+				return p.copyPlan(plan), nil
+			}
+		}
+	}
+
 	// Parse the query using the configured parser
 	parsedQuery, err := p.parser.Parse(query)
 	if err != nil {
@@ -115,6 +158,11 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 			plan.Operation = "analyze"
 		default:
 			plan.Operation = "unknown"
+		}
+		
+		// Cache the plan
+		if p.planCache != nil {
+			p.planCache.Put(query, p.copyPlan(plan))
 		}
 		
 		return plan, nil
@@ -190,6 +238,78 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 	default:
 		plan.Type = UnknownStatement
 	}
+	
+	// Apply optimization if optimizer is available
+	if p.optimizer != nil {
+		optimizedPlan, err := p.optimizer.OptimizePlan(plan)
+		if err == nil {
+			plan = optimizedPlan
+		}
+	}
+	
+	// Cache the plan
+	if p.planCache != nil {
+		p.planCache.Put(query, p.copyPlan(plan))
+	}
 
 	return plan, nil
+}
+
+// copyPlan creates a deep copy of a Plan for thread safety
+func (p *Planner) copyPlan(original *Plan) *Plan {
+	// Create copies of slices
+	fields := make([]string, len(original.Fields))
+	copy(fields, original.Fields)
+	
+	conditions := make([]Condition, len(original.Conditions))
+	copy(conditions, original.Conditions)
+	
+	orderBy := make([]OrderBy, len(original.OrderBy))
+	copy(orderBy, original.OrderBy)
+	
+	groupBy := make([]string, len(original.GroupBy))
+	copy(groupBy, original.GroupBy)
+	
+	aggregates := make([]Aggregate, len(original.Aggregates))
+	copy(aggregates, original.Aggregates)
+	
+	// Create copies of maps
+	values := make(map[string]interface{})
+	for k, v := range original.Values {
+		values[k] = v
+	}
+	
+	updates := make(map[string]interface{})
+	for k, v := range original.Updates {
+		updates[k] = v
+	}
+	
+	// Handle pointers
+	var limitCopy *int64
+	if original.Limit != nil {
+		val := *original.Limit
+		limitCopy = &val
+	}
+	
+	var offsetCopy *int64
+	if original.Offset != nil {
+		val := *original.Offset
+		offsetCopy = &val
+	}
+	
+	return &Plan{
+		Type:        original.Type,
+		Operation:   original.Operation,
+		Table:       original.Table,
+		Fields:      fields,
+		Conditions:  conditions,
+		Limit:       limitCopy,
+		Offset:      offsetCopy,
+		OrderBy:     orderBy,
+		GroupBy:     groupBy,
+		Aggregates:  aggregates,
+		QueryString: original.QueryString,
+		Values:      values,
+		Updates:     updates,
+	}
 }
