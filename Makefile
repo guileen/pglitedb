@@ -187,7 +187,7 @@ run-pg:
 ## regress_bench: 运行回归测试和性能测试
 regress_bench:
 	@echo "Starting regression and benchmark tests..."
-	@(make run-pg > /tmp/pglitedb-regress.log 2>&1 &) && sleep 5
+	@(make run-pg > /tmp/pglitedb-regress.log 2>&1 &) && sleep 10
 	@TIMESTAMP=$$(date +%s); \
 	echo "Running regression tests..."; \
 	scripts/run_regress.sh; \

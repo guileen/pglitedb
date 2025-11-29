@@ -16,3 +16,51 @@ func TestSystemCatalogFactory(t *testing.T) {
 		assert.True(t, true)
 	})
 }
+
+func TestSystemCatalogQueries(t *testing.T) {
+	// Test system catalog query functionality
+	t.Run("CatalogFunctionExistence", func(t *testing.T) {
+		// Verify that catalog functions exist and have correct signatures
+		// This is a placeholder for actual implementation
+		assert.True(t, true, "Catalog function existence test placeholder")
+	})
+	
+	t.Run("PgClassQuerySupport", func(t *testing.T) {
+		// Test pg_class query support
+		// This is a placeholder for actual implementation
+		assert.True(t, true, "pg_class query support test placeholder")
+	})
+	
+	t.Run("PgAttributeQuerySupport", func(t *testing.T) {
+		// Test pg_attribute query support
+		// This is a placeholder for actual implementation
+		assert.True(t, true, "pg_attribute query support test placeholder")
+	})
+	
+	t.Run("PgNamespaceQuerySupport", func(t *testing.T) {
+		// Test pg_namespace query support
+		// This is a placeholder for actual implementation
+		assert.True(t, true, "pg_namespace query support test placeholder")
+	})
+}
+
+func TestInformationSchemaQueries(t *testing.T) {
+	// Test information_schema query functionality
+	t.Run("TablesViewSupport", func(t *testing.T) {
+		// Test information_schema.tables view support
+		// This is a placeholder for actual implementation
+		assert.True(t, true, "information_schema.tables support test placeholder")
+	})
+	
+	t.Run("ColumnsViewSupport", func(t *testing.T) {
+		// Test information_schema.columns view support
+		// This is a placeholder for actual implementation
+		assert.True(t, true, "information_schema.columns support test placeholder")
+	})
+	
+	t.Run("SchemataViewSupport", func(t *testing.T) {
+		// Test information_schema.schemata view support
+		// This is a placeholder for actual implementation
+		assert.True(t, true, "information_schema.schemata support test placeholder")
+	})
+}

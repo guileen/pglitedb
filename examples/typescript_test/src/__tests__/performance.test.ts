@@ -6,15 +6,35 @@ describe('Index Performance Tests', () => {
   beforeAll(async () => {
     dbClient = new DatabaseClient();
     await dbClient.connect();
+    
+    // Clean up any existing tables first
+    try {
+      await dbClient.query('DROP TABLE IF EXISTS performance_test');
+    } catch (error) {
+      console.log('Table performance_test does not exist, continuing...');
+    }
   });
 
   afterAll(async () => {
     if (dbClient) {
+      // Clean up tables after tests
+      try {
+        await dbClient.query('DROP TABLE IF EXISTS performance_test');
+      } catch (error) {
+        console.log('Failed to drop table performance_test:', error);
+      }
       await dbClient.disconnect();
     }
   });
 
   test('should demonstrate performance improvement with index', async () => {
+    // Clean up any existing data first
+    try {
+      await dbClient.query('DELETE FROM performance_test');
+    } catch (error) {
+      console.log('No existing data to clean up');
+    }
+    
     // Create a test table
     const createTableQuery = `
       CREATE TABLE IF NOT EXISTS performance_test (

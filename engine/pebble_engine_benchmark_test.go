@@ -23,8 +23,8 @@ func BenchmarkStorageEngine_UpdateRows_Optimized(b *testing.B) {
 		}
 		defer os.RemoveAll(tmpDir)
 
-		// Use PostgreSQL-optimized configuration for realistic benchmarking
-		config := storage.PostgreSQLOptimizedPebbleConfig(filepath.Join(tmpDir, "db"))
+		// Use high-performance configuration for maximum throughput benchmarking
+		config := storage.HighPerformancePebbleConfig(filepath.Join(tmpDir, "db"))
 		kvStore, err := storage.NewPebbleKV(config)
 		if err != nil {
 			b.Fatalf("create kv store: %v", err)
@@ -83,8 +83,8 @@ func BenchmarkStorageEngine_DeleteRows_Optimized(b *testing.B) {
 		}
 		defer os.RemoveAll(tmpDir)
 
-		// Use PostgreSQL-optimized configuration for realistic benchmarking
-		config := storage.PostgreSQLOptimizedPebbleConfig(filepath.Join(tmpDir, "db"))
+		// Use high-performance configuration for maximum throughput benchmarking
+		config := storage.HighPerformancePebbleConfig(filepath.Join(tmpDir, "db"))
 		kvStore, err := storage.NewPebbleKV(config)
 		if err != nil {
 			b.Fatalf("create kv store: %v", err)
@@ -160,8 +160,8 @@ func BenchmarkIndexIterator_Next(b *testing.B) {
 		}
 		defer os.RemoveAll(tmpDir)
 
-		// Use PostgreSQL-optimized configuration for realistic benchmarking
-		config := storage.PostgreSQLOptimizedPebbleConfig(filepath.Join(tmpDir, "db"))
+		// Use high-performance configuration for maximum throughput benchmarking
+		config := storage.HighPerformancePebbleConfig(filepath.Join(tmpDir, "db"))
 		kvStore, err := storage.NewPebbleKV(config)
 		if err != nil {
 			b.Fatalf("create kv store: %v", err)

@@ -21,6 +21,6 @@ func ParseSystemTableQuery(fullTableName string) *SystemTableQuery {
 	return &SystemTableQuery{
 		Schema:    parts[0],
 		TableName: parts[1],
-		Filter:    make(map[string]interface{}),
+		Filter:    nil,
 	}
 }

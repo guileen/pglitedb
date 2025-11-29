@@ -56,7 +56,7 @@ func startHTTPServer(dbPath string) {
 	
 	// Create database components
 	logger.Info("Creating Pebble KV store", "dbPath", dbPath+"-http")
-	config := storage.DefaultPebbleConfig(dbPath + "-http")
+	config := storage.HighPerformancePebbleConfig(dbPath + "-http")
 	kvStore, err := storage.NewPebbleKV(config)
 	if err != nil {
 		logger.Error("Failed to create pebble kv", "error", err, "dbPath", dbPath+"-http")
@@ -171,7 +171,7 @@ func startPostgreSQLServer(dbPath string) {
 	
 	// Create database components
 	logger.Info("Creating Pebble KV store", "dbPath", dbPath+"-postgres")
-	kvConfig := storage.DefaultPebbleConfig(dbPath + "-postgres")
+	kvConfig := storage.HighPerformancePebbleConfig(dbPath + "-postgres")
 	kvStore, err := storage.NewPebbleKV(kvConfig)
 	if err != nil {
 		logger.Error("Failed to create pebble kv", "error", err, "dbPath", dbPath+"-postgres")

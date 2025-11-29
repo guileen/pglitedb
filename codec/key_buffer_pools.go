@@ -6,7 +6,7 @@ import (
 
 // KeyBufferPools manages specialized buffer pools for key encoding operations
 type KeyBufferPools struct {
-	// Pools for specific key encoding operations
+	// Pools for specific key encoding operations using sync.Pool for better concurrency
 	tableKeyBufferPool       sync.Pool // Pool for table key encoding buffers
 	indexKeyBufferPool       sync.Pool // Pool for index key encoding buffers
 	compositeIndexKeyBufferPool sync.Pool // Pool for composite index key encoding buffers
@@ -19,7 +19,9 @@ type KeyBufferPools struct {
 	smallKeyBufferPool  sync.Pool // 32-byte key buffers
 	mediumKeyBufferPool sync.Pool // 64-byte key buffers
 	largeKeyBufferPool  sync.Pool // 128-byte key buffers
-	hugeKeyBufferPool   sync.Pool // 256-byte key buffers
+	xlargeKeyBufferPool sync.Pool // 256-byte key buffers
+	xxlargeKeyBufferPool sync.Pool // 512-byte key buffers
+	hugeKeyBufferPool   sync.Pool // 1024-byte key buffers
 }
 
 // NewKeyBufferPools creates new key buffer pools
@@ -27,59 +29,69 @@ func NewKeyBufferPools() *KeyBufferPools {
 	return &KeyBufferPools{
 		tableKeyBufferPool: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 0, 32)
+				return make([]byte, 0, 64) // Increased default size
 			},
 		},
 		indexKeyBufferPool: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 0, 64)
+				return make([]byte, 0, 128) // Increased default size
 			},
 		},
 		compositeIndexKeyBufferPool: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 0, 128)
+				return make([]byte, 0, 256) // Increased default size
 			},
 		},
 		pkKeyBufferPool: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 0, 64)
+				return make([]byte, 0, 128) // Increased default size
 			},
 		},
 		metaKeyBufferPool: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 0, 64)
+				return make([]byte, 0, 128) // Increased default size
 			},
 		},
 		sequenceKeyBufferPool: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 0, 32)
+				return make([]byte, 0, 64) // Increased default size
 			},
 		},
 		indexScanKeyBufferPool: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 0, 33)
+				return make([]byte, 0, 64) // Increased default size
 			},
 		},
 		
-		// Size-tiered general purpose pools
+		// Size-tiered general purpose pools with larger capacities
 		smallKeyBufferPool: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 0, 32)
+				return make([]byte, 0, 64) // Increased from 32 to 64
 			},
 		},
 		mediumKeyBufferPool: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 0, 64)
+				return make([]byte, 0, 128) // Increased from 64 to 128
 			},
 		},
 		largeKeyBufferPool: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 0, 128)
+				return make([]byte, 0, 256) // Increased from 128 to 256
+			},
+		},
+		xlargeKeyBufferPool: sync.Pool{
+			New: func() interface{} {
+				return make([]byte, 0, 512) // New tier
+			},
+		},
+		xxlargeKeyBufferPool: sync.Pool{
+			New: func() interface{} {
+				return make([]byte, 0, 1024) // New tier
 			},
 		},
 		hugeKeyBufferPool: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 0, 256)
+				return make([]byte, 0, 2048) // Increased from 256 to 2048
 			},
 		},
 	}
@@ -224,13 +236,17 @@ func (kbp *KeyBufferPools) releaseToSizeTieredPool(buf []byte) {
 	size := cap(buf)
 	
 	switch {
-	case size <= 32:
-		kbp.smallKeyBufferPool.Put(buf)
 	case size <= 64:
-		kbp.mediumKeyBufferPool.Put(buf)
+		kbp.smallKeyBufferPool.Put(buf)
 	case size <= 128:
-		kbp.largeKeyBufferPool.Put(buf)
+		kbp.mediumKeyBufferPool.Put(buf)
 	case size <= 256:
+		kbp.largeKeyBufferPool.Put(buf)
+	case size <= 512:
+		kbp.xlargeKeyBufferPool.Put(buf)
+	case size <= 1024:
+		kbp.xxlargeKeyBufferPool.Put(buf)
+	case size <= 2048:
 		kbp.hugeKeyBufferPool.Put(buf)
 	}
 }
@@ -238,28 +254,40 @@ func (kbp *KeyBufferPools) releaseToSizeTieredPool(buf []byte) {
 // AcquireFromSizeTieredPool gets a buffer from the appropriate size-tiered pool
 func (kbp *KeyBufferPools) AcquireFromSizeTieredPool(sizeHint int) []byte {
 	switch {
-	case sizeHint <= 32:
-		buf := kbp.smallKeyBufferPool.Get()
-		if buf == nil {
-			return make([]byte, 0, 32)
-		}
-		return buf.([]byte)[:0]
 	case sizeHint <= 64:
-		buf := kbp.mediumKeyBufferPool.Get()
+		buf := kbp.smallKeyBufferPool.Get()
 		if buf == nil {
 			return make([]byte, 0, 64)
 		}
 		return buf.([]byte)[:0]
 	case sizeHint <= 128:
-		buf := kbp.largeKeyBufferPool.Get()
+		buf := kbp.mediumKeyBufferPool.Get()
 		if buf == nil {
 			return make([]byte, 0, 128)
 		}
 		return buf.([]byte)[:0]
 	case sizeHint <= 256:
-		buf := kbp.hugeKeyBufferPool.Get()
+		buf := kbp.largeKeyBufferPool.Get()
 		if buf == nil {
 			return make([]byte, 0, 256)
+		}
+		return buf.([]byte)[:0]
+	case sizeHint <= 512:
+		buf := kbp.xlargeKeyBufferPool.Get()
+		if buf == nil {
+			return make([]byte, 0, 512)
+		}
+		return buf.([]byte)[:0]
+	case sizeHint <= 1024:
+		buf := kbp.xxlargeKeyBufferPool.Get()
+		if buf == nil {
+			return make([]byte, 0, 1024)
+		}
+		return buf.([]byte)[:0]
+	case sizeHint <= 2048:
+		buf := kbp.hugeKeyBufferPool.Get()
+		if buf == nil {
+			return make([]byte, 0, 2048)
 		}
 		return buf.([]byte)[:0]
 	default:

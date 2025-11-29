@@ -6,15 +6,35 @@ describe('Index Related Tests', () => {
   beforeAll(async () => {
     dbClient = new DatabaseClient();
     await dbClient.connect();
+    
+    // Clean up any existing tables first
+    try {
+      await dbClient.query('DROP TABLE IF EXISTS products');
+    } catch (error) {
+      console.log('Table products does not exist, continuing...');
+    }
   });
 
   afterAll(async () => {
     if (dbClient) {
+      // Clean up tables after tests
+      try {
+        await dbClient.query('DROP TABLE IF EXISTS products');
+      } catch (error) {
+        console.log('Failed to drop table products:', error);
+      }
       await dbClient.disconnect();
     }
   });
 
   test('should create index on table', async () => {
+    // Clean up any existing data first
+    try {
+      await dbClient.query('DELETE FROM products');
+    } catch (error) {
+      console.log('No existing data to clean up');
+    }
+    
     // Create a test table
     const createTableQuery = `
       CREATE TABLE IF NOT EXISTS products (

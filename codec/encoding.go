@@ -219,7 +219,7 @@ func (c *memcodec) EncodeValue(value interface{}, colType types.ColumnType) ([]b
 	}
 
 	switch colType {
-	case types.ColumnTypeString, types.ColumnTypeText:
+	case types.ColumnTypeString, types.ColumnTypeText, types.ColumnTypeVarchar, types.ColumnTypeChar:
 		return encodeString(value)
 	case types.ColumnTypeNumber, types.ColumnTypeSmallInt, types.ColumnTypeInteger, types.ColumnTypeBigInt:
 		return encodeNumber(value)
@@ -233,6 +233,8 @@ func (c *memcodec) EncodeValue(value interface{}, colType types.ColumnType) ([]b
 		return encodeUUID(value)
 	case types.ColumnTypeBinary:
 		return encodeBytes(value)
+	case types.ColumnTypeReal, types.ColumnTypeDouble, types.ColumnTypeNumeric:
+		return encodeNumber(value)
 	default:
 		return nil, errors.Errorf(errors.ErrCodeCodec, "unsupported column type: %s", colType)
 	}

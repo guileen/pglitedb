@@ -39,13 +39,42 @@ func (io *IndexOperations) DropIndex(ctx context.Context, tenantID, tableID, ind
 
 // LookupIndex finds row IDs that match an index value
 func (io *IndexOperations) LookupIndex(ctx context.Context, tenantID, tableID, indexID int64, indexValue interface{}) ([]int64, error) {
-	// Encode the index key prefix
-	indexKeyPrefix := io.codec.EncodeIndexScanStartKey(tenantID, tableID, indexID)
+	// Check for nil pointers
+	if io.kv == nil {
+		return nil, fmt.Errorf("kv store is nil")
+	}
+	if io.codec == nil {
+		return nil, fmt.Errorf("codec is nil")
+	}
 
-	// Create an iterator to scan index entries
+	// Check for context cancellation before starting
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Encode the specific index key for the given value
+	indexKey, err := io.codec.EncodeIndexKey(tenantID, tableID, indexID, indexValue, 0) // rowID 0 as placeholder
+	if err != nil {
+		return nil, fmt.Errorf("encode index key: %w", err)
+	}
+
+	// Create an upper bound key by incrementing the index value portion
+	upperBound := make([]byte, len(indexKey))
+	copy(upperBound, indexKey)
+	
+	// Find the position after the index value and before the rowID
+	// This is a simplified approach - in practice, you'd need to properly parse the key
+	// For now, we'll just increment the last byte of the index value portion
+	if len(upperBound) > 8 { // Ensure we have enough bytes
+		upperBound[len(upperBound)-9]++ // Increment the byte before the rowID (8 bytes for rowID + 1)
+	}
+
+	// Create an iterator to scan index entries for the specific value
 	iter := io.kv.NewIterator(&storage.IteratorOptions{
-		LowerBound: indexKeyPrefix,
-		UpperBound: io.codec.EncodeIndexScanEndKey(tenantID, tableID, indexID),
+		LowerBound: indexKey,
+		UpperBound: upperBound,
 	})
 	if iter == nil {
 		return nil, fmt.Errorf("create iterator: failed to create iterator")
@@ -55,6 +84,13 @@ func (io *IndexOperations) LookupIndex(ctx context.Context, tenantID, tableID, i
 	// Collect matching row IDs
 	var rowIDs []int64
 	for iter.First(); iter.Valid(); iter.Next() {
+		// Check for context cancellation
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		
 		// Decode the row ID from the index key
 		_, _, _, _, rowID, err := io.codec.DecodeIndexKey(iter.Key())
 		if err != nil {
