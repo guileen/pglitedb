@@ -74,8 +74,9 @@ func (p *Planner) extractConditionsFromExpr(expr *pg_query.Node) []Condition {
 }
 
 // extractUpdateInfoFromPGNode extracts UPDATE statement information from a PG query node
-func (p *Planner) extractUpdateInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
-	updateStmt := stmt.GetUpdateStmt()
+func (p *Planner) extractUpdateInfoFromPGNode(stmt *pg_query.ParseResult, plan *Plan) {
+	stmtNode := stmt.Stmts[0].GetStmt()
+	updateStmt := stmtNode.GetUpdateStmt()
 	if updateStmt == nil {
 		return
 	}
@@ -122,8 +123,9 @@ func (p *Planner) extractUpdateInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 }
 
 // extractInsertInfoFromPGNode extracts INSERT statement information from a PG query node
-func (p *Planner) extractInsertInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
-	insertStmt := stmt.GetInsertStmt()
+func (p *Planner) extractInsertInfoFromPGNode(stmt *pg_query.ParseResult, plan *Plan) {
+	stmtNode := stmt.Stmts[0].GetStmt()
+	insertStmt := stmtNode.GetInsertStmt()
 	if insertStmt == nil {
 		return
 	}
@@ -180,8 +182,9 @@ func (p *Planner) extractInsertInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 }
 
 // extractDeleteInfoFromPGNode extracts DELETE statement information from a PG query node
-func (p *Planner) extractDeleteInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
-	deleteStmt := stmt.GetDeleteStmt()
+func (p *Planner) extractDeleteInfoFromPGNode(stmt *pg_query.ParseResult, plan *Plan) {
+	stmtNode := stmt.Stmts[0].GetStmt()
+	deleteStmt := stmtNode.GetDeleteStmt()
 	if deleteStmt == nil {
 		return
 	}

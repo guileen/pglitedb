@@ -25,6 +25,13 @@ var decodedRecordPool = &sync.Pool{
 	},
 }
 
+// Global pool for Value objects
+var valuePool = &sync.Pool{
+	New: func() interface{} {
+		return &types.Value{}
+	},
+}
+
 // AcquireEncodedRow gets an EncodedRow from the pool
 func AcquireEncodedRow() *EncodedRow {
 	obj := encodedRowPool.Get()
@@ -92,6 +99,28 @@ func ReleaseDecodedRecord(record *types.Record) {
 	}
 	
 	decodedRecordPool.Put(record)
+}
+
+// AcquireValue gets a Value from the pool
+func AcquireValue() *types.Value {
+	obj := valuePool.Get()
+	if obj != nil {
+		value := obj.(*types.Value)
+		value.Data = nil
+		value.Type = types.ColumnType("")
+		return value
+	}
+	
+	// Create a new value
+	value := &types.Value{}
+	return value
+}
+
+// ReleaseValue returns a Value to the pool
+func ReleaseValue(value *types.Value) {
+	value.Data = nil
+	value.Type = types.ColumnType("")
+	valuePool.Put(value)
 }
 
 type memcodec struct {

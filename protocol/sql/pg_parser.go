@@ -44,6 +44,7 @@ func (p *FullPGParser) Parse(query string) (*ParsedQuery, error) {
 		Query:            query,
 		Type:             p.getStatementType(stmt),
 		ReturningColumns: returningColumns,
+		RawStmt:          result,
 	}
 
 	return parsed, nil

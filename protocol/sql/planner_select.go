@@ -7,8 +7,9 @@ import (
 )
 
 // extractSelectInfoFromPGNode extracts SELECT statement information from a PG query node
-func (p *Planner) extractSelectInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
-	selectStmt := stmt.GetSelectStmt()
+func (p *Planner) extractSelectInfoFromPGNode(stmt *pg_query.ParseResult, plan *Plan) {
+	stmtNode := stmt.Stmts[0].GetStmt()
+	selectStmt := stmtNode.GetSelectStmt()
 	if selectStmt == nil {
 		return
 	}

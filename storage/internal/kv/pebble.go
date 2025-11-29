@@ -23,8 +23,7 @@ type PebbleKV struct {
 	
 	globalTS          atomic.Int64
 	keyTimestamps     sync.Map
-	activeTransactions map[uint64]*PebbleTransaction
-	transactionMu      sync.RWMutex
+	activeTransactions *sync.Map  // Changed from map[uint64]*PebbleTransaction to *sync.Map
 	nextTxnID          uint64
 	
 	// Compaction monitor for performance tracking
@@ -211,7 +210,7 @@ func NewPebbleKV(config *PebbleConfig) (*PebbleKV, error) {
 		closed:             false,
 		flushTicker:        time.NewTicker(config.FlushInterval),
 		flushDone:          make(chan struct{}),
-		activeTransactions: make(map[uint64]*PebbleTransaction),
+		activeTransactions: &sync.Map{},
 		nextTxnID:          1, // Start from 1 to avoid issues with ID 0
 	}
 
@@ -382,10 +381,7 @@ func (p *PebbleKV) NewTransaction(ctx context.Context) (shared.Transaction, erro
 		return nil, shared.ErrClosed
 	}
 
-	p.transactionMu.Lock()
-	txnID := p.nextTxnID
-	p.nextTxnID++
-	p.transactionMu.Unlock()
+	txnID := atomic.AddUint64(&p.nextTxnID, 1) - 1
 
 	txn := &PebbleTransaction{
 		db:        p.db,
@@ -397,9 +393,7 @@ func (p *PebbleKV) NewTransaction(ctx context.Context) (shared.Transaction, erro
 		startTS:   p.globalTS.Load(),
 	}
 
-	p.transactionMu.Lock()
-	p.activeTransactions[txnID] = txn
-	p.transactionMu.Unlock()
+	p.activeTransactions.Store(txnID, txn)
 
 	return txn, nil
 }
@@ -527,14 +521,14 @@ func (p *PebbleKV) CheckForConflicts(txn shared.Transaction, key []byte) error {
 
 	// For Read Committed isolation, check if there are any uncommitted
 	// writes to this key from other transactions
-	p.transactionMu.RLock()
-	defer p.transactionMu.RUnlock()
-
-	// Check if any other active transaction has written to this key
-	for txnID, otherTxn := range p.activeTransactions {
+	var conflictErr error
+	p.activeTransactions.Range(func(txnID, value interface{}) bool {
+		id := txnID.(uint64)
+		otherTxn := value.(*PebbleTransaction)
+		
 		// Skip the current transaction
-		if txnID == ptxn.txnID {
-			continue
+		if id == ptxn.txnID {
+			return true
 		}
 
 		// Check if the other transaction has written to this key
@@ -543,11 +537,13 @@ func (p *PebbleKV) CheckForConflicts(txn shared.Transaction, key []byte) error {
 		otherTxn.mu.RUnlock()
 
 		if written {
-			return shared.ErrConflict
+			conflictErr = shared.ErrConflict
+			return false // Stop iteration
 		}
-	}
+		return true // Continue iteration
+	})
 
-	return nil
+	return conflictErr
 }
 
 func (p *PebbleKV) Close() error {
@@ -918,9 +914,7 @@ func (t *PebbleTransaction) Commit() error {
 			currentTS := t.kv.getKeyTimestamp([]byte(key))
 			if currentTS > readTS {
 				t.closed = true
-				t.kv.transactionMu.Lock()
-				delete(t.kv.activeTransactions, t.txnID)
-				t.kv.transactionMu.Unlock()
+				t.kv.activeTransactions.Delete(t.txnID)
 				t.batch.Close()
 				return shared.ErrConflict
 			}
@@ -935,9 +929,7 @@ func (t *PebbleTransaction) Commit() error {
 
 	t.closed = true
 	
-	t.kv.transactionMu.Lock()
-	delete(t.kv.activeTransactions, t.txnID)
-	t.kv.transactionMu.Unlock()
+	t.kv.activeTransactions.Delete(t.txnID)
 	
 	if err := t.batch.Commit(pebble.Sync); err != nil {
 		return fmt.Errorf("transaction commit: %w", err)
@@ -956,9 +948,7 @@ func (t *PebbleTransaction) Rollback() error {
 	t.closed = true
 	
 	// Unregister the transaction
-	t.kv.transactionMu.Lock()
-	delete(t.kv.activeTransactions, t.txnID)
-	t.kv.transactionMu.Unlock()
+	t.kv.activeTransactions.Delete(t.txnID)
 	
 	return t.batch.Close()
 }
