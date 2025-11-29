@@ -113,6 +113,10 @@ func (c *memcodec) DecodeTableKey(key []byte) (tenantID, tableID, rowID int64, e
 
 	tableID, n = readMemComparableInt64(key[offset:])
 	offset += n
+	
+	if offset >= len(key) {
+		return 0, 0, 0, errors.New(errors.ErrCodeCodec, "incomplete table key: missing rowID")
+	}
 
 	rowID, _ = readMemComparableInt64(key[offset:])
 
@@ -137,6 +141,11 @@ func (c *memcodec) DecodeIndexKey(key []byte) (tenantID, tableID, indexID int64,
 
 	tableID, n = readMemComparableInt64(key[offset:])
 	offset += n
+	
+	if offset > len(key) {
+		err = errors.New(errors.ErrCodeCodec, "incomplete index key: missing indexID")
+		return
+	}
 
 	indexID, n = readMemComparableInt64(key[offset:])
 	offset += n
@@ -180,7 +189,12 @@ func (c *memcodec) DecodePKKey(key []byte) (tenantID, tableID int64, err error) 
 	}
 	offset++
 
-	tableID, _ = readMemComparableInt64(key[offset:])
+	tableID, n = readMemComparableInt64(key[offset:])
+	offset += n
+	
+	if offset >= len(key) {
+		return 0, 0, errors.New(errors.ErrCodeCodec, "incomplete pk key: missing tableID")
+	}
 
 	return tenantID, tableID, nil
 }

@@ -22,6 +22,9 @@ type RowIterator struct {
 	engine    interface{ EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool }
 	// Reusable buffer for key decoding to reduce allocations
 	rowIDValue *dbTypes.Value
+	// Store tenantID and tableID for validation
+	tenantID int64
+	tableID  int64
 }
 
 // NewRowIterator creates a new RowIterator
@@ -64,55 +67,58 @@ func (ri *RowIterator) Initialize(iter storage.Iterator, codec codec.Codec, sche
 }
 
 func (ri *RowIterator) Next() bool {
-	if ri.opts != nil && ri.opts.Limit > 0 && ri.count >= ri.opts.Limit {
-		return false
-	}
+	for {
+		if ri.opts != nil && ri.opts.Limit > 0 && ri.count >= ri.opts.Limit {
+			return false
+		}
 
-	var hasNext bool
-	if !ri.started {
-		hasNext = ri.iter.First()
-		ri.started = true
+		var hasNext bool
+		if !ri.started {
+			hasNext = ri.iter.First()
+			ri.started = true
 
-		if ri.opts != nil && ri.opts.Offset > 0 {
-			for i := 0; i < ri.opts.Offset && hasNext; i++ {
-				hasNext = ri.iter.Next()
+			if ri.opts != nil && ri.opts.Offset > 0 {
+				for i := 0; i < ri.opts.Offset && hasNext; i++ {
+					hasNext = ri.iter.Next()
+				}
+			}
+		} else {
+			hasNext = ri.iter.Next()
+		}
+
+		if !hasNext {
+			return false
+		}
+
+		// Attempt to decode the key
+		_, _, rowID, err := ri.codec.DecodeTableKey(ri.iter.Key())
+		if err != nil {
+			// This might be an index key or other non-table key, skip it
+			continue
+		}
+
+		value := ri.iter.Value()
+		record, err := ri.codec.DecodeRow(value, ri.schemaDef)
+		if err != nil {
+			ri.err = fmt.Errorf("decode row: %w", err)
+			return false
+		}
+
+		// Reuse the rowIDValue object to reduce allocations
+		ri.rowIDValue.Data = rowID
+		record.Data["_rowid"] = ri.rowIDValue
+		
+		// Apply filter if present
+		if ri.opts != nil && ri.opts.Filter != nil && ri.engine != nil {
+			if !ri.engine.EvaluateFilter(ri.opts.Filter, record) {
+				continue // Skip this row and try next
 			}
 		}
-	} else {
-		hasNext = ri.iter.Next()
-	}
 
-	if !hasNext {
-		return false
+		ri.current = record
+		ri.count++
+		return true
 	}
-
-	_, _, rowID, err := ri.codec.DecodeTableKey(ri.iter.Key())
-	if err != nil {
-		ri.err = fmt.Errorf("decode table key: %w", err)
-		return false
-	}
-
-	value := ri.iter.Value()
-	record, err := ri.codec.DecodeRow(value, ri.schemaDef)
-	if err != nil {
-		ri.err = fmt.Errorf("decode row: %w", err)
-		return false
-	}
-
-	// Reuse the rowIDValue object to reduce allocations
-	ri.rowIDValue.Data = rowID
-	record.Data["_rowid"] = ri.rowIDValue
-	
-	// Apply filter if present
-	if ri.opts != nil && ri.opts.Filter != nil && ri.engine != nil {
-		if !ri.engine.EvaluateFilter(ri.opts.Filter, record) {
-			return ri.Next() // Skip this row and try next
-		}
-	}
-
-	ri.current = record
-	ri.count++
-	return true
 }
 
 func (ri *RowIterator) Row() *dbTypes.Record {

@@ -262,9 +262,14 @@ func (tx *snapshotTransaction) UpdateRows(ctx context.Context, tenantID, tableID
 	
 	// Continue with the iteration
 	for iter.Valid() {
+		// Attempt to decode the key
 		_, _, rowID, err := pe.codec.DecodeTableKey(iter.Key())
 		if err != nil {
-			return 0, fmt.Errorf("decode table key: %w", err)
+			// This might be an index key or other non-table key, skip it
+			if !iter.Next() {
+				break
+			}
+			continue
 		}
 		
 		// Decode the row
@@ -348,10 +353,15 @@ func (tx *snapshotTransaction) DeleteRows(ctx context.Context, tenantID, tableID
 	}
 	
 	// Continue with the iteration
-	for {
+	for iter.Valid() {
+		// Attempt to decode the key
 		_, _, rowID, err := pe.codec.DecodeTableKey(iter.Key())
 		if err != nil {
-			return 0, fmt.Errorf("decode table key: %w", err)
+			// This might be an index key or other non-table key, skip it
+			if !iter.Next() {
+				break
+			}
+			continue
 		}
 		
 		// Decode the row
