@@ -174,10 +174,57 @@ func (amp *AdaptiveMemoryPool) checkAndResize() {
 			resizeFactor = amp.config.MinResizeFactor
 		}
 		
-		// TODO: Implement actual pool resizing logic
-		// This would involve creating a new pool with adjusted initial capacities
-		// For now, we just log the need to resize
-		_ = resizeFactor
+		// Create a new pool with adjusted initial capacities
+		newPool := sync.Pool{
+			New: func() interface{} {
+				switch amp.poolType {
+				case "record":
+					return &Record{
+						Data: make(map[string]*Value, int(float64(globalMemoryPool.config.RecordInitialCap)*resizeFactor)),
+					}
+				case "result_set":
+					return &QueryResult{
+						Columns: make([]ColumnInfo, 0, int(float64(globalMemoryPool.config.ResultSetInitialCap)*resizeFactor)),
+						Rows:    make([][]interface{}, 0, int(float64(globalMemoryPool.config.ResultSetInitialCap*2)*resizeFactor)),
+					}
+				case "executor_result_set":
+					return &ResultSet{
+						Columns: make([]string, 0, int(float64(globalMemoryPool.config.ResultSetInitialCap)*resizeFactor)),
+						Rows:    make([][]interface{}, 0, int(float64(globalMemoryPool.config.ResultSetInitialCap*2)*resizeFactor)),
+					}
+				case "value_slice":
+					slice := make([]*Value, 0, int(float64(globalMemoryPool.config.ValueSliceInitialCap)*resizeFactor))
+					return &slice
+				case "string_slice":
+					slice := make([]string, 0, int(float64(globalMemoryPool.config.StringSliceInitialCap)*resizeFactor))
+					return &slice
+				case "interface_slice":
+					slice := make([]interface{}, 0, int(float64(globalMemoryPool.config.InterfaceSliceInitialCap)*resizeFactor))
+					return &slice
+				default:
+					// Fallback to original capacity
+					return amp.pool.New()
+				}
+			},
+		}
+		
+		// Replace the pool
+		globalMemoryPool.mu.Lock()
+		switch amp.poolType {
+		case "record":
+			globalMemoryPool.recordPool.pool = newPool
+		case "result_set":
+			globalMemoryPool.resultSetPool.pool = newPool
+		case "executor_result_set":
+			globalMemoryPool.executorResultSetPool.pool = newPool
+		case "value_slice":
+			globalMemoryPool.valueSlicePool.pool = newPool
+		case "string_slice":
+			globalMemoryPool.stringSlicePool.pool = newPool
+		case "interface_slice":
+			globalMemoryPool.interfaceSlicePool.pool = newPool
+		}
+		globalMemoryPool.mu.Unlock()
 	}
 }
 
