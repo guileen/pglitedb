@@ -85,8 +85,8 @@ func TestConcurrentTransactions(t *testing.T) {
 
 				// Commit transaction
 				err = tx.Commit()
-				tx.Rollback() // Ensure transaction is properly closed
 				if err != nil {
+					tx.Rollback() // Only rollback if commit failed
 					errChan <- err
 					return
 				}
@@ -128,7 +128,6 @@ func TestConcurrentTransactions(t *testing.T) {
 			// The important thing is that no errors occurred during the concurrent operations
 			
 			err = tx.Commit()
-			tx.Rollback() // Ensure transaction is properly closed
 			require.NoError(t, err)
 		}
 	}
@@ -212,8 +211,8 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 				}
 
 				err = tx.Commit()
-				tx.Rollback() // Ensure transaction is properly closed
 				if err != nil {
+					tx.Rollback() // Only rollback if commit failed
 					errChan <- err
 					return
 				}
@@ -253,8 +252,8 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 				}
 
 				err = tx.Commit()
-				tx.Rollback() // Ensure transaction is properly closed
 				if err != nil {
+					tx.Rollback() // Only rollback if commit failed
 					errChan <- err
 					return
 				}

@@ -69,9 +69,9 @@ func TestDeadlockWithDifferentIsolationLevels(t *testing.T) {
 		},
 	}
 
-	_, err = initTx.InsertRow(ctx, 1, 1, record1, schemaDef)
+	rowID1, err := initTx.InsertRow(ctx, 1, 1, record1, schemaDef)
 	require.NoError(t, err)
-	_, err = initTx.InsertRow(ctx, 1, 1, record2, schemaDef)
+	rowID2, err := initTx.InsertRow(ctx, 1, 1, record2, schemaDef)
 	require.NoError(t, err)
 	err = initTx.Commit()
 	require.NoError(t, err)
@@ -89,7 +89,7 @@ func TestDeadlockWithDifferentIsolationLevels(t *testing.T) {
 		updates1 := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "modified_by_rc_tx"},
 		}
-		err := tx1.UpdateRow(ctx, 1, 1, 20, updates1, schemaDef)
+		err := tx1.UpdateRow(ctx, 1, 1, rowID1, updates1, schemaDef)
 		if err != nil {
 			errors <- fmt.Errorf("ReadCommitted tx failed to update record1: %w", err)
 			return
@@ -100,7 +100,7 @@ func TestDeadlockWithDifferentIsolationLevels(t *testing.T) {
 		updates2 := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "modified_by_rc_tx"},
 		}
-		err = tx1.UpdateRow(ctx, 1, 1, 21, updates2, schemaDef)
+		err = tx1.UpdateRow(ctx, 1, 1, rowID2, updates2, schemaDef)
 		if err != nil {
 			errors <- fmt.Errorf("ReadCommitted tx failed to update record2: %w", err)
 			results <- "rc_tx_conflict"
@@ -117,7 +117,7 @@ func TestDeadlockWithDifferentIsolationLevels(t *testing.T) {
 		updates2 := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "modified_by_rr_tx"},
 		}
-		err := tx2.UpdateRow(ctx, 1, 1, 21, updates2, schemaDef)
+		err := tx2.UpdateRow(ctx, 1, 1, rowID2, updates2, schemaDef)
 		if err != nil {
 			errors <- fmt.Errorf("RepeatableRead tx failed to update record2: %w", err)
 			return
@@ -128,7 +128,7 @@ func TestDeadlockWithDifferentIsolationLevels(t *testing.T) {
 		updates1 := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "modified_by_rr_tx"},
 		}
-		err = tx2.UpdateRow(ctx, 1, 1, 20, updates1, schemaDef)
+		err = tx2.UpdateRow(ctx, 1, 1, rowID1, updates1, schemaDef)
 		if err != nil {
 			errors <- fmt.Errorf("RepeatableRead tx failed to update record1: %w", err)
 			results <- "rr_tx_conflict"

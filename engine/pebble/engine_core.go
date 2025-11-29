@@ -2,12 +2,15 @@ package pebble
 
 import (
 	"context"
+	"reflect"
+	"time"
 
 	"github.com/guileen/pglitedb/codec"
 	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/engine/pebble/indexes"
 	"github.com/guileen/pglitedb/engine/pebble/operations/query"
 	"github.com/guileen/pglitedb/engine/pebble/resources"
+	"github.com/guileen/pglitedb/engine/pebble/transactions"
 	"github.com/guileen/pglitedb/idgen"
 	"github.com/guileen/pglitedb/storage"
 )
@@ -23,6 +26,7 @@ type pebbleEngine struct {
 	insertOperations    *query.InsertOperations
 	updateOperations    *query.UpdateOperations
 	deleteOperations    *query.DeleteOperations
+	deadlockDetector    *transactions.DeadlockDetector
 }
 
 func NewPebbleEngine(kvStore storage.KV, c codec.Codec) engineTypes.StorageEngine {
@@ -35,6 +39,12 @@ func NewPebbleEngine(kvStore storage.KV, c codec.Codec) engineTypes.StorageEngin
 	rm := resources.GetResourceManager()
 	rm.TrackConnection(kvStore)
 	
+	// Create deadlock detector with abort callback
+	deadlockDetector := transactions.NewDeadlockDetector(100*time.Millisecond, func(txnID uint64) {
+		// This is a placeholder - in a real implementation we would need to signal
+		// the transaction manager to abort this transaction
+	})
+	
 	return &pebbleEngine{
 		kv:                  kvStore,
 		codec:               c,
@@ -46,6 +56,7 @@ func NewPebbleEngine(kvStore storage.KV, c codec.Codec) engineTypes.StorageEngin
 		insertOperations:    insertOps,
 		updateOperations:    updateOps,
 		deleteOperations:    deleteOps,
+		deadlockDetector:    deadlockDetector,
 	}
 }
 
@@ -63,7 +74,37 @@ func (e *pebbleEngine) GetKV() storage.KV {
 	return e.kv
 }
 
-// CheckForConflicts checks for conflicts with the given key
+// getTransactionID extracts the transaction ID from a storage.Transaction
+func getTransactionID(txn storage.Transaction) uint64 {
+	// Try to get the transaction ID from the extended interface
+	if txnWithID, ok := txn.(interface{ TxnID() uint64 }); ok {
+		txnID := txnWithID.TxnID()
+		return txnID
+	}
+	
+	// Fallback to reflection for other transaction types
+	val := reflect.ValueOf(txn)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+	
+	if val.Kind() == reflect.Struct {
+		field := val.FieldByName("txnID")
+		if field.IsValid() && field.Kind() == reflect.Uint64 {
+			txnID := field.Uint()
+			return txnID
+		}
+	}
+	
+	return 0
+}
+
+// GetDeadlockDetector returns the deadlock detector used by the engine
+func (e *pebbleEngine) GetDeadlockDetector() *transactions.DeadlockDetector {
+	return e.deadlockDetector
+}
+
+// CheckForConflicts checks for conflicts with the given key using the underlying KV store
 func (e *pebbleEngine) CheckForConflicts(txn storage.Transaction, key []byte) error {
 	return e.kv.CheckForConflicts(txn, key)
 }

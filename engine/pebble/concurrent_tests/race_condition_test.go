@@ -27,7 +27,7 @@ func TestRaceConditions(t *testing.T) {
         Columns: []types.ColumnDefinition{
             {
                 Name:       "id",
-                Type:       types.ColumnTypeNumber,
+                Type:       types.ColumnTypeBigInt,
                 PrimaryKey: true,
             },
             {
@@ -54,12 +54,15 @@ func TestRaceConditions(t *testing.T) {
             ID:    "shared_race_record",
             Table: "test_table",
             Data: map[string]*types.Value{
-                "id":   {Type: types.ColumnTypeNumber, Data: float64(100)},
+                "id":   {Type: types.ColumnTypeBigInt, Data: int64(100)},
                 "data": {Type: types.ColumnTypeString, Data: "initial_shared_data"},
             },
+            CreatedAt: time.Now(),
+            UpdatedAt: time.Now(),
+            Version:   1,
         }
         
-        _, err = initTx.InsertRow(context.Background(), 1, 1, initRecord, schemaDef)
+        rowID, err := initTx.InsertRow(context.Background(), 1, 1, initRecord, schemaDef)
         require.NoError(t, err)
         err = initTx.Commit()
         require.NoError(t, err)
@@ -81,7 +84,7 @@ func TestRaceConditions(t *testing.T) {
                             return
                         }
                         
-                        _, err = tx.GetRow(ctx, 1, 1, 100, schemaDef)
+                        _, err = tx.GetRow(ctx, 1, 1, rowID, schemaDef)
                         if err != nil && err != types.ErrRecordNotFound {
                             tx.Rollback()
                             errors <- fmt.Errorf("goroutine %d: failed to read row: %w", goroutineID, err)
@@ -104,7 +107,7 @@ func TestRaceConditions(t *testing.T) {
                         updates := map[string]*types.Value{
                             "data": {Type: types.ColumnTypeString, Data: fmt.Sprintf("value_from_goroutine_%d_op_%d", goroutineID, j)},
                         }
-                        err = tx.UpdateRow(ctx, 1, 1, 100, updates, schemaDef)
+                        err = tx.UpdateRow(ctx, 1, 1, rowID, updates, schemaDef)
                         if err != nil {
                             tx.Rollback()
                             errors <- fmt.Errorf("goroutine %d: failed to update row: %w", goroutineID, err)
@@ -290,7 +293,7 @@ func TestConcurrentIteratorUsage(t *testing.T) {
         Columns: []types.ColumnDefinition{
             {
                 Name:       "id",
-                Type:       types.ColumnTypeNumber,
+                Type:       types.ColumnTypeBigInt,
                 PrimaryKey: true,
             },
             {
@@ -362,9 +365,12 @@ func TestConcurrentIteratorUsage(t *testing.T) {
                     ID:    fmt.Sprintf("race_test_record_%d_%d", goroutineID, j),
                     Table: "test_table",
                     Data: map[string]*types.Value{
-                        "id":   {Type: types.ColumnTypeNumber, Data: float64(goroutineID*10000 + j)},
+                        "id":   {Type: types.ColumnTypeBigInt, Data: int64(goroutineID*10000 + j)},
                         "data": {Type: types.ColumnTypeString, Data: fmt.Sprintf("race_test_value_%d_%d", goroutineID, j)},
                     },
+                    CreatedAt: time.Now(),
+                    UpdatedAt: time.Now(),
+                    Version:   1,
                 }
                 
                 _, err = tx.InsertRow(ctx, 1, 1, record, schemaDef)

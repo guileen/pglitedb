@@ -79,11 +79,11 @@ func TestCircularDeadlock(t *testing.T) {
 	}
 
 	// Insert initial records
-	_, err = tx1.InsertRow(ctx, 1, 1, recordA, schemaDef)
+	rowID_A, err := tx1.InsertRow(ctx, 1, 1, recordA, schemaDef)
 	require.NoError(t, err)
-	_, err = tx1.InsertRow(ctx, 1, 1, recordB, schemaDef)
+	rowID_B, err := tx1.InsertRow(ctx, 1, 1, recordB, schemaDef)
 	require.NoError(t, err)
-	_, err = tx1.InsertRow(ctx, 1, 1, recordC, schemaDef)
+	rowID_C, err := tx1.InsertRow(ctx, 1, 1, recordC, schemaDef)
 	require.NoError(t, err)
 	err = tx1.Commit()
 	require.NoError(t, err)
@@ -111,7 +111,7 @@ func TestCircularDeadlock(t *testing.T) {
 		updatesA := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "modified_by_tx1"},
 		}
-		err := tx1.UpdateRow(ctx, 1, 1, 10, updatesA, schemaDef)
+		err := tx1.UpdateRow(ctx, 1, 1, rowID_A, updatesA, schemaDef)
 		if err != nil {
 			errors <- fmt.Errorf("tx1 failed to update record A: %w", err)
 			return
@@ -122,7 +122,7 @@ func TestCircularDeadlock(t *testing.T) {
 		updatesB := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "modified_by_tx1"},
 		}
-		err = tx1.UpdateRow(ctx, 1, 1, 11, updatesB, schemaDef)
+		err = tx1.UpdateRow(ctx, 1, 1, rowID_B, updatesB, schemaDef)
 		if err != nil {
 			errors <- fmt.Errorf("tx1 failed to update record B: %w", err)
 			results <- "tx1_conflict"
@@ -139,7 +139,7 @@ func TestCircularDeadlock(t *testing.T) {
 		updatesB := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "modified_by_tx2"},
 		}
-		err := tx2.UpdateRow(ctx, 1, 1, 11, updatesB, schemaDef)
+		err := tx2.UpdateRow(ctx, 1, 1, rowID_B, updatesB, schemaDef)
 		if err != nil {
 			errors <- fmt.Errorf("tx2 failed to update record B: %w", err)
 			return
@@ -150,7 +150,7 @@ func TestCircularDeadlock(t *testing.T) {
 		updatesC := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "modified_by_tx2"},
 		}
-		err = tx2.UpdateRow(ctx, 1, 1, 12, updatesC, schemaDef)
+		err = tx2.UpdateRow(ctx, 1, 1, rowID_C, updatesC, schemaDef)
 		if err != nil {
 			errors <- fmt.Errorf("tx2 failed to update record C: %w", err)
 			results <- "tx2_conflict"
@@ -167,7 +167,7 @@ func TestCircularDeadlock(t *testing.T) {
 		updatesC := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "modified_by_tx3"},
 		}
-		err := tx3.UpdateRow(ctx, 1, 1, 12, updatesC, schemaDef)
+		err := tx3.UpdateRow(ctx, 1, 1, rowID_C, updatesC, schemaDef)
 		if err != nil {
 			errors <- fmt.Errorf("tx3 failed to update record C: %w", err)
 			return
@@ -178,7 +178,7 @@ func TestCircularDeadlock(t *testing.T) {
 		updatesA := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "modified_by_tx3"},
 		}
-		err = tx3.UpdateRow(ctx, 1, 1, 10, updatesA, schemaDef)
+		err = tx3.UpdateRow(ctx, 1, 1, rowID_A, updatesA, schemaDef)
 		if err != nil {
 			errors <- fmt.Errorf("tx3 failed to update record A: %w", err)
 			results <- "tx3_conflict"

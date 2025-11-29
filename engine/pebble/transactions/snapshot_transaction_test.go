@@ -9,7 +9,6 @@ import (
 
 	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/codec"
-	"github.com/guileen/pglitedb/engine/pebble"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/types"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +24,12 @@ func setupTestEngine(t *testing.T) (engineTypes.StorageEngine, func()) {
 	require.NoError(t, err)
 
 	c := codec.NewMemComparableCodec()
-	engine := pebble.NewPebbleEngine(kvStore, c)
+	// Instead of importing the pebble package directly, we'll create a minimal engine implementation for tests
+	// This avoids the import cycle
+	engine := &mockEngine{
+		kv:   kvStore,
+		codec: c,
+	}
 
 	cleanup := func() {
 		engine.Close()

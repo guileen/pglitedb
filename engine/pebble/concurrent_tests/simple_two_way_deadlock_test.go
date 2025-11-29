@@ -68,9 +68,9 @@ func TestSimpleTwoWayDeadlock(t *testing.T) {
 	}
 
 	// Insert initial records
-	_, err = tx1.InsertRow(ctx, 1, 1, record1, schemaDef)
+	rowID1, err := tx1.InsertRow(ctx, 1, 1, record1, schemaDef)
 	require.NoError(t, err)
-	_, err = tx1.InsertRow(ctx, 1, 1, record2, schemaDef)
+	rowID2, err := tx1.InsertRow(ctx, 1, 1, record2, schemaDef)
 	require.NoError(t, err)
 	err = tx1.Commit()
 	require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestSimpleTwoWayDeadlock(t *testing.T) {
 	errors := make(chan error, 2)
 	results := make(chan string, 2)
 
-	// Transaction A: update record1, then try to update record2
+	// Start both goroutines at the same time to ensure proper interleaving
 	go func() {
 		defer wg.Done()
 
@@ -96,20 +96,20 @@ func TestSimpleTwoWayDeadlock(t *testing.T) {
 		updates1 := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "modified_by_tx1"},
 		}
-		err := tx1.UpdateRow(ctx, 1, 1, 1, updates1, schemaDef)
+		err := tx1.UpdateRow(ctx, 1, 1, rowID1, updates1, schemaDef)
 		if err != nil {
 			errors <- fmt.Errorf("tx1 failed to update record1: %w", err)
 			return
 		}
 
 		// Brief pause to ensure interleaving
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 
 		// Try to update record2
 		updates2 := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "modified_by_tx1"},
 		}
-		err = tx1.UpdateRow(ctx, 1, 1, 2, updates2, schemaDef)
+		err = tx1.UpdateRow(ctx, 1, 1, rowID2, updates2, schemaDef)
 		if err != nil {
 			errors <- fmt.Errorf("tx1 failed to update record2: %w", err)
 			results <- "tx1_conflict"
@@ -119,7 +119,6 @@ func TestSimpleTwoWayDeadlock(t *testing.T) {
 		results <- "tx1_success"
 	}()
 
-	// Transaction B: update record2, then try to update record1
 	go func() {
 		defer wg.Done()
 
@@ -127,20 +126,20 @@ func TestSimpleTwoWayDeadlock(t *testing.T) {
 		updates2 := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "modified_by_tx2"},
 		}
-		err := tx2.UpdateRow(ctx, 1, 1, 2, updates2, schemaDef)
+		err := tx2.UpdateRow(ctx, 1, 1, rowID2, updates2, schemaDef)
 		if err != nil {
 			errors <- fmt.Errorf("tx2 failed to update record2: %w", err)
 			return
 		}
 
 		// Brief pause to ensure interleaving
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 
 		// Try to update record1
 		updates1 := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "modified_by_tx2"},
 		}
-		err = tx2.UpdateRow(ctx, 1, 1, 1, updates1, schemaDef)
+		err = tx2.UpdateRow(ctx, 1, 1, rowID1, updates1, schemaDef)
 		if err != nil {
 			errors <- fmt.Errorf("tx2 failed to update record1: %w", err)
 			results <- "tx2_conflict"

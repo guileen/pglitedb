@@ -4,6 +4,8 @@
 
 This file serves as the central index for project context. All AI agents should reference this file first, then proceed to the relevant aspect-specific context files.
 
+Bump minor version when big changes are made to the codebase and all tests pass. Bump patch version when bug fixed and all tests pass.
+
 ## Current Focus: Strategic Refinement for Maintainability and Performance
 
 ✅ **Latest Achievement**: Achieved 100% PostgreSQL regress test pass rate (228/228 tests) with strong performance benchmarks (2,496 TPS) and 4.005ms average latency. Successfully completed all Phase 1-4 architectural improvements including comprehensive resource leak detection, dynamic pool sizing, system catalog caching, and query result streaming. Established detailed performance optimization roadmap targeting 30% improvement (3,245 TPS, 3.2ms latency).
@@ -230,6 +232,12 @@ For detailed technical implementation, see [Transaction Management & MVCC Guide]
 🎯 **Priority Areas for Next Phase** (Aligned with Strategic Planning from [REFLECT.md](./REFLECT.md)):
 
 ### 1. Maintainability Enhancement (Highest Priority)
+- [ ] ⚠️⚠️⚠️ go test ./... 完全卡住了，严重影响了开发效率，耗时太久，严重阻塞的问题。
+- [ ] 所有脚本中添加go test -timeout 30s 测试
+- [ ] 所有测试通过后 ， bump version to 0.3.0 (git tag)
+- [ ] 优化cli命令行工具，用一个统一命令配合子命令，优化使用体验。
+- [ ] 使用internal包隔离模块之间的访问，使用接口解决共享依赖问题 (bump version to 0.4.0)
+- [ ] 提升测试覆盖率到80%以上
 - [ ] Complete SnapshotTransaction implementation with missing UpdateRows/DeleteRows methods
 - [ ] Standardize error handling across all transaction types
 - [ ] Eliminate all TODO comments in core engine components

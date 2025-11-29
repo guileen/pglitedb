@@ -48,9 +48,9 @@ func DefaultPebbleConfig(path string) *PebbleConfig {
 		MaxOpenFiles:          100000,                  // Increase further
 		CompactionConcurrency: 16,                      // Increase for better parallelism
 		FlushInterval:         5 * time.Second,         // More aggressive flushing
-		BlockSize:             32 << 10,                // Reduce to 32KB for better random read performance
-		L0CompactionThreshold: 4,                       // Reduce to trigger compaction earlier
-		L0StopWritesThreshold: 16,                      // Reduce to prevent write stalls
+		BlockSize:             64 << 10,                // Increase to 64KB for better performance
+		L0CompactionThreshold: 8,                       // Increase to reduce write amplification
+		L0StopWritesThreshold: 32,                      // Increase to prevent write stalls
 		CompressionEnabled:    true,
 	}
 }
@@ -101,6 +101,7 @@ func NewPebbleKV(config *PebbleConfig) (*PebbleKV, error) {
 		flushTicker:        time.NewTicker(config.FlushInterval),
 		flushDone:          make(chan struct{}),
 		activeTransactions: make(map[uint64]*PebbleTransaction),
+		nextTxnID:          1, // Start from 1 to avoid issues with ID 0
 	}
 
 	go pkv.backgroundFlush()
@@ -827,6 +828,12 @@ func (t *PebbleTransaction) SetIsolation(level shared.IsolationLevel) error {
 	default:
 		return fmt.Errorf("invalid isolation level: %d", level)
 	}
+}
+
+func (t *PebbleTransaction) TxnID() uint64 {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.txnID
 }
 
 func (t *PebbleTransaction) Close() error {

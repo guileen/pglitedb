@@ -93,6 +93,9 @@ func TestSimpleRaceConditions(t *testing.T) {
 								"id":   {Type: types.ColumnTypeBigInt, Data: int64(j % 10)},
 								"data": {Type: types.ColumnTypeString, Data: fmt.Sprintf("value_from_goroutine_%d_op_%d", goroutineID, j)},
 							},
+							CreatedAt: time.Now(),
+							UpdatedAt: time.Now(),
+							Version:   1,
 						}
 						
 						_, err = tx.InsertRow(ctx, 1, 1, record, schemaDef)

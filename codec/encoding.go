@@ -180,13 +180,13 @@ func (c *memcodec) EncodeValue(value interface{}, colType types.ColumnType) ([]b
 	switch colType {
 	case types.ColumnTypeString, types.ColumnTypeText:
 		return encodeString(value)
-	case types.ColumnTypeNumber:
+	case types.ColumnTypeNumber, types.ColumnTypeSmallInt, types.ColumnTypeInteger, types.ColumnTypeBigInt:
 		return encodeNumber(value)
 	case types.ColumnTypeBoolean:
 		return encodeBoolean(value)
 	case types.ColumnTypeTimestamp, types.ColumnTypeDate:
 		return encodeTimestamp(value)
-	case types.ColumnTypeJSON:
+	case types.ColumnTypeJSON, types.ColumnTypeJSONB:
 		return encodeJSON(value)
 	case types.ColumnTypeUUID:
 		return encodeUUID(value)
