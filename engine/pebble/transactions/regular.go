@@ -69,9 +69,9 @@ func (t *RegularTransaction) InsertRow(ctx context.Context, tenantID, tableID in
 	key := t.codec.EncodeTableKey(tenantID, tableID, rowID)
 
 	// Check for conflicts before writing
-	// if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
-	// 	return 0, errors.Wrap(err, "conflict_check", "conflict check failed")
-	// }
+	if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
+		return 0, errors.Wrap(err, "conflict_check", "conflict check failed")
+	}
 
 	value, err := t.codec.EncodeRow(row, schemaDef)
 	if err != nil {
@@ -103,9 +103,9 @@ func (t *RegularTransaction) UpdateRow(ctx context.Context, tenantID, tableID, r
 	key := t.codec.EncodeTableKey(tenantID, tableID, rowID)
 
 	// Check for conflicts before writing
-	// if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
-	// 	return errors.Wrap(err, "conflict_check", "conflict check failed")
-	// }
+	if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
+		return errors.Wrap(err, "conflict_check", "conflict check failed")
+	}
 
 	value, err := t.codec.EncodeRow(oldRow, schemaDef)
 	if err != nil {
@@ -128,9 +128,9 @@ func (t *RegularTransaction) DeleteRow(ctx context.Context, tenantID, tableID, r
 	key := t.codec.EncodeTableKey(tenantID, tableID, rowID)
 
 	// Check for conflicts before deleting
-	// if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
-	// 	return errors.Wrap(err, "conflict_check", "conflict check failed")
-	// }
+	if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
+		return errors.Wrap(err, "conflict_check", "conflict check failed")
+	}
 
 	if err := t.kvTxn.Delete(key); err != nil {
 		return errors.Wrap(err, "delete_failure", "delete row")

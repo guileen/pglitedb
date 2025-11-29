@@ -28,7 +28,7 @@ type IndexIterator struct {
 	tenantID    int64
 	tableID     int64
 	
-	batchSize   int
+	batchSize   int  // Increased from default to reduce I/O operations
 	rowIDBuffer []int64
 	rowCache    map[int64]*dbTypes.Record
 	cacheIdx    int
@@ -87,7 +87,7 @@ func NewIndexIterator(
 	},
 ) *IndexIterator {
 	// Use adaptive batch size based on expected result set size
-	initialBatchSize := 100
+	initialBatchSize := 200
 	if opts != nil && opts.Limit > 0 {
 		// If limit is specified, use smaller of limit or initial batch size
 		if opts.Limit < initialBatchSize {
@@ -95,7 +95,7 @@ func NewIndexIterator(
 		}
 	} else {
 		// For unlimited scans, start with larger batch size to reduce round trips
-		initialBatchSize = 500
+		initialBatchSize = 1000
 	}
 	
 	iterator := &IndexIterator{
@@ -150,7 +150,7 @@ func (ii *IndexIterator) Initialize(
 	ii.current = nil
 	
 	// Use adaptive batch size based on expected result set size
-	initialBatchSize := 100
+	initialBatchSize := 200
 	if opts != nil && opts.Limit > 0 {
 		// If limit is specified, use smaller of limit or initial batch size
 		if opts.Limit < initialBatchSize {
@@ -158,7 +158,7 @@ func (ii *IndexIterator) Initialize(
 		}
 	} else {
 		// For unlimited scans, start with larger batch size to reduce round trips
-		initialBatchSize = 500
+		initialBatchSize = 1000
 	}
 	ii.batchSize = initialBatchSize
 	ii.pool = pool

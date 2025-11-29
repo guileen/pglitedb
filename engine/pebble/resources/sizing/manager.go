@@ -26,18 +26,18 @@ func (sm *Manager) InitializeDefaultSizes() {
 	sm.poolAdjustmentMu.Lock()
 	defer sm.poolAdjustmentMu.Unlock()
 	
-	sm.poolSizes["iterator"] = 100
-	sm.poolSizes["batch"] = 100
-	sm.poolSizes["txn"] = 100
-	sm.poolSizes["record"] = 1000
-	sm.poolSizes["buffer"] = 1000
-	sm.poolSizes["keyEncoder"] = 100
-	sm.poolSizes["filterExpr"] = 100
-	sm.poolSizes["scanResult"] = 100
-	sm.poolSizes["indexKey"] = 100
-	sm.poolSizes["tableKey"] = 100
-	sm.poolSizes["metaKey"] = 100
-	sm.poolSizes["compositeKey"] = 100
+	sm.poolSizes["iterator"] = 500
+	sm.poolSizes["batch"] = 500
+	sm.poolSizes["txn"] = 500
+	sm.poolSizes["record"] = 5000
+	sm.poolSizes["buffer"] = 5000
+	sm.poolSizes["keyEncoder"] = 500
+	sm.poolSizes["filterExpr"] = 500
+	sm.poolSizes["scanResult"] = 500
+	sm.poolSizes["indexKey"] = 500
+	sm.poolSizes["tableKey"] = 500
+	sm.poolSizes["metaKey"] = 500
+	sm.poolSizes["compositeKey"] = 500
 }
 
 // AdjustPoolSizes adapts pool sizes based on hit rates and usage patterns
@@ -75,13 +75,16 @@ func (sm *Manager) AdjustPoolSizes(metricsCollector *metrics.Collector) {
 		sm.poolHitRates["buffer"] = hitRate
 	}
 	
-	// Adjust pool sizes based on hit rates
-	// This is a placeholder implementation
+	// Adjust pool sizes based on hit rates with more aggressive scaling
 	for poolName, hitRate := range sm.poolHitRates {
 		currentSize := sm.poolSizes[poolName]
-		if hitRate < 0.8 && currentSize < 10000 { // Increase pool size if hit rate is low
-			sm.poolSizes[poolName] = currentSize * 2
-		} else if hitRate > 0.95 && currentSize > 10 { // Decrease pool size if hit rate is high
+		if hitRate < 0.7 && currentSize < 50000 { // Increase pool size more aggressively if hit rate is low
+			newSize := int(float64(currentSize) * 2.5)
+			if newSize > 50000 {
+				newSize = 50000
+			}
+			sm.poolSizes[poolName] = newSize
+		} else if hitRate > 0.95 && currentSize > 50 { // Decrease pool size if hit rate is very high
 			sm.poolSizes[poolName] = currentSize / 2
 		}
 	}

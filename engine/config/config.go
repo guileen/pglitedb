@@ -28,12 +28,12 @@ type EngineConfig struct {
 func DefaultEngineConfig() EngineConfig {
 	return EngineConfig{
 		LeakDetectionThreshold:     5 * time.Minute,
-		BufferPoolInitialSize:      100,
-		BufferPoolMaxSize:          10000,
-		BatchOperationThreshold:    100,
-		IteratorBatchSize:          1000,
+		BufferPoolInitialSize:      500,
+		BufferPoolMaxSize:          50000,
+		BatchOperationThreshold:    200,
+		IteratorBatchSize:          2000,
 		EnableAdaptiveMemorySizing: true,
-		MemoryResizeThreshold:      0.8,
+		MemoryResizeThreshold:      0.7,
 	}
 }
 
