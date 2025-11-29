@@ -1,0 +1,290 @@
+package codec
+
+import (
+	"time"
+
+	"github.com/guileen/pglitedb/engine/errors"
+	"github.com/guileen/pglitedb/types"
+)
+
+// =============================================================================
+// DECODING METHODS
+// =============================================================================
+
+func (c *memcodec) DecodeIndexKeyWithSchema(key []byte, indexColumnTypes []types.ColumnType) (tenantID, tableID, indexID int64, indexValues []interface{}, rowID int64, err error) {
+	if len(key) < 1 || KeyType(key[0]) != KeyTypeTable {
+		err = errors.New(errors.ErrCodeCodec, "invalid table key prefix")
+		return
+	}
+
+	offset := 1
+	tenantID, n := readMemComparableInt64(key[offset:])
+	offset += n
+
+	if offset >= len(key) || KeyType(key[offset]) != KeyTypeIndex {
+		err = errors.New(errors.ErrCodeCodec, "invalid index key marker")
+		return
+	}
+	offset++
+
+	tableID, n = readMemComparableInt64(key[offset:])
+	offset += n
+
+	indexID, n = readMemComparableInt64(key[offset:])
+	offset += n
+
+	// Parse index values according to schema
+	indexValues = make([]interface{}, 0, len(indexColumnTypes))
+
+	for i, colType := range indexColumnTypes {
+		if offset >= len(key) {
+			err = errors.Errorf(errors.ErrCodeCodec, "unexpected end of key at index value %d", i)
+			return
+		}
+
+		// Determine value length based on type
+		var valueEnd int
+
+		switch colType {
+		case types.ColumnTypeString, types.ColumnTypeText, types.ColumnTypeUUID, types.ColumnTypeBinary:
+			// Find the end of the string/bytes value (terminated by 0x00 0x00)
+			valueEnd = offset + 1
+			for valueEnd < len(key)-1 {
+				if key[valueEnd] == 0x00 && key[valueEnd+1] == 0x00 {
+					valueEnd += 2
+					break
+				}
+				valueEnd++
+			}
+			if valueEnd >= len(key) {
+				err = errors.Errorf(errors.ErrCodeCodec, "invalid string/bytes encoding at index value %d", i)
+				return
+			}
+		case types.ColumnTypeNumber, types.ColumnTypeTimestamp, types.ColumnTypeDate:
+			// Fixed size: flag byte + 8 bytes for numeric values
+			valueEnd = offset + 9
+		case types.ColumnTypeBoolean:
+			// Fixed size: 1 byte
+			valueEnd = offset + 1
+		default:
+			// For other types, assume fixed 9 bytes (flag + 8 bytes)
+			valueEnd = offset + 9
+		}
+
+		if valueEnd > len(key) {
+			err = errors.Errorf(errors.ErrCodeCodec, "index key too short for value %d", i)
+			return
+		}
+
+		value, decodeErr := c.DecodeValue(key[offset:valueEnd], colType)
+		if decodeErr != nil {
+			err = errors.Wrapf(decodeErr, errors.ErrCodeCodec, "DecodeIndexKeyWithSchema", "failed to decode index value %d", i)
+			return
+		}
+
+		indexValues = append(indexValues, value)
+		offset = valueEnd
+	}
+
+	// The remaining bytes should be the rowID (last 8 bytes)
+	if len(key)-offset >= 8 {
+		rowID, _ = readMemComparableInt64(key[len(key)-8:])
+	} else {
+		err = errors.New(errors.ErrCodeCodec, "missing rowID in index key")
+		return
+	}
+
+	return tenantID, tableID, indexID, indexValues, rowID, nil
+}
+
+func (c *memcodec) DecodeTableKey(key []byte) (tenantID, tableID, rowID int64, err error) {
+	if len(key) < 1 || KeyType(key[0]) != KeyTypeTable {
+		return 0, 0, 0, errors.New(errors.ErrCodeCodec, "invalid table key prefix")
+	}
+
+	offset := 1
+	tenantID, n := readMemComparableInt64(key[offset:])
+	offset += n
+
+	if offset >= len(key) || KeyType(key[offset]) != KeyTypeRow {
+		return 0, 0, 0, errors.New(errors.ErrCodeCodec, "invalid row key marker")
+	}
+	offset++
+
+	tableID, n = readMemComparableInt64(key[offset:])
+	offset += n
+
+	rowID, _ = readMemComparableInt64(key[offset:])
+
+	return tenantID, tableID, rowID, nil
+}
+
+func (c *memcodec) DecodeIndexKey(key []byte) (tenantID, tableID, indexID int64, indexValues []interface{}, rowID int64, err error) {
+	if len(key) < 1 || KeyType(key[0]) != KeyTypeTable {
+		err = errors.New(errors.ErrCodeCodec, "invalid table key prefix")
+		return
+	}
+
+	offset := 1
+	tenantID, n := readMemComparableInt64(key[offset:])
+	offset += n
+
+	if offset >= len(key) || KeyType(key[offset]) != KeyTypeIndex {
+		err = errors.New(errors.ErrCodeCodec, "invalid index key marker")
+		return
+	}
+	offset++
+
+	tableID, n = readMemComparableInt64(key[offset:])
+	offset += n
+
+	indexID, n = readMemComparableInt64(key[offset:])
+	offset += n
+
+	// Parse index values (could be composite)
+	indexValues = make([]interface{}, 0)
+
+	// Skip to the end to find rowID
+	// In a real implementation, we would parse the index values properly
+	// For now, we'll assume the rowID is at the end (last 8 bytes)
+	if len(key) >= 8 {
+		rowID, _ = readMemComparableInt64(key[len(key)-8:])
+	}
+
+	return tenantID, tableID, indexID, indexValues, rowID, nil
+}
+
+func (c *memcodec) DecodePKKey(key []byte) (tenantID, tableID int64, err error) {
+	if len(key) < 1 || KeyType(key[0]) != KeyTypeTable {
+		return 0, 0, errors.New(errors.ErrCodeCodec, "invalid table key prefix")
+	}
+
+	offset := 1
+	tenantID, n := readMemComparableInt64(key[offset:])
+	offset += n
+
+	if offset >= len(key) || KeyType(key[offset]) != KeyTypePK {
+		return 0, 0, errors.New(errors.ErrCodeCodec, "invalid pk key marker")
+	}
+	offset++
+
+	tableID, _ = readMemComparableInt64(key[offset:])
+
+	return tenantID, tableID, nil
+}
+
+func (c *memcodec) DecodeRow(data []byte, schemaDef *types.TableDefinition) (*types.Record, error) {
+	encoded, err := decodeEncodedRow(data)
+	if err != nil {
+		return nil, errors.Wrapf(err, errors.ErrCodeCodec, "DecodeRow", "failed to decode encoded row")
+	}
+
+	// Ensure we release the encoded row back to the pool
+	defer ReleaseEncodedRow(encoded)
+
+	record := &types.Record{
+		ID:        "",
+		Table:     schemaDef.Name,
+		Data:      make(map[string]*types.Value),
+		CreatedAt: time.Unix(encoded.CreatedAt, 0),
+		UpdatedAt: time.Unix(encoded.UpdatedAt, 0),
+		Version:   encoded.Version,
+	}
+
+	for _, col := range schemaDef.Columns {
+		if valueBytes, ok := encoded.Columns[col.Name]; ok {
+			value, err := c.DecodeValue(valueBytes, col.Type)
+			if err != nil {
+				return nil, errors.Wrapf(err, errors.ErrCodeCodec, "DecodeRow", "failed to decode column %s", col.Name)
+			}
+			record.Data[col.Name] = &types.Value{
+				Data: value,
+				Type: col.Type,
+			}
+		}
+	}
+
+	return record, nil
+}
+
+func (c *memcodec) DecodeValue(data []byte, colType types.ColumnType) (interface{}, error) {
+	if len(data) == 0 {
+		return nil, errors.New(errors.ErrCodeCodec, "empty data")
+	}
+
+	if data[0] == nilFlag {
+		return nil, nil
+	}
+
+	switch colType {
+	case types.ColumnTypeString, types.ColumnTypeText:
+		return decodeString(data)
+	case types.ColumnTypeNumber:
+		return decodeNumber(data)
+	case types.ColumnTypeBoolean:
+		return decodeBoolean(data)
+	case types.ColumnTypeTimestamp, types.ColumnTypeDate:
+		return decodeTimestamp(data)
+	case types.ColumnTypeJSON:
+		return decodeJSON(data)
+	case types.ColumnTypeUUID:
+		return decodeUUID(data)
+	case types.ColumnTypeBinary:
+		return decodeBytes(data)
+	default:
+		return nil, errors.Errorf(errors.ErrCodeCodec, "unsupported column type: %s", colType)
+	}
+}
+
+func (c *memcodec) DecodeCompositeKey(data []byte, colTypes []types.ColumnType) ([]interface{}, error) {
+	values := make([]interface{}, 0, len(colTypes))
+	offset := 0
+
+	for i := 0; i < len(colTypes) && offset < len(data); i++ {
+		colType := colTypes[i]
+		var endIdx int
+
+		flag := data[offset]
+		if flag == nilFlag {
+			values = append(values, nil)
+			offset += 1
+			continue
+		}
+
+		switch colType {
+		case types.ColumnTypeString, types.ColumnTypeText, types.ColumnTypeUUID, types.ColumnTypeBinary:
+			endIdx = offset + 1
+			for endIdx < len(data) {
+				if data[endIdx] == 0x00 {
+					if endIdx+1 < len(data) && data[endIdx+1] == 0x00 {
+						endIdx += 2
+						break
+					} else if endIdx+1 < len(data) && data[endIdx+1] == 0xFF {
+						endIdx += 2
+						continue
+					}
+				}
+				endIdx++
+			}
+		case types.ColumnTypeNumber, types.ColumnTypeTimestamp, types.ColumnTypeDate:
+			endIdx = offset + 9
+		case types.ColumnTypeBoolean:
+			endIdx = offset + 1
+		default:
+			return nil, errors.Errorf(errors.ErrCodeCodec, "unsupported column type: %s", colType)
+		}
+
+		if endIdx > len(data) {
+			return nil, errors.Errorf(errors.ErrCodeCodec, "unexpected end of data at value %d", i)
+		}
+
+		value, err := c.DecodeValue(data[offset:endIdx], colType)
+		if err != nil {
+			return nil, errors.Wrapf(err, errors.ErrCodeCodec, "DecodeCompositeKey", "failed to decode value %d", i)
+		}
+		values = append(values, value)
+		offset = endIdx
+	}
+
+	return values, nil
+}
