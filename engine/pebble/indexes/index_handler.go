@@ -8,6 +8,8 @@ import (
 	"github.com/guileen/pglitedb/codec"
 	"github.com/guileen/pglitedb/storage"
 	dbTypes "github.com/guileen/pglitedb/types"
+	"github.com/guileen/pglitedb/engine/errors"
+	"github.com/guileen/pglitedb/engine/pebble/constants"
 )
 
 // Handler handles all index-related operations
@@ -29,7 +31,7 @@ func (h *Handler) CreateIndex(ctx context.Context, tenantID, tableID int64, inde
 	// Generate a new index ID
 	indexID, err := nextIndexID(ctx, tenantID, tableID)
 	if err != nil {
-		return fmt.Errorf("generate index id: %w", err)
+		return errors.Wrap(err, "generate_index_id", "generate index id")
 	}
 
 	// Store index metadata
@@ -38,19 +40,19 @@ func (h *Handler) CreateIndex(ctx context.Context, tenantID, tableID int64, inde
 	// Serialize index definition
 	indexData, err := json.Marshal(indexDef)
 	if err != nil {
-		return fmt.Errorf("serialize index definition: %w", err)
+		return errors.Wrap(err, "serialize_index_definition", "serialize index definition")
 	}
 
 	// Store metadata
 	if err := h.kv.Set(ctx, metaKey, indexData); err != nil {
-		return fmt.Errorf("store index metadata: %w", err)
+		return errors.Wrap(err, "store_index_metadata", "store index metadata")
 	}
 
 	// Build index entries for existing data
 	if err := h.buildIndexEntries(ctx, tenantID, tableID, indexID, indexDef); err != nil {
 		// Clean up metadata on failure
 		h.kv.Delete(ctx, metaKey)
-		return fmt.Errorf("build index entries: %w", err)
+		return errors.Wrap(err, "build_index_entries", "build index entries")
 	}
 
 	return nil
@@ -91,7 +93,7 @@ func (h *Handler) DropIndex(ctx context.Context, tenantID, tableID, indexID int6
 
 	for iter.First(); iter.Valid(); iter.Next() {
 		if err := batch.Delete(iter.Key()); err != nil {
-			return fmt.Errorf("batch delete index entry: %w", err)
+			return errors.Wrap(err, "batch_delete_index_entry", "batch delete index entry")
 		}
 	}
 
@@ -109,12 +111,12 @@ func (h *Handler) DropIndex(ctx context.Context, tenantID, tableID, indexID int6
 func (h *Handler) LookupIndex(ctx context.Context, tenantID, tableID, indexID int64, indexValue interface{}) ([]int64, error) {
 	startKey, err := h.codec.EncodeIndexKey(tenantID, tableID, indexID, indexValue, 0)
 	if err != nil {
-		return nil, fmt.Errorf("encode start key: %w", err)
+		return nil, errors.Wrap(err, "encode_start_key", "encode start key")
 	}
 
-	endKey, err := h.codec.EncodeIndexKey(tenantID, tableID, indexID, indexValue, int64(^uint64(0)>>1))
+	endKey, err := h.codec.EncodeIndexKey(tenantID, tableID, indexID, indexValue, constants.MaxIndexValue)
 	if err != nil {
-		return nil, fmt.Errorf("encode end key: %w", err)
+		return nil, errors.Wrap(err, "encode_end_key", "encode end key")
 	}
 
 	iterOpts := &storage.IteratorOptions{
@@ -328,7 +330,7 @@ func (h *Handler) DeleteIndexesInBatch(batch storage.Batch, tenantID, tableID, r
 			}
 
 			if err := batch.Delete(indexKey); err != nil {
-				return fmt.Errorf("batch delete index: %w", err)
+				return errors.Wrap(err, "batch_delete_index", "batch delete index")
 			}
 		}
 	}
@@ -350,7 +352,7 @@ func (h *Handler) DeleteIndexesBulk(batch storage.Batch, tenantID, tableID int64
 func (h *Handler) buildIndexEntries(ctx context.Context, tenantID, tableID, indexID int64, indexDef *dbTypes.IndexDefinition) error {
 	// Scan all rows in the table
 	startKey := h.codec.EncodeTableKey(tenantID, tableID, 0)
-	endKey := h.codec.EncodeTableKey(tenantID, tableID, int64(^uint64(0)>>1))
+	endKey := h.codec.EncodeTableKey(tenantID, tableID, constants.MaxRowID)
 
 	iterOpts := &storage.IteratorOptions{
 		LowerBound: startKey,
