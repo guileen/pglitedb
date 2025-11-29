@@ -154,6 +154,18 @@ func (c *memcodec) DecodeIndexKey(key []byte) (tenantID, tableID, indexID int64,
 	return tenantID, tableID, indexID, indexValues, rowID, nil
 }
 
+// ExtractRowIDFromIndexKey efficiently extracts just the rowID from an index key
+// This avoids the overhead of full key decoding when only the rowID is needed
+func (c *memcodec) ExtractRowIDFromIndexKey(key []byte) (int64, error) {
+	if len(key) < 8 {
+		return 0, errors.New(errors.ErrCodeCodec, "key too short to contain rowID")
+	}
+	
+	// RowID is stored as the last 8 bytes of the key in memcomparable format
+	rowID, _ := readMemComparableInt64(key[len(key)-8:])
+	return rowID, nil
+}
+
 func (c *memcodec) DecodePKKey(key []byte) (tenantID, tableID int64, err error) {
 	if len(key) < 1 || KeyType(key[0]) != KeyTypeTable {
 		return 0, 0, errors.New(errors.ErrCodeCodec, "invalid table key prefix")

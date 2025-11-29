@@ -40,6 +40,7 @@ type PebbleConfig struct {
 	CompressionEnabled    bool          // Enable Snappy compression
 }
 
+// DefaultPebbleConfig creates a default configuration for Pebble KV store optimized for production
 func DefaultPebbleConfig(path string) *PebbleConfig {
 	return &PebbleConfig{
 		Path:                  path,
@@ -52,6 +53,23 @@ func DefaultPebbleConfig(path string) *PebbleConfig {
 		L0CompactionThreshold: 8,                       // Increase to reduce write amplification
 		L0StopWritesThreshold: 32,                      // Increase to prevent write stalls
 		CompressionEnabled:    true,
+	}
+}
+
+// TestOptimizedPebbleConfig creates a configuration optimized for testing performance
+// Reduces memory usage and disables compression for faster operations
+func TestOptimizedPebbleConfig(path string) *PebbleConfig {
+	return &PebbleConfig{
+		Path:                  path,
+		CacheSize:             32 * 1024 * 1024,        // Reduce to 32MB for testing
+		MemTableSize:          4 * 1024 * 1024,         // Reduce to 4MB for faster flushes
+		MaxOpenFiles:          1000,                    // Reduce for testing
+		CompactionConcurrency: 2,                       // Reduce for testing
+		FlushInterval:         100 * time.Millisecond,  // Much faster flushing
+		BlockSize:             4 << 10,                 // Reduce to 4KB for testing
+		L0CompactionThreshold: 2,                       // Reduce to trigger compactions sooner
+		L0StopWritesThreshold: 10,                      // Reduce to prevent write stalls
+		CompressionEnabled:    false,                   // Disable compression for speed
 	}
 }
 

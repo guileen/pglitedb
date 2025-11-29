@@ -79,6 +79,7 @@ func (emc *enhancedMockCodec) EncodeValue(value interface{}, colType dbTypes.Col
 func (emc *enhancedMockCodec) DecodeValue(data []byte, colType dbTypes.ColumnType) (interface{}, error) { return nil, nil }
 func (emc *enhancedMockCodec) EncodeCompositeKey(values []interface{}, types []dbTypes.ColumnType) ([]byte, error) { return nil, nil }
 func (emc *enhancedMockCodec) DecodeCompositeKey(data []byte, types []dbTypes.ColumnType) ([]interface{}, error) { return nil, nil }
+func (emc *enhancedMockCodec) ExtractRowIDFromIndexKey(key []byte) (int64, error) { return 0, nil }
 
 func TestMultiColumnOptimizer_EqualityConditions(t *testing.T) {
 	mockCodec := &enhancedMockCodec{

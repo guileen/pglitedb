@@ -33,6 +33,9 @@ type Codec interface {
 	DecodeIndexKey(key []byte) (tenantID, tableID, indexID int64, indexValues []interface{}, rowID int64, err error)
 	DecodeIndexKeyWithSchema(key []byte, indexColumnTypes []types.ColumnType) (tenantID, tableID, indexID int64, indexValues []interface{}, rowID int64, err error)
 	DecodePKKey(key []byte) (tenantID, tableID int64, err error)
+	
+	// ExtractRowIDFromIndexKey efficiently extracts just the rowID from an index key
+	ExtractRowIDFromIndexKey(key []byte) (int64, error)
 
 	EncodeRow(row *types.Record, schemaDef *types.TableDefinition) ([]byte, error)
 	DecodeRow(data []byte, schemaDef *types.TableDefinition) (*types.Record, error)

@@ -187,3 +187,34 @@ func TestConcurrentAccess(t *testing.T) {
 		<-done
 	}
 }
+
+// BenchmarkCollectTableStats benchmarks the table stats collection performance
+func BenchmarkCollectTableStats(b *testing.B) {
+	collector := NewStatsCollector(nil)
+	ctx := context.Background()
+	tableID := uint64(1)
+	
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := collector.(*statsCollector).CollectTableStats(ctx, tableID)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkCollectColumnStats benchmarks the column stats collection performance
+func BenchmarkCollectColumnStats(b *testing.B) {
+	collector := NewStatsCollector(nil)
+	ctx := context.Background()
+	tableID := uint64(1)
+	columnName := "test_column"
+	
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := collector.(*statsCollector).CollectColumnStats(ctx, tableID, columnName)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}

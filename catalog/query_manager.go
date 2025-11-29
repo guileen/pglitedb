@@ -1,8 +1,10 @@
 package catalog
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -98,6 +100,11 @@ func (m *queryManager) Query(ctx context.Context, tenantID int64, tableName stri
 		return nil, fmt.Errorf("iterator error: %w", err)
 	}
 
+	// Apply sorting if ORDER BY is specified
+	if opts != nil && len(opts.OrderBy) > 0 {
+		records = m.sortRecords(records, opts.OrderBy, schema)
+	}
+
 	// Build column info from schema
 	columns := make([]types.ColumnInfo, len(schema.Columns))
 	for i, col := range schema.Columns {
@@ -186,6 +193,207 @@ func (m *queryManager) isSystemTable(tableName string) bool {
 	}
 	
 	return false
+}
+
+// sortRecords sorts records according to the ORDER BY specification
+func (m *queryManager) sortRecords(records []*types.Record, orderBy []string, schema *types.TableDefinition) []*types.Record {
+	if len(records) <= 1 {
+		return records
+	}
+
+	// Create a copy to avoid modifying the original slice
+	sortedRecords := make([]*types.Record, len(records))
+	copy(sortedRecords, records)
+
+	// Parse order by specifications (field ASC/DESC)
+	type orderSpec struct {
+		field string
+		desc  bool
+	}
+	orderSpecs := make([]orderSpec, len(orderBy))
+	for i, ob := range orderBy {
+		spec := orderSpec{field: ob, desc: false}
+		// Check for DESC suffix
+		if strings.HasSuffix(strings.ToUpper(ob), " DESC") {
+			spec.field = strings.TrimSpace(ob[:len(ob)-5])
+			spec.desc = true
+		} else if strings.HasSuffix(strings.ToUpper(ob), " ASC") {
+			spec.field = strings.TrimSpace(ob[:len(ob)-4])
+		}
+		orderSpecs[i] = spec
+	}
+
+	sort.SliceStable(sortedRecords, func(i, j int) bool {
+		for _, spec := range orderSpecs {
+			valI := m.getFieldValue(sortedRecords[i], spec.field)
+			valJ := m.getFieldValue(sortedRecords[j], spec.field)
+
+			// Handle nil values
+			if valI == nil && valJ == nil {
+				continue
+			}
+			if valI == nil {
+				return spec.desc // nil goes to end if DESC, beginning if ASC
+			}
+			if valJ == nil {
+				return !spec.desc // nil goes to end if DESC, beginning if ASC
+			}
+
+			// Compare values based on their types
+			result := m.compareValues(valI, valJ)
+			if result == 0 {
+				continue // Equal, check next field
+			}
+
+			if spec.desc {
+				return result > 0 // Descending order
+			}
+			return result < 0 // Ascending order
+		}
+		return false // All fields equal
+	})
+
+	return sortedRecords
+}
+
+// getFieldValue extracts a field value from a record
+func (m *queryManager) getFieldValue(record *types.Record, fieldName string) interface{} {
+	if record == nil || record.Data == nil {
+		return nil
+	}
+	
+	if value, ok := record.Data[fieldName]; ok && value != nil {
+		return value.Data
+	}
+	return nil
+}
+
+// compareValues compares two values of potentially different types
+func (m *queryManager) compareValues(a, b interface{}) int {
+	// Handle nil values
+	if a == nil && b == nil {
+		return 0
+	}
+	if a == nil {
+		return -1
+	}
+	if b == nil {
+		return 1
+	}
+
+	// Try to convert both to strings for comparison if types differ
+	switch aVal := a.(type) {
+	case int:
+		if bVal, ok := b.(int); ok {
+			if aVal < bVal {
+				return -1
+			} else if aVal > bVal {
+				return 1
+			}
+			return 0
+		}
+		// Try int64
+		if bVal, ok := b.(int64); ok {
+			a64 := int64(aVal)
+			if a64 < bVal {
+				return -1
+			} else if a64 > bVal {
+				return 1
+			}
+			return 0
+		}
+		// Convert b to string for comparison
+		return strings.Compare(fmt.Sprintf("%v", aVal), fmt.Sprintf("%v", b))
+	case int64:
+		if bVal, ok := b.(int64); ok {
+			if aVal < bVal {
+				return -1
+			} else if aVal > bVal {
+				return 1
+			}
+			return 0
+		}
+		// Try int
+		if bVal, ok := b.(int); ok {
+			b64 := int64(bVal)
+			if aVal < b64 {
+				return -1
+			} else if aVal > b64 {
+				return 1
+			}
+			return 0
+		}
+		// Convert b to string for comparison
+		return strings.Compare(fmt.Sprintf("%v", aVal), fmt.Sprintf("%v", b))
+	case float32:
+		if bVal, ok := b.(float32); ok {
+			if aVal < bVal {
+				return -1
+			} else if aVal > bVal {
+				return 1
+			}
+			return 0
+		}
+		// Try float64
+		if bVal, ok := b.(float64); ok {
+			a64 := float64(aVal)
+			if a64 < bVal {
+				return -1
+			} else if a64 > bVal {
+				return 1
+			}
+			return 0
+		}
+		// Convert b to string for comparison
+		return strings.Compare(fmt.Sprintf("%v", aVal), fmt.Sprintf("%v", b))
+	case float64:
+		if bVal, ok := b.(float64); ok {
+			if aVal < bVal {
+				return -1
+			} else if aVal > bVal {
+				return 1
+			}
+			return 0
+		}
+		// Try float32
+		if bVal, ok := b.(float32); ok {
+			b64 := float64(bVal)
+			if aVal < b64 {
+				return -1
+			} else if aVal > b64 {
+				return 1
+			}
+			return 0
+		}
+		// Convert b to string for comparison
+		return strings.Compare(fmt.Sprintf("%v", aVal), fmt.Sprintf("%v", b))
+	case bool:
+		if bVal, ok := b.(bool); ok {
+			if !aVal && bVal {
+				return -1
+			} else if aVal && !bVal {
+				return 1
+			}
+			return 0
+		}
+		// Convert b to string for comparison
+		return strings.Compare(fmt.Sprintf("%v", aVal), fmt.Sprintf("%v", b))
+	case string:
+		if bVal, ok := b.(string); ok {
+			return strings.Compare(aVal, bVal)
+		}
+		// Convert b to string for comparison
+		return strings.Compare(aVal, fmt.Sprintf("%v", b))
+	case []byte:
+		if bVal, ok := b.([]byte); ok {
+			return bytes.Compare(aVal, bVal)
+		}
+		// Convert both to strings for comparison
+		return strings.Compare(fmt.Sprintf("%v", aVal), fmt.Sprintf("%v", b))
+	default:
+		// Convert both to strings for comparison
+		return strings.Compare(fmt.Sprintf("%v", a), fmt.Sprintf("%v", b))
+	}
 }
 
 func (m *queryManager) systemTableQuery(ctx context.Context, tenantID int64, fullTableName string, filter map[string]interface{}) (*types.QueryResult, error) {

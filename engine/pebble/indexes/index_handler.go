@@ -127,12 +127,13 @@ func (h *Handler) LookupIndex(ctx context.Context, tenantID, tableID, indexID in
 	iter := h.kv.NewIterator(iterOpts)
 	defer iter.Close()
 
-	var rowIDs []int64
+	// Pre-allocate slice with reasonable capacity to reduce allocations
+	rowIDs := make([]int64, 0, 64)
 	for iter.First(); iter.Valid(); iter.Next() {
-		// Extract rowID from the index key
-		_, _, _, _, rowID, err := h.codec.DecodeIndexKey(iter.Key())
+		// Extract rowID from the index key using optimized function
+		rowID, err := h.codec.ExtractRowIDFromIndexKey(iter.Key())
 		if err != nil {
-			return nil, fmt.Errorf("decode index key: %w", err)
+			return nil, fmt.Errorf("extract rowID from index key: %w", err)
 		}
 		rowIDs = append(rowIDs, rowID)
 	}

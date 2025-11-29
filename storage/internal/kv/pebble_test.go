@@ -613,7 +613,8 @@ func BenchmarkPebbleKV_Set(b *testing.B) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	config := DefaultPebbleConfig(filepath.Join(tmpDir, "db"))
+	// Use test-optimized configuration for faster benchmarking
+	config := TestOptimizedPebbleConfig(filepath.Join(tmpDir, "db"))
 	kv, err := NewPebbleKV(config)
 	if err != nil {
 		b.Fatalf("create pebble kv: %v", err)
@@ -639,7 +640,8 @@ func BenchmarkPebbleKV_Get(b *testing.B) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	config := DefaultPebbleConfig(filepath.Join(tmpDir, "db"))
+	// Use test-optimized configuration for faster benchmarking
+	config := TestOptimizedPebbleConfig(filepath.Join(tmpDir, "db"))
 	kv, err := NewPebbleKV(config)
 	if err != nil {
 		b.Fatalf("create pebble kv: %v", err)
@@ -669,7 +671,8 @@ func BenchmarkPebbleKV_Batch(b *testing.B) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	config := DefaultPebbleConfig(filepath.Join(tmpDir, "db"))
+	// Use test-optimized configuration for faster benchmarking
+	config := TestOptimizedPebbleConfig(filepath.Join(tmpDir, "db"))
 	kv, err := NewPebbleKV(config)
 	if err != nil {
 		b.Fatalf("create pebble kv: %v", err)
@@ -699,7 +702,8 @@ func BenchmarkPebbleKV_Transaction(b *testing.B) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	config := DefaultPebbleConfig(filepath.Join(tmpDir, "db"))
+	// Use test-optimized configuration for faster benchmarking
+	config := TestOptimizedPebbleConfig(filepath.Join(tmpDir, "db"))
 	kv, err := NewPebbleKV(config)
 	if err != nil {
 		b.Fatalf("create pebble kv: %v", err)

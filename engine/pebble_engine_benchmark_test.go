@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,7 +23,8 @@ func BenchmarkStorageEngine_UpdateRows_Optimized(b *testing.B) {
 		}
 		defer os.RemoveAll(tmpDir)
 
-		config := storage.DefaultPebbleConfig(filepath.Join(tmpDir, "db"))
+		// Use test-optimized configuration for faster benchmarking
+		config := storage.TestOptimizedPebbleConfig(filepath.Join(tmpDir, "db"))
 		kvStore, err := storage.NewPebbleKV(config)
 		if err != nil {
 			b.Fatalf("create kv store: %v", err)
@@ -40,8 +42,8 @@ func BenchmarkStorageEngine_UpdateRows_Optimized(b *testing.B) {
 		for i := 0; i < 1000; i++ {
 			testData[i] = &types.Record{
 				Data: map[string]*types.Value{
-					"name":   {Data: "User" + string(rune(i)), Type: types.ColumnTypeString},
-					"email":  {Data: "user" + string(rune(i)) + "@example.com", Type: types.ColumnTypeString},
+					"name":   {Data: fmt.Sprintf("User%d", i), Type: types.ColumnTypeString},
+					"email":  {Data: fmt.Sprintf("user%d@example.com", i), Type: types.ColumnTypeString},
 					"age":    {Data: int64(20 + (i % 50)), Type: types.ColumnTypeNumber},
 					"active": {Data: i%2 == 0, Type: types.ColumnTypeBoolean},
 				},
@@ -81,7 +83,8 @@ func BenchmarkStorageEngine_DeleteRows_Optimized(b *testing.B) {
 		}
 		defer os.RemoveAll(tmpDir)
 
-		config := storage.DefaultPebbleConfig(filepath.Join(tmpDir, "db"))
+		// Use test-optimized configuration for faster benchmarking
+		config := storage.TestOptimizedPebbleConfig(filepath.Join(tmpDir, "db"))
 		kvStore, err := storage.NewPebbleKV(config)
 		if err != nil {
 			b.Fatalf("create kv store: %v", err)
@@ -102,8 +105,8 @@ func BenchmarkStorageEngine_DeleteRows_Optimized(b *testing.B) {
 			for j := 0; j < 100; j++ {
 				testData[j] = &types.Record{
 					Data: map[string]*types.Value{
-						"name":   {Data: "User" + string(rune(j)), Type: types.ColumnTypeString},
-						"email":  {Data: "user" + string(rune(j)) + "@example.com", Type: types.ColumnTypeString},
+						"name":   {Data: fmt.Sprintf("User%d", j), Type: types.ColumnTypeString},
+						"email":  {Data: fmt.Sprintf("user%d@example.com", j), Type: types.ColumnTypeString},
 						"age":    {Data: int64(20 + (j % 50)), Type: types.ColumnTypeNumber},
 						"active": {Data: j%3 == 0, Type: types.ColumnTypeBoolean},
 					},
@@ -175,8 +178,8 @@ func BenchmarkIndexIterator_Next(b *testing.B) {
 		for i := 0; i < 1000; i++ {
 			testData[i] = &types.Record{
 				Data: map[string]*types.Value{
-					"name":   {Data: "User" + string(rune(i)), Type: types.ColumnTypeString},
-					"email":  {Data: "user" + string(rune(i)) + "@example.com", Type: types.ColumnTypeString},
+					"name":   {Data: fmt.Sprintf("User%d", i), Type: types.ColumnTypeString},
+					"email":  {Data: fmt.Sprintf("user%d@example.com", i), Type: types.ColumnTypeString},
 					"age":    {Data: int64(20 + (i % 50)), Type: types.ColumnTypeNumber},
 					"active": {Data: i%2 == 0, Type: types.ColumnTypeBoolean},
 				},
