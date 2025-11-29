@@ -89,6 +89,14 @@ func (p *Profiler) StartCPUProfile(filename string) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	
+	// Clean up any previous state
+	if p.cpuProfile != nil {
+		p.cpuProfile.Close()
+		p.cpuProfile = nil
+	}
+	p.activeProfiles[CPUProfile] = false
+	delete(p.profiles, CPUProfile)
+	
 	if p.activeProfiles[CPUProfile] {
 		return fmt.Errorf("CPU profiling is already running")
 	}
@@ -122,23 +130,28 @@ func (p *Profiler) StopCPUProfile() error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	
-	if !p.activeProfiles[CPUProfile] {
-		return fmt.Errorf("CPU profiling is not running")
+	// Even if not marked as active, try to stop and close if we have a file
+	if p.cpuProfile != nil {
+		pprof.StopCPUProfile()
+		if err := p.cpuProfile.Close(); err != nil {
+			p.cpuProfile = nil
+			p.activeProfiles[CPUProfile] = false
+			delete(p.profiles, CPUProfile)
+			p.recordFailedSession()
+			return fmt.Errorf("could not close CPU profile file: %w", err)
+		}
+		p.cpuProfile = nil
 	}
 	
-	session := p.profiles[CPUProfile]
-	session.Duration = time.Since(session.Started)
-	
-	pprof.StopCPUProfile()
-	if err := p.cpuProfile.Close(); err != nil {
-		p.recordFailedSession()
-		return fmt.Errorf("could not close CPU profile file: %w", err)
+	// Update session info if we had one
+	if session, exists := p.profiles[CPUProfile]; exists {
+		session.Duration = time.Since(session.Started)
+		p.recordCompletedSession(session.Duration)
 	}
 	
-	p.cpuProfile = nil
+	// Always clean up the state
 	p.activeProfiles[CPUProfile] = false
 	delete(p.profiles, CPUProfile)
-	p.recordCompletedSession(session.Duration)
 	
 	return nil
 }

@@ -18,14 +18,15 @@ type Planner struct {
 }
 
 // NewPlanner creates a new query planner
+// Increased plan cache size to reduce repeated parsing based on profiling analysis
 func NewPlanner(parser Parser) *Planner {
 	// If no parser is provided, use the hybrid parser for better performance
 	if parser == nil {
 		parser = NewHybridPGParser()
 	}
 	
-	// Initialize plan cache with 1000 entries capacity
-	planCache := NewLRUCache(1000)
+	// Initialize plan cache with larger capacity to reduce repeated parsing
+	planCache := NewLRUCache(5000)
 	
 	return &Planner{
 		parser:    parser,
@@ -35,9 +36,10 @@ func NewPlanner(parser Parser) *Planner {
 }
 
 // NewPlannerWithCatalog creates a new query planner with catalog
+// Increased plan cache size to reduce repeated parsing based on profiling analysis
 func NewPlannerWithCatalog(parser Parser, catalogMgr catalog.Manager) *Planner {
-	// Initialize plan cache with 1000 entries capacity
-	planCache := NewLRUCache(1000)
+	// Initialize plan cache with larger capacity to reduce repeated parsing
+	planCache := NewLRUCache(5000)
 	
 	planner := &Planner{
 		parser:    parser,

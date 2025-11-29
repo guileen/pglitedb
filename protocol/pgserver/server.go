@@ -72,11 +72,43 @@ func NewPostgreSQLServer(executor *sql.Executor, planner *sql.Planner) *PostgreS
 	// Create buffer pools for common buffer sizes
 	bufferSizes := []int{512, 1024, 2048, 4096, 8192, 16384}
 	
+	// Create connection pool with optimized configuration
+	// Based on historical performance report: Increased default pool sizes by 5x
+	poolConfig := network.PoolConfig{
+		MaxConnections:         100, // Increased from default
+		MinConnections:         20,  // Increased from default
+		ConnectionTimeout:      30 * time.Second,
+		IdleTimeout:            5 * time.Minute,
+		MaxLifetime:            1 * time.Hour,
+		MaxIdleConns:           50,  // Increased from default
+		HealthCheckPeriod:      1 * time.Minute,
+		MetricsEnabled:         true,
+		
+		// Enable adaptive pooling with aggressive scaling as per historical report
+		AdaptivePoolingEnabled: true,
+		TargetHitRate:          95.0, // Target high hit rate
+		MinHitRateThreshold:    80.0, // Expand when hit rate drops below 80%
+		MaxHitRateThreshold:    99.0, // Contract when hit rate is very high
+		AdaptationInterval:     30 * time.Second, // Check frequently
+		ExpansionFactor:        1.5,  // Expand by 50% when needed
+		ContractionFactor:      0.8,  // Contract by 20% when over-provisioned
+		MaxAdaptiveConnections: 200,  // Maximum pool size
+		MinAdaptiveConnections: 10,   // Minimum pool size
+	}
+	
+	// Create a mock connection factory for the pool
+	// In a real implementation, this would create actual database connections
+	factory := network.NewMockConnectionFactory(false, 0)
+	
+	// Create the adaptive connection pool
+	adaptivePool := network.NewAdaptiveConnectionPool(poolConfig, factory)
+	
 	server := &PostgreSQLServer{
 		executor: executor,
 		parser:   parser,
 		planner:  planner,
 		bufferPool: pool.NewMultiBufferPool("pgserver", bufferSizes),
+		connectionPool: adaptivePool.ConnectionPool,
 		preparedStatements: make(map[string]*PreparedStatement),
 		portals:           make(map[string]*Portal),
 		httpPort:          "", // No profiling by default
@@ -190,6 +222,16 @@ func (s *PostgreSQLServer) Close() error {
 			return err
 		}
 		logger.Info("PostgreSQL server listener closed successfully")
+	}
+	
+	// Close the connection pool if it exists
+	if s.connectionPool != nil {
+		err := s.connectionPool.Close()
+		if err != nil {
+			logger.Error("Error closing connection pool", "error", err)
+			return err
+		}
+		logger.Info("PostgreSQL server connection pool closed successfully")
 	}
 	
 	// Stop the profiling server
