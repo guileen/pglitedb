@@ -397,6 +397,7 @@ Comprehensive documentation is available to help you understand and use PGLiteDB
 
 ### 🗂 Documentation Navigation
 For a complete list of all documentation files, see:
+- [Strategic Development Guide](spec/GUIDE.md) - Long-term development roadmap and strategic priorities
 - [Spec Documentation Navigation](spec/DOCUMENTATION_NAVIGATION.md) - Technical and development documentation
 - [User Documentation](docs/NAVIGATION.md) - User guides, API reference, and examples
 
@@ -405,6 +406,7 @@ For a complete list of all documentation files, see:
 - **Implementation Guides**: Component-specific implementation details and best practices
 - **Testing & Quality Assurance**: Testing strategies, coverage plans, and quality metrics
 - **Performance & Benchmarking**: Performance optimization plans and benchmark results
+- **Strategic Planning**: Long-term development roadmap and strategic priorities
 - **User Guides**: Comprehensive usage documentation, API reference, and examples
 - **Reflection & Learning**: Implementation reflections and lessons learned
 

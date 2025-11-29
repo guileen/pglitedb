@@ -902,8 +902,8 @@ func TestPebbleKV_Configuration(t *testing.T) {
 
 	// Test that we can override the configuration
 	config.BlockSize = 32 << 10 // 32KB
-	config.L0CompactionThreshold = 4
-	config.L0StopWritesThreshold = 12
+	config.L0CompactionThreshold = 8
+	config.L0StopWritesThreshold = 32
 	config.CompressionEnabled = false
 
 	kv, err := NewPebbleKV(config)

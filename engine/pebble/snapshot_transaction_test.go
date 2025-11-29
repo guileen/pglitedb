@@ -283,6 +283,12 @@ func TestSnapshotTransaction_DeleteRows(t *testing.T) {
 			
 			var remainingCount int64
 			for iter.First(); iter.Valid(); iter.Next() {
+				// Attempt to decode the key to check if it's a row key
+				_, _, _, err := engine.codec.DecodeTableKey(iter.Key())
+				if err != nil {
+					// This might be an index key or other non-table key, skip it
+					continue
+				}
 				remainingCount++
 			}
 			

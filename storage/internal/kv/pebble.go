@@ -1,7 +1,9 @@
 package kv
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -54,22 +56,22 @@ type PebbleConfig struct {
 func DefaultPebbleConfig(path string) *PebbleConfig {
 	return &PebbleConfig{
 		Path:                  path,
-		CacheSize:             2 * 1024 * 1024 * 1024, // Increase to 2GB for better read performance
-		MemTableSize:          128 * 1024 * 1024,       // Increase to 128MB for write-heavy workloads
-		MaxOpenFiles:          100000,                  // Increase further
-		CompactionConcurrency: 16,                      // Increase for better parallelism
-		FlushInterval:         5 * time.Second,         // More aggressive flushing
-		BlockSize:             64 << 10,                // Increase to 64KB for better performance
-		L0CompactionThreshold: 8,                       // Increase to reduce write amplification
-		L0StopWritesThreshold: 32,                      // Increase to prevent write stalls
-		LBaseMaxBytes:         128 << 20,               // 128MB for L1, better space efficiency
+		CacheSize:             2 * 1024 * 1024 * 1024, // 2GB cache for better read performance
+		MemTableSize:          256 * 1024 * 1024,       // Increase to 256MB for write-heavy workloads
+		MaxOpenFiles:          100000,                  // High file handle limit
+		CompactionConcurrency: 32,                      // Increase for better parallelism
+		FlushInterval:         1 * time.Second,         // More aggressive flushing for lower latency
+		BlockSize:             64 << 10,                // 64KB block size for better performance
+		L0CompactionThreshold: 8,                       // Higher threshold to reduce write amplification
+		L0StopWritesThreshold: 32,                      // Higher threshold to reduce write stalls
+		LBaseMaxBytes:         1024 << 20,              // 1GB for L1, better space efficiency
 		CompressionEnabled:    true,
-		EnableRateLimiting:    true,                    // Enable rate limiting for consistent performance
-		RateLimitBytesPerSec:  100 << 20,               // 100MB/s rate limit to prevent resource exhaustion
+		EnableRateLimiting:    false,                   // Disable rate limiting for maximum performance
+		RateLimitBytesPerSec:  200 << 20,               // 200MB/s rate limit if enabled
 		EnableBloomFilter:     true,                    // Enable bloom filters for better read performance
-		BloomFilterBitsPerKey: 10,                      // 10 bits per key for good balance
-		TargetFileSize:        32 << 20,                // 32MB target file size for better sequential reads
-		MaxManifestFileSize:   128 << 20,               // 128MB max manifest file size
+		BloomFilterBitsPerKey: 12,                      // 12 bits per key for better filtering
+		TargetFileSize:        64 << 20,                // 64MB target file size for better sequential reads
+		MaxManifestFileSize:   256 << 20,               // 256MB max manifest file size
 	}
 }
 
@@ -125,22 +127,22 @@ func SpaceOptimizedPebbleConfig(path string) *PebbleConfig {
 func PostgreSQLOptimizedPebbleConfig(path string) *PebbleConfig {
 	return &PebbleConfig{
 		Path:                  path,
-		CacheSize:             2 * 1024 * 1024 * 1024, // Increase to 2GB for better read performance
-		MemTableSize:          128 * 1024 * 1024,       // Increase to 128MB for write-heavy workloads
-		MaxOpenFiles:          100000,                  // Increase further for better file handling
-		CompactionConcurrency: 16,                      // Increase for better parallelism
+		CacheSize:             2 * 1024 * 1024 * 1024, // 2GB cache for better read performance
+		MemTableSize:          256 * 1024 * 1024,       // Increase to 256MB for write-heavy workloads
+		MaxOpenFiles:          100000,                  // High file handle limit
+		CompactionConcurrency: 32,                      // Increase for better parallelism
 		FlushInterval:         1 * time.Second,         // More aggressive flushing for lower latency
-		BlockSize:             64 << 10,                // Increase to 64KB for better performance
-		L0CompactionThreshold: 8,                       // Increase to reduce write amplification
-		L0StopWritesThreshold: 32,                      // Increase to prevent write stalls
-		LBaseMaxBytes:         256 << 20,               // 256MB for L1, better space efficiency
-		CompressionEnabled:    true,                    // Enable compression for space efficiency
-		EnableRateLimiting:    true,                    // Enable rate limiting for consistent performance
-		RateLimitBytesPerSec:  100 << 20,               // 100MB/s rate limit to prevent resource exhaustion
+		BlockSize:             64 << 10,                // 64KB block size for better performance
+		L0CompactionThreshold: 8,                       // Higher threshold to reduce write amplification
+		L0StopWritesThreshold: 32,                      // Higher threshold to reduce write stalls
+		LBaseMaxBytes:         1024 << 20,              // 1GB for L1, better space efficiency
+		CompressionEnabled:    true,
+		EnableRateLimiting:    false,                   // Disable rate limiting for maximum performance
+		RateLimitBytesPerSec:  200 << 20,               // 200MB/s rate limit if enabled
 		EnableBloomFilter:     true,                    // Enable bloom filters for better read performance
 		BloomFilterBitsPerKey: 12,                      // 12 bits per key for better filtering
-		TargetFileSize:        32 << 20,                // 32MB target file size for better sequential reads
-		MaxManifestFileSize:   128 << 20,               // 128MB max manifest file size
+		TargetFileSize:        64 << 20,                // 64MB target file size for better sequential reads
+		MaxManifestFileSize:   256 << 20,               // 256MB max manifest file size
 	}
 }
 
@@ -162,6 +164,101 @@ func NewPebbleKV(config *PebbleConfig) (*PebbleKV, error) {
 		compression[2] = pebble.NoCompression
 	}
 	
+	// Custom comparer for PostgreSQL-like key ordering
+	postgresComparer := &pebble.Comparer{
+		Name: "pglitedb-postgres",
+		Compare: func(a, b []byte) int {
+			// Handle empty keys
+			if len(a) == 0 && len(b) == 0 {
+				return 0
+			}
+			if len(a) == 0 {
+				return -1
+			}
+			if len(b) == 0 {
+				return 1
+			}
+
+			// Keys are structured as: KeyType + tenantID + tableID + [rowID/index components]
+			// For better locality, we want to group by tenantID and tableID first
+			
+			// Compare key types first
+			if a[0] != b[0] {
+				return int(a[0]) - int(b[0])
+			}
+			
+			// For table keys: 't' + tenantID + 'r' + tableID + rowID
+			// For index keys: 't' + tenantID + 'i' + tableID + indexID + [index values] + rowID
+			
+			// Extract and compare tenantID (starts at byte 1)
+			aOffset := 1
+			bOffset := 1
+			
+			// Compare tenantID (8 bytes each)
+			if aOffset+8 <= len(a) && bOffset+8 <= len(b) {
+				tenantA := int64(binary.BigEndian.Uint64(a[aOffset:aOffset+8]))
+				tenantB := int64(binary.BigEndian.Uint64(b[bOffset:bOffset+8]))
+				if tenantA != tenantB {
+					if tenantA < tenantB {
+						return -1
+					}
+					return 1
+				}
+				aOffset += 8
+				bOffset += 8
+			}
+			
+			// Move past intermediate key type ('r' or 'i')
+			if aOffset < len(a) && bOffset < len(b) {
+				aOffset++
+				bOffset++
+			}
+			
+			// Compare tableID (8 bytes each)
+			if aOffset+8 <= len(a) && bOffset+8 <= len(b) {
+				tableA := int64(binary.BigEndian.Uint64(a[aOffset:aOffset+8]))
+				tableB := int64(binary.BigEndian.Uint64(b[bOffset:bOffset+8]))
+				if tableA != tableB {
+					if tableA < tableB {
+						return -1
+					}
+					return 1
+				}
+				aOffset += 8
+				bOffset += 8
+			}
+			
+			// For remaining parts, use lexicographic comparison for better performance
+			remainingA := a[aOffset:]
+			remainingB := b[bOffset:]
+			
+			return bytes.Compare(remainingA, remainingB)
+		},
+		AbbreviatedKey: func(key []byte) uint64 {
+			// Use first 8 bytes for abbreviated key comparison
+			if len(key) >= 8 {
+				return binary.BigEndian.Uint64(key[:8])
+			}
+			// Pad with zeros if key is shorter
+			var padded [8]byte
+			copy(padded[:], key)
+			return binary.BigEndian.Uint64(padded[:])
+		},
+		Equal: bytes.Equal,
+		Separator: func(dst, a, b []byte) []byte {
+			// Use default separator logic
+			return nil
+		},
+		Successor: func(dst, a []byte) []byte {
+			// Use default successor logic
+			return nil
+		},
+		ImmediateSuccessor: func(dst, a []byte) []byte {
+			// Use default immediate successor logic
+			return nil
+		},
+	}
+
 	opts := &pebble.Options{
 		Cache: cache,
 		MaxOpenFiles:   config.MaxOpenFiles,
@@ -177,6 +274,7 @@ func NewPebbleKV(config *PebbleConfig) (*PebbleKV, error) {
 			{TargetFileSize: config.TargetFileSize * 16, BlockSize: config.BlockSize, Compression: compression[2]}, // 16x target file size
 		},
 		MaxManifestFileSize: config.MaxManifestFileSize, // Configurable max manifest file size
+		Comparer: postgresComparer, // Custom comparer for better key ordering
 	}
 	
 	// Configure rate limiter if enabled

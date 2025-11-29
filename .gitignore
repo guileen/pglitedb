@@ -166,3 +166,8 @@ ehthumbs.db
 Thumbs.db
 help-http
 spec/**/*
+# Binary executables
+pglitedb-benchmarks
+concurrent_access_validation
+benchmark_profiling
+benchmark_extended
