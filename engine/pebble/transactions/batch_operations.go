@@ -5,11 +5,8 @@ import (
 	"context"
 
 	engineTypes "github.com/guileen/pglitedb/engine/types"
-	"github.com/guileen/pglitedb/engine/pebble/utils"
-	"github.com/guileen/pglitedb/storage"
-	"github.com/guileen/pglitedb/codec"
 	dbTypes "github.com/guileen/pglitedb/types"
-	"github.com/guileen/pglitedb/engine/errors"
+	"github.com/guileen/pglitedb/engine/pebble/transactions/errors"
 )
 
 // BatchOperations provides batch operation methods for transactions
@@ -26,7 +23,7 @@ func (t *RegularTransaction) UpdateRowsBatch(ctx context.Context, tenantID, tabl
 	// Process all updates in a single batch to minimize transaction overhead
 	for rowID, updates := range rowUpdates {
 		if err := t.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
-			return errors.Wrap(err, "batch_update_failure", "update row %d", rowID)
+			return errors.Wrap(err, "batch_update_failure", "failed to update row %d", rowID)
 		}
 	}
 	return nil
@@ -41,7 +38,7 @@ func (t *RegularTransaction) DeleteRowsBatch(ctx context.Context, tenantID, tabl
 	// Process all deletions in a single batch to minimize transaction overhead
 	for _, rowID := range rowIDs {
 		if err := t.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
-			return errors.Wrap(err, "batch_delete_failure", "delete row %d", rowID)
+			return errors.Wrap(err, "batch_delete_failure", "failed to delete row %d", rowID)
 		}
 	}
 	return nil
@@ -55,7 +52,7 @@ func (t *RegularTransaction) DeleteRowBatch(ctx context.Context, tenantID, table
 
 	for _, rowID := range rowIDs {
 		if err := t.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
-			return errors.Wrap(err, "batch_delete_failure", "delete row %d", rowID)
+			return errors.Wrap(err, "batch_delete_failure", "failed to delete row %d", rowID)
 		}
 	}
 	return nil
@@ -69,7 +66,7 @@ func (t *RegularTransaction) UpdateRowBatch(ctx context.Context, tenantID, table
 
 	for _, update := range updates {
 		if err := t.UpdateRow(ctx, tenantID, tableID, update.RowID, update.Updates, schemaDef); err != nil {
-			return errors.Wrap(err, "batch_update_failure", "update row %d", update.RowID)
+			return errors.Wrap(err, "batch_update_failure", "failed to update row %d", update.RowID)
 		}
 	}
 	return nil
@@ -84,7 +81,7 @@ func (tx *SnapshotTransaction) UpdateRowsBatch(ctx context.Context, tenantID, ta
 	// Process all updates in a single batch to minimize transaction overhead
 	for rowID, updates := range rowUpdates {
 		if err := tx.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
-			return errors.Wrap(err, "batch_update_failure", "update row %d", rowID)
+			return errors.Wrap(err, "batch_update_failure", "failed to update row %d", rowID)
 		}
 	}
 	return nil
@@ -99,7 +96,7 @@ func (tx *SnapshotTransaction) DeleteRowsBatch(ctx context.Context, tenantID, ta
 	// Process all deletions in a single batch to minimize transaction overhead
 	for _, rowID := range rowIDs {
 		if err := tx.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
-			return errors.Wrap(err, "batch_delete_failure", "delete row %d", rowID)
+			return errors.Wrap(err, "batch_delete_failure", "failed to delete row %d", rowID)
 		}
 	}
 	return nil
@@ -113,7 +110,7 @@ func (tx *SnapshotTransaction) DeleteRowBatch(ctx context.Context, tenantID, tab
 
 	for _, rowID := range rowIDs {
 		if err := tx.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
-			return errors.Wrap(err, "batch_delete_failure", "delete row %d", rowID)
+			return errors.Wrap(err, "batch_delete_failure", "failed to delete row %d", rowID)
 		}
 	}
 	return nil
@@ -127,7 +124,7 @@ func (tx *SnapshotTransaction) UpdateRowBatch(ctx context.Context, tenantID, tab
 
 	for _, update := range updates {
 		if err := tx.UpdateRow(ctx, tenantID, tableID, update.RowID, update.Updates, schemaDef); err != nil {
-			return errors.Wrap(err, "batch_update_failure", "update row %d", update.RowID)
+			return errors.Wrap(err, "batch_update_failure", "failed to update row %d", update.RowID)
 		}
 	}
 	return nil

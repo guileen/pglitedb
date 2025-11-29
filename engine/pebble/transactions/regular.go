@@ -8,8 +8,7 @@ import (
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/codec"
 	dbTypes "github.com/guileen/pglitedb/types"
-	"github.com/guileen/pglitedb/engine/errors"
-	"github.com/guileen/pglitedb/engine/pebble/constants"
+	"github.com/guileen/pglitedb/engine/pebble/transactions/errors"
 )
 
 // RegularTransaction represents a regular transaction implementation

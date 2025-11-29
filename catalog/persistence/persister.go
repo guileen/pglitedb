@@ -36,12 +36,12 @@ func (p *Persister) PersistSchema(ctx context.Context, tenantID int64, tableName
 
 	schemaBytes, err := json.Marshal(def)
 	if err != nil {
-		return errors.Wrap(err, "marshal_schema_failed", "marshal schema: %w", err)
+		return errors.Wrap(err, "marshal_schema_failed", "marshal schema: %v", err)
 	}
 
 	schemaKey := []byte(fmt.Sprintf("%s%d:%s", schemaKeyPrefix, tenantID, tableName))
 	if err := p.kv.Set(ctx, schemaKey, schemaBytes); err != nil {
-		return errors.Wrap(err, "persist_schema_failed", "persist schema: %w", err)
+		return errors.Wrap(err, "persist_schema_failed", "persist schema: %v", err)
 	}
 
 	return nil
@@ -55,7 +55,7 @@ func (p *Persister) DeleteSchema(ctx context.Context, tenantID int64, tableName 
 
 	schemaKey := []byte(fmt.Sprintf("%s%d:%s", schemaKeyPrefix, tenantID, tableName))
 	if err := p.kv.Delete(ctx, schemaKey); err != nil {
-		return errors.Wrap(err, "delete_schema_failed", "delete schema: %w", err)
+		return errors.Wrap(err, "delete_schema_failed", "delete schema: %v", err)
 	}
 
 	return nil
@@ -69,12 +69,12 @@ func (p *Persister) PersistView(ctx context.Context, tenantID int64, viewName st
 
 	viewBytes, err := json.Marshal(def)
 	if err != nil {
-		return errors.Wrap(err, "marshal_view_failed", "marshal view: %w", err)
+		return errors.Wrap(err, "marshal_view_failed", "marshal view: %v", err)
 	}
 
 	viewKey := []byte(fmt.Sprintf("%s%d:%s", viewKeyPrefix, tenantID, viewName))
 	if err := p.kv.Set(ctx, viewKey, viewBytes); err != nil {
-		return errors.Wrap(err, "persist_view_failed", "persist view: %w", err)
+		return errors.Wrap(err, "persist_view_failed", "persist view: %v", err)
 	}
 
 	return nil
@@ -88,7 +88,7 @@ func (p *Persister) DeleteView(ctx context.Context, tenantID int64, viewName str
 
 	viewKey := []byte(fmt.Sprintf("%s%d:%s", viewKeyPrefix, tenantID, viewName))
 	if err := p.kv.Delete(ctx, viewKey); err != nil {
-		return errors.Wrap(err, "delete_view_failed", "delete view: %w", err)
+		return errors.Wrap(err, "delete_view_failed", "delete view: %v", err)
 	}
 
 	return nil

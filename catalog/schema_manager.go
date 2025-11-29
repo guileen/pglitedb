@@ -2,7 +2,6 @@ package catalog
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -111,7 +110,7 @@ func (m *schemaManager) CreateTable(ctx context.Context, tenantID int64, def *ty
 
 	tableID, err := m.idGen.NextTableID(ctx, tenantID)
 	if err != nil {
-		return errors.Wrap(err, "generate_table_id_failed", "generate table id: %w", err)
+		return errors.Wrap(err, "generate_table_id_failed", "generate table id: %v", err)
 	}
 
 	def.CreatedAt = time.Now()
@@ -122,7 +121,7 @@ func (m *schemaManager) CreateTable(ctx context.Context, tenantID int64, def *ty
 
 	if m.kv != nil {
 		if err := m.persister.PersistSchema(ctx, tenantID, def.Name, def); err != nil {
-			return errors.Wrap(err, "persist_schema_failed", "persist schema failed: %w", err)
+			return errors.Wrap(err, "persist_schema_failed", "persist schema failed: %v", err)
 		}
 	}
 
@@ -139,9 +138,8 @@ func (m *schemaManager) DropTable(ctx context.Context, tenantID int64, tableName
 	}
 
 	if m.kv != nil {
-		schemaKey := []byte(fmt.Sprintf("%s%d:%s", schemaKeyPrefix, tenantID, tableName))
 		if err := m.persister.DeleteSchema(ctx, tenantID, tableName); err != nil {
-			return errors.Wrap(err, "delete_schema_failed", "delete schema: %w", err)
+			return errors.Wrap(err, "delete_schema_failed", "delete schema: %v", err)
 		}
 	}
 
@@ -266,7 +264,7 @@ func (m *schemaManager) AlterTable(ctx context.Context, tenantID int64, tableNam
 
 	if m.kv != nil {
 		if err := m.persister.PersistSchema(ctx, tenantID, tableName, &newDef); err != nil {
-			return errors.Wrap(err, "persist_schema_failed", "persist schema failed: %w", err)
+			return errors.Wrap(err, "persist_schema_failed", "persist schema failed: %v", err)
 		}
 	}
 
@@ -414,7 +412,7 @@ func (m *schemaManager) ValidateAllConstraints(ctx context.Context, tenantID int
 	// Validate each constraint
 	for _, constraint := range schema.Constraints {
 		if err := m.ValidateConstraint(ctx, tenantID, tableName, &constraint); err != nil {
-			return errors.Wrap(err, "constraint_validation_failed", "constraint '%s' validation failed: %w", constraint.Name, err)
+			return errors.Wrap(err, "constraint_validation_failed", "constraint '%s' validation failed: %v", constraint.Name, err)
 		}
 	}
 

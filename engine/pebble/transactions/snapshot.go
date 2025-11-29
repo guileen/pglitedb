@@ -8,8 +8,7 @@ import (
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/codec"
 	dbTypes "github.com/guileen/pglitedb/types"
-	"github.com/guileen/pglitedb/engine/errors"
-	"github.com/guileen/pglitedb/engine/pebble/constants"
+	"github.com/guileen/pglitedb/engine/pebble/transactions/errors"
 )
 
 // SnapshotTransaction represents a snapshot transaction implementation
@@ -187,7 +186,7 @@ func (tx *SnapshotTransaction) Rollback() error {
 
 // SetIsolation sets the isolation level for the transaction
 func (tx *SnapshotTransaction) SetIsolation(level storage.IsolationLevel) error {
-	return errors.Wrap(errors.ErrInvalidOperation, "invalid_operation", "cannot change isolation level after transaction started")
+	return errors.Wrap(errors.ErrInvalidIsolation, "invalid_operation", "cannot change isolation level after transaction started")
 }
 
 // Isolation returns the isolation level of the transaction

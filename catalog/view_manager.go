@@ -2,7 +2,6 @@ package catalog
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -13,9 +12,7 @@ import (
 	"github.com/guileen/pglitedb/types"
 )
 
-const (
-	viewKeyPrefix = "\x00view\x00"
-)
+
 
 type viewManager struct {
 	kv        storage.KV
@@ -30,8 +27,6 @@ func newViewManager(kv storage.KV, cache *internal.SchemaCache) ViewManager {
 		persister: persistence.NewPersister(kv),
 	}
 }
-}
-
 // CreateView creates a new view
 func (m *viewManager) CreateView(ctx context.Context, tenantID int64, viewName string, query string, replace bool) error {
 	key := makeViewKey(tenantID, viewName)
@@ -51,7 +46,7 @@ func (m *viewManager) CreateView(ctx context.Context, tenantID int64, viewName s
 	
 	if m.kv != nil {
 		if err := m.persister.PersistView(ctx, tenantID, viewName, viewDef); err != nil {
-			return errors.Wrap(err, "persist_view_failed", "persist view failed: %w", err)
+			return errors.Wrap(err, "persist_view_failed", "persist view failed")
 		}
 	}
 	
@@ -71,9 +66,8 @@ func (m *viewManager) DropView(ctx context.Context, tenantID int64, viewName str
 	}
 	
 	if m.kv != nil {
-		viewKey := []byte(fmt.Sprintf("%s%d:%s", viewKeyPrefix, tenantID, viewName))
 		if err := m.persister.DeleteView(ctx, tenantID, viewName); err != nil {
-			return errors.Wrap(err, "delete_view_failed", "delete view: %w", err)
+			return errors.Wrap(err, "delete_view_failed", "delete view failed")
 		}
 	}
 	

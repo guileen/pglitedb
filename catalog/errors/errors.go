@@ -3,7 +3,6 @@ package errors
 
 import (
 	"fmt"
-	"github.com/guileen/pglitedb/types"
 )
 
 // Error constants for catalog operations

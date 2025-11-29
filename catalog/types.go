@@ -41,6 +41,13 @@ type IndexManager interface {
 	DropIndex(ctx context.Context, tenantID int64, tableName string, indexName string) error
 }
 
+type ViewManager interface {
+	CreateView(ctx context.Context, tenantID int64, viewName string, query string, replace bool) error
+	DropView(ctx context.Context, tenantID int64, viewName string) error
+	GetViewDefinition(ctx context.Context, tenantID int64, viewName string) (*types.ViewDefinition, error)
+	ListViews(ctx context.Context, tenantID int64) ([]*types.ViewDefinition, error)
+}
+
 type Manager interface {
 	SchemaManager
 	DataManager

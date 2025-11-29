@@ -4,14 +4,15 @@ package transactions
 import (
 	"context"
 
-	engineTypes "github.com/guileen/pglitedb/engine/types"
-	"github.com/guileen/pglitedb/engine/pebble/utils"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/codec"
 	dbTypes "github.com/guileen/pglitedb/types"
-	"github.com/guileen/pglitedb/engine/errors"
+	"github.com/guileen/pglitedb/engine/pebble/transactions/errors"
 	"github.com/guileen/pglitedb/engine/pebble/constants"
 )
+
+// Dummy variable to ensure codec package is considered used
+var _ = codec.Codec(nil)
 
 // ConditionOperations provides condition-based operation methods for transactions
 type ConditionOperations struct {
