@@ -469,6 +469,10 @@ func decodeEncodedRow(data []byte) (*EncodedRow, error) {
 
 	// Use pooled EncodedRow object
 	row := AcquireEncodedRow()
+	// Clear existing columns without reallocating the map
+	for k := range row.Columns {
+		delete(row.Columns, k)
+	}
 
 	offset := 0
 	row.SchemaVersion = binary.BigEndian.Uint32(data[offset : offset+4])

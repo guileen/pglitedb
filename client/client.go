@@ -44,7 +44,8 @@ func NewClient(dbPath string) *Client {
 	}
 	
 	// Create SQL parser and planner with catalog
-	parser := sql.NewPGParser()
+	// Use hybrid parser for better performance with caching
+	parser := sql.NewHybridPGParser()
 	planner := sql.NewPlannerWithCatalog(parser, mgr)
 	
 	// Get executor from planner
@@ -388,5 +389,88 @@ func (c *Client) Delete(ctx context.Context, tenantID int64, tableName string, w
 		Rows:    resultSet.Rows,
 		Columns: columns,
 		Count:   int64(resultSet.Count),
+	}, nil
+}
+
+// BatchInsert inserts multiple records into the specified table in a single batch operation
+func (c *Client) BatchInsert(ctx context.Context, tenantID int64, tableName string, dataList []map[string]interface{}) (*types.QueryResult, error) {
+	if len(dataList) == 0 {
+		return &types.QueryResult{
+			Count: 0,
+		}, nil
+	}
+
+	// Convert data maps to SQL INSERT statement with multiple VALUES
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("INSERT INTO %s (", tableName))
+	
+	// Get columns from the first record
+	firstRecord := dataList[0]
+	columns := make([]string, 0, len(firstRecord))
+	for column := range firstRecord {
+		columns = append(columns, column)
+	}
+	
+	sb.WriteString(strings.Join(columns, ", "))
+	sb.WriteString(") VALUES ")
+	
+	// Add values for each record
+	valuesList := make([]string, 0, len(dataList))
+	for _, data := range dataList {
+		var valuesBuilder strings.Builder
+		valuesBuilder.WriteString("(")
+		values := make([]string, 0, len(columns))
+		for _, column := range columns {
+			value, exists := data[column]
+			if !exists {
+				values = append(values, "NULL")
+				continue
+			}
+			
+			switch v := value.(type) {
+			case string:
+				values = append(values, fmt.Sprintf("'%s'", v))
+			case int, int32, int64:
+				values = append(values, fmt.Sprintf("%v", v))
+			case float32, float64:
+				values = append(values, fmt.Sprintf("%v", v))
+			case bool:
+				if v {
+					values = append(values, "true")
+				} else {
+					values = append(values, "false")
+				}
+			default:
+				values = append(values, fmt.Sprintf("'%v'", v))
+			}
+		}
+		valuesBuilder.WriteString(strings.Join(values, ", "))
+		valuesBuilder.WriteString(")")
+		valuesList = append(valuesList, valuesBuilder.String())
+	}
+	
+	sb.WriteString(strings.Join(valuesList, ", "))
+	
+	sqlQuery := sb.String()
+	
+	resultSet, err := c.executor.Execute(ctx, sqlQuery)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Convert ResultSet to QueryResult
+	columnsInfo := make([]types.ColumnInfo, len(resultSet.Columns))
+	for i, col := range resultSet.Columns {
+		columnsInfo[i] = types.ColumnInfo{
+			Name: col,
+			Type: types.ColumnTypeString, // Placeholder type
+		}
+	}
+	
+	return &types.QueryResult{
+		Rows:         resultSet.Rows,
+		Columns:      columnsInfo,
+		Count:        int64(resultSet.Count),
+		LastInsertID: resultSet.LastInsertID,
 	}, nil
 }

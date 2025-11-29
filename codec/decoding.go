@@ -194,7 +194,10 @@ func (c *memcodec) DecodeRow(data []byte, schemaDef *types.TableDefinition) (*ty
 	// Reuse record from pool if available
 	record := AcquireDecodedRecord()
 	record.Table = schemaDef.Name
-	record.Data = make(map[string]*types.Value, len(schemaDef.Columns)) // Pre-allocate with known size
+	// Clear the existing data and pre-allocate with known size to avoid reallocations
+	for k := range record.Data {
+		delete(record.Data, k)
+	}
 	record.CreatedAt = time.Unix(encoded.CreatedAt, 0)
 	record.UpdatedAt = time.Unix(encoded.UpdatedAt, 0)
 	record.Version = encoded.Version
@@ -206,10 +209,11 @@ func (c *memcodec) DecodeRow(data []byte, schemaDef *types.TableDefinition) (*ty
 				ReleaseDecodedRecord(record) // Return to pool on error
 				return nil, errors.Wrapf(err, errors.ErrCodeCodec, "DecodeRow", "failed to decode column %s", col.Name)
 			}
-			record.Data[col.Name] = &types.Value{
-				Data: value,
-				Type: col.Type,
-			}
+			// Reuse value from pool if available
+			recordValue := AcquireValue()
+			recordValue.Data = value
+			recordValue.Type = col.Type
+			record.Data[col.Name] = recordValue
 		}
 	}
 
