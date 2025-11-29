@@ -1,6 +1,7 @@
 package leak_detection
 
 import (
+	"sync"
 	"sync/atomic"
 
 	engineTypes "github.com/guileen/pglitedb/engine/types"
@@ -11,6 +12,7 @@ type leakMetrics struct {
 	totalTracked    uint64
 	totalLeaks      uint64
 	activeResources map[engineTypes.ResourceType]*resourceTypeMetrics
+	mutex           sync.RWMutex // Protects access to activeResources map
 }
 
 // resourceTypeMetrics tracks metrics for a specific resource type
@@ -29,6 +31,19 @@ func newLeakMetrics() leakMetrics {
 
 // initializeResourceType initializes metrics for a resource type if not already present
 func (lm *leakMetrics) initializeResourceType(resourceType engineTypes.ResourceType) *resourceTypeMetrics {
+	// First try to read with a read lock
+	lm.mutex.RLock()
+	if metrics, exists := lm.activeResources[resourceType]; exists {
+		lm.mutex.RUnlock()
+		return metrics
+	}
+	lm.mutex.RUnlock()
+	
+	// If not found, acquire write lock to create it
+	lm.mutex.Lock()
+	defer lm.mutex.Unlock()
+	
+	// Double-check in case another goroutine created it while we were waiting for the write lock
 	if metrics, exists := lm.activeResources[resourceType]; exists {
 		return metrics
 	}
@@ -71,6 +86,8 @@ func (lm *leakMetrics) setTotalLeaks(leaks uint64) {
 func (lm *leakMetrics) getMetrics() engineTypes.LeakMetrics {
 	resourceTypes := make(map[engineTypes.ResourceType]engineTypes.ResourceTypeMetrics)
 	
+	// Acquire read lock to safely iterate over the map
+	lm.mutex.RLock()
 	for resourceType, metrics := range lm.activeResources {
 		resourceTypes[resourceType] = engineTypes.ResourceTypeMetrics{
 			Tracked: atomic.LoadUint64(&metrics.tracked),
@@ -78,6 +95,7 @@ func (lm *leakMetrics) getMetrics() engineTypes.LeakMetrics {
 			Active:  atomic.LoadUint64(&metrics.active),
 		}
 	}
+	lm.mutex.RUnlock()
 	
 	return engineTypes.LeakMetrics{
 		TotalTracked:    atomic.LoadUint64(&lm.totalTracked),
