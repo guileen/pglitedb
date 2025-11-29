@@ -57,6 +57,11 @@ type Planner struct {
 
 // NewPlanner creates a new query planner
 func NewPlanner(parser Parser) *Planner {
+	// If no parser is provided, use the hybrid parser for better performance
+	if parser == nil {
+		parser = NewHybridPGParser()
+	}
+	
 	return &Planner{
 		parser:    parser,
 		optimizer: NewQueryOptimizer(),
