@@ -39,8 +39,18 @@ func (t *transaction) InsertRow(ctx context.Context, tenantID, tableID int64, ro
 	key := t.codec.EncodeTableKey(tenantID, tableID, rowID)
 
 	// Check for conflicts before writing
-	if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
-		return 0, fmt.Errorf("conflict check failed: %w", err)
+	if t.engine.deadlockDetector != nil {
+		txnID := getTransactionID(t.kvTxn)
+		keyStr := string(key)
+		if err := t.engine.deadlockDetector.CheckForConflicts(txnID, keyStr); err != nil {
+			return 0, fmt.Errorf("conflict check: %w", err)
+		}
+		// Register that this transaction now holds the lock
+		t.engine.deadlockDetector.AddLock(txnID, keyStr)
+	} else {
+		if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
+			return 0, fmt.Errorf("conflict check: %w", err)
+		}
 	}
 
 	value, err := t.codec.EncodeRow(row, schemaDef)
@@ -69,8 +79,18 @@ func (t *transaction) UpdateRow(ctx context.Context, tenantID, tableID, rowID in
 	key := t.codec.EncodeTableKey(tenantID, tableID, rowID)
 
 	// Check for conflicts before writing
-	if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
-		return fmt.Errorf("conflict check failed: %w", err)
+	if t.engine.deadlockDetector != nil {
+		txnID := getTransactionID(t.kvTxn)
+		keyStr := string(key)
+		if err := t.engine.deadlockDetector.CheckForConflicts(txnID, keyStr); err != nil {
+			return fmt.Errorf("conflict check: %w", err)
+		}
+		// Register that this transaction now holds the lock
+		t.engine.deadlockDetector.AddLock(txnID, keyStr)
+	} else {
+		if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
+			return fmt.Errorf("conflict check: %w", err)
+		}
 	}
 
 	value, err := t.codec.EncodeRow(oldRow, schemaDef)
@@ -90,8 +110,18 @@ func (t *transaction) DeleteRow(ctx context.Context, tenantID, tableID, rowID in
 	key := t.codec.EncodeTableKey(tenantID, tableID, rowID)
 
 	// Check for conflicts before deleting
-	if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
-		return fmt.Errorf("conflict check failed: %w", err)
+	if t.engine.deadlockDetector != nil {
+		txnID := getTransactionID(t.kvTxn)
+		keyStr := string(key)
+		if err := t.engine.deadlockDetector.CheckForConflicts(txnID, keyStr); err != nil {
+			return fmt.Errorf("conflict check: %w", err)
+		}
+		// Register that this transaction now holds the lock
+		t.engine.deadlockDetector.AddLock(txnID, keyStr)
+	} else {
+		if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
+			return fmt.Errorf("conflict check: %w", err)
+		}
 	}
 
 	if err := t.kvTxn.Delete(key); err != nil {
@@ -183,11 +213,23 @@ func (t *transaction) DeleteRows(ctx context.Context, tenantID, tableID int64, c
 
 // Commit commits the transaction
 func (t *transaction) Commit() error {
+	// Remove transaction from deadlock detector
+	if t.engine.deadlockDetector != nil {
+		txnID := getTransactionID(t.kvTxn)
+		t.engine.deadlockDetector.RemoveTransaction(txnID)
+	}
+	
 	return t.kvTxn.Commit()
 }
 
 // Rollback rolls back the transaction
 func (t *transaction) Rollback() error {
+	// Remove transaction from deadlock detector
+	if t.engine.deadlockDetector != nil {
+		txnID := getTransactionID(t.kvTxn)
+		t.engine.deadlockDetector.RemoveTransaction(txnID)
+	}
+	
 	return t.kvTxn.Rollback()
 }
 

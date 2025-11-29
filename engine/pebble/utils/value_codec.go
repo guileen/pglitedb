@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 
+	"github.com/guileen/pglitedb/codec"
 	dbTypes "github.com/guileen/pglitedb/types"
 )
 
@@ -16,16 +17,16 @@ func NewValueCodec() *ValueCodec {
 
 // EncodeRow encodes a row
 func (vc *ValueCodec) EncodeRow(row *dbTypes.Record, schemaDef *dbTypes.TableDefinition) ([]byte, error) {
-	// This is a placeholder implementation
-	// In a real implementation, this would properly encode the row
-	return []byte(fmt.Sprintf("encoded_row_%v", row)), nil
+	// Use the proper codec implementation
+	memCodec := codec.NewMemComparableCodec()
+	return memCodec.EncodeRow(row, schemaDef)
 }
 
 // DecodeRow decodes a row
 func (vc *ValueCodec) DecodeRow(data []byte, schemaDef *dbTypes.TableDefinition) (*dbTypes.Record, error) {
-	// This is a placeholder implementation
-	// In a real implementation, this would properly decode the row
-	return &dbTypes.Record{}, nil
+	// Use the proper codec implementation
+	memCodec := codec.NewMemComparableCodec()
+	return memCodec.DecodeRow(data, schemaDef)
 }
 
 // EncodeIndexValue encodes an index value

@@ -213,6 +213,22 @@ func startPostgreSQLServer(dbPath string) {
 	// Create PostgreSQL server
 	logger.Info("Creating PostgreSQL server instance")
 	server := pgserver.NewPostgreSQLServer(exec, planner)
+	
+	// Enable profiling if PROFILING_PORT is set
+	if profilingPort := os.Getenv("PROFILING_PORT"); profilingPort != "" {
+		logger.Info("Enabling profiling", "port", profilingPort)
+		server.WithProfiling(profilingPort)
+	} else {
+		// Enable profiling on default port 6060 if not disabled
+		if os.Getenv("DISABLE_PROFILING") == "" {
+			logger.Info("Enabling profiling on default port", "port", "6060")
+			server.WithProfiling("6060")
+		} else {
+			logger.Info("Profiling disabled by DISABLE_PROFILING environment variable")
+			server.WithProfiling("") // Disable profiling
+		}
+	}
+	
 	initDuration := time.Since(startTime)
 	logger.Info("PostgreSQL server instance created", "init_duration", initDuration.String())
 	

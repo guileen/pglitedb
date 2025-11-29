@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/guileen/pglitedb/types"
 )
@@ -74,11 +75,20 @@ func (o *QueryOptimizer) SelectBestIndex(
 
 func (o *QueryOptimizer) calculateOrderByCoverage(idx types.IndexDefinition, orderBy []string) int {
 	coverage := 0
-	for i, orderCol := range orderBy {
+	for i, orderItem := range orderBy {
 		if i >= len(idx.Columns) {
 			break
 		}
-		if idx.Columns[i] == orderCol {
+		
+		// Extract field name (strip ASC/DESC)
+		fieldName := orderItem
+		if strings.HasSuffix(strings.ToUpper(orderItem), " DESC") {
+			fieldName = strings.TrimSpace(orderItem[:len(orderItem)-5])
+		} else if strings.HasSuffix(strings.ToUpper(orderItem), " ASC") {
+			fieldName = strings.TrimSpace(orderItem[:len(orderItem)-4])
+		}
+		
+		if idx.Columns[i] == fieldName {
 			coverage++
 		} else {
 			break

@@ -1,11 +1,7 @@
 package pebble
 
 import (
-	"context"
-	"fmt"
-
 	"github.com/guileen/pglitedb/storage"
-	dbTypes "github.com/guileen/pglitedb/types"
 )
 
 // BaseTransaction provides common functionality for both regular and snapshot transactions
@@ -24,17 +20,7 @@ func NewBaseTransaction(engine *pebbleEngine, isolation storage.IsolationLevel) 
 	}
 }
 
-// UpdateRows updates multiple rows that match the given conditions
-// This method should be implemented by concrete transaction types
-func (bt *BaseTransaction) UpdateRows(ctx context.Context, tenantID, tableID int64, updates map[string]*dbTypes.Value, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
-	return 0, fmt.Errorf("UpdateRows not implemented for this transaction type")
-}
 
-// DeleteRows deletes multiple rows that match the given conditions
-// This method should be implemented by concrete transaction types
-func (bt *BaseTransaction) DeleteRows(ctx context.Context, tenantID, tableID int64, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
-	return 0, fmt.Errorf("DeleteRows not implemented for this transaction type")
-}
 
 // Isolation returns the isolation level of the transaction
 func (bt *BaseTransaction) Isolation() storage.IsolationLevel {

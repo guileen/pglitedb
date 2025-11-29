@@ -28,7 +28,7 @@ type IndexIterator struct {
 	tenantID    int64
 	tableID     int64
 	
-	batchSize   int
+	batchSize   int  // Increased from default to reduce I/O operations
 	rowIDBuffer []int64
 	rowCache    map[int64]*dbTypes.Record
 	cacheIdx    int
@@ -86,6 +86,18 @@ func NewIndexIterator(
 		Put(interface{})
 	},
 ) *IndexIterator {
+	// Use adaptive batch size based on expected result set size
+	initialBatchSize := 200
+	if opts != nil && opts.Limit > 0 {
+		// If limit is specified, use smaller of limit or initial batch size
+		if opts.Limit < initialBatchSize {
+			initialBatchSize = opts.Limit
+		}
+	} else {
+		// For unlimited scans, start with larger batch size to reduce round trips
+		initialBatchSize = 1000
+	}
+	
 	iterator := &IndexIterator{
 		iter:        iter,
 		codec:       codec,
@@ -96,8 +108,8 @@ func NewIndexIterator(
 		tableID:     tableID,
 		engine:      engine,
 		count:       0,
-		batchSize:   1000,
-		rowCache:    make(map[int64]*dbTypes.Record, 100),
+		batchSize:   initialBatchSize,
+		rowCache:    make(map[int64]*dbTypes.Record, initialBatchSize),
 		rowIDValuePool: &dbTypes.Value{
 			Type: dbTypes.ColumnTypeNumber,
 		},
@@ -136,12 +148,24 @@ func (ii *IndexIterator) Initialize(
 	ii.started = false
 	ii.err = nil
 	ii.current = nil
-	ii.batchSize = 1000
+	
+	// Use adaptive batch size based on expected result set size
+	initialBatchSize := 200
+	if opts != nil && opts.Limit > 0 {
+		// If limit is specified, use smaller of limit or initial batch size
+		if opts.Limit < initialBatchSize {
+			initialBatchSize = opts.Limit
+		}
+	} else {
+		// For unlimited scans, start with larger batch size to reduce round trips
+		initialBatchSize = 1000
+	}
+	ii.batchSize = initialBatchSize
 	ii.pool = pool
 	
 	// Initialize buffers if needed
 	if ii.rowCache == nil {
-		ii.rowCache = make(map[int64]*dbTypes.Record, 100)
+		ii.rowCache = make(map[int64]*dbTypes.Record, initialBatchSize)
 	} else {
 		// Clear the map without reallocating
 		for k := range ii.rowCache {
@@ -150,7 +174,7 @@ func (ii *IndexIterator) Initialize(
 	}
 	
 	if ii.rowIDBuffer == nil {
-		ii.rowIDBuffer = make([]int64, 0, 1000)
+		ii.rowIDBuffer = make([]int64, 0, initialBatchSize)
 	} else {
 		ii.rowIDBuffer = ii.rowIDBuffer[:0]
 	}
@@ -177,7 +201,7 @@ func (ii *IndexIterator) Next() bool {
 		if len(ii.rowIDBuffer) == 0 || ii.cacheIdx >= len(ii.rowIDBuffer) {
 			// Reuse buffer slices to reduce allocations
 			if ii.rowIDBuffer == nil {
-				ii.rowIDBuffer = make([]int64, 0, 1000)
+				ii.rowIDBuffer = make([]int64, 0, ii.batchSize)
 			} else {
 				ii.rowIDBuffer = ii.rowIDBuffer[:0]
 			}
@@ -187,7 +211,6 @@ func (ii *IndexIterator) Next() bool {
 			if !ii.started {
 				// First call: initialize and position iterator
 				ii.started = true
-				ii.batchSize = 1000
 				// Reuse rowCache map to reduce allocations
 				if ii.rowCache == nil {
 					ii.rowCache = make(map[int64]*dbTypes.Record, ii.batchSize)
@@ -218,14 +241,19 @@ func (ii *IndexIterator) Next() bool {
 
 			// Collect rowIDs for batch fetch with pre-allocated capacity
 			ii.rowIDBuffer = ii.rowIDBuffer[:0]
-			for len(ii.rowIDBuffer) < ii.batchSize && hasNext {
-				_, _, _, _, rowID, err := ii.codec.DecodeIndexKey(ii.iter.Key())
+			collected := 0
+			for collected < ii.batchSize && hasNext && ii.iter.Valid() {
+				// Use optimized rowID extraction instead of full key decoding
+				rowID, err := ii.codec.ExtractRowIDFromIndexKey(ii.iter.Key())
 				if err != nil {
-					ii.err = fmt.Errorf("decode index key: %w", err)
+					ii.err = fmt.Errorf("extract rowID from index key: %w", err)
 					return false
 				}
 				ii.rowIDBuffer = append(ii.rowIDBuffer, rowID)
-				hasNext = ii.iter.Next()
+				collected++
+				if collected < ii.batchSize {
+					hasNext = ii.iter.Next()
+				}
 			}
 
 			if len(ii.rowIDBuffer) == 0 {

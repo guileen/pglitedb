@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -192,7 +193,8 @@ func BenchmarkTableManager_Insert(b *testing.B) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	config := storage.DefaultPebbleConfig(filepath.Join(tmpDir, "db"))
+	// Use test-optimized configuration for faster benchmarking
+	config := storage.TestOptimizedPebbleConfig(filepath.Join(tmpDir, "db"))
 	kvStore, err := storage.NewPebbleKV(config)
 	if err != nil {
 		b.Fatalf("create kv store: %v", err)
@@ -219,7 +221,7 @@ func BenchmarkTableManager_Insert(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		data["email"] = "bench" + string(rune(i)) + "@example.com"
+		data["email"] = fmt.Sprintf("bench%d@example.com", i)
 		if _, err := mgr.Insert(ctx, 1, "users", data); err != nil {
 			b.Fatalf("insert: %v", err)
 		}
@@ -233,7 +235,8 @@ func BenchmarkTableManager_Query(b *testing.B) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	config := storage.DefaultPebbleConfig(filepath.Join(tmpDir, "db"))
+	// Use test-optimized configuration for faster benchmarking
+	config := storage.TestOptimizedPebbleConfig(filepath.Join(tmpDir, "db"))
 	kvStore, err := storage.NewPebbleKV(config)
 	if err != nil {
 		b.Fatalf("create kv store: %v", err)
@@ -253,8 +256,8 @@ func BenchmarkTableManager_Query(b *testing.B) {
 
 	for i := 0; i < 100; i++ {
 		data := map[string]interface{}{
-			"name":   "User" + string(rune(i)),
-			"email":  "user" + string(rune(i)) + "@example.com",
+			"name":   fmt.Sprintf("User%d", i),
+			"email":  fmt.Sprintf("user%d@example.com", i),
 			"age":    int64(20 + i),
 			"active": i%2 == 0,
 		}

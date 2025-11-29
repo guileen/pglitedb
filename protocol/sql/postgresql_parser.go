@@ -2,7 +2,7 @@ package sql
 
 // PostgreSQLParser implements the Parser interface for PostgreSQL queries
 type PostgreSQLParser struct {
-	pgParser *PGParser
+	pgParser Parser
 }
 
 // NewPostgreSQLParser creates a new PostgreSQL parser instance

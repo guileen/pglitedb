@@ -5,11 +5,16 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
+	"net/http/pprof"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/guileen/pglitedb/protocol/sql"
 	"github.com/guileen/pglitedb/network"
 	"github.com/guileen/pglitedb/types"
@@ -27,6 +32,10 @@ type PostgreSQLServer struct {
 	mu       sync.Mutex
 	closed   bool
 	connectionPool *network.ConnectionPool
+	
+	// HTTP server for profiling endpoints
+	httpServer *http.Server
+	httpPort   string
 	
 	// Buffer pools for network I/O
 	bufferPool *pool.MultiBufferPool
@@ -67,14 +76,27 @@ func NewPostgreSQLServer(executor *sql.Executor, planner *sql.Planner) *PostgreS
 		bufferPool: pool.NewMultiBufferPool("pgserver", bufferSizes),
 		preparedStatements: make(map[string]*PreparedStatement),
 		portals:           make(map[string]*Portal),
+		httpPort:          "", // No profiling by default
 	}
 	
 	logger.Info("PostgreSQL server instance created successfully")
 	return server
 }
 
+// WithProfiling enables profiling on the specified port
+func (s *PostgreSQLServer) WithProfiling(port string) *PostgreSQLServer {
+	s.httpPort = port
+	return s
+}
+
 func (s *PostgreSQLServer) Start(port string) error {
 	logger.Info("Starting PostgreSQL server", "port", port, "protocol", "TCP")
+	
+	// Start the profiling HTTP server if enabled
+	if s.httpPort != "" {
+		go s.startProfilingServer()
+	}
+	
 	return s.StartTCP(port)
 }
 
@@ -166,6 +188,9 @@ func (s *PostgreSQLServer) Close() error {
 		}
 		logger.Info("PostgreSQL server listener closed successfully")
 	}
+	
+	// Stop the profiling server
+	s.stopProfilingServer()
 	
 	logger.Info("PostgreSQL server closed successfully")
 	return nil
@@ -539,14 +564,26 @@ func (s *PostgreSQLServer) handleBind(backend *pgproto3.Backend, msg *pgproto3.B
 		ParamFormats: msg.ParameterFormatCodes,
 	}
 	
-	// Convert parameters
+	// Convert parameters based on their OID types
 	for i, param := range msg.Parameters {
 		if param == nil {
 			portal.Params[i] = nil
 		} else {
-			// For now, treat all parameters as strings
-			// In a full implementation, we would convert based on the parameter OID
-			portal.Params[i] = string(param)
+			// Convert based on parameter OID if available
+			if i < len(stmt.ParameterOIDs) {
+				oid := stmt.ParameterOIDs[i]
+				converted, err := s.convertParameterByOID(param, oid)
+				if err != nil {
+					logger.Warn("Failed to convert parameter by OID", "error", err, "index", i, "oid", oid)
+					// Fall back to string conversion
+					portal.Params[i] = string(param)
+				} else {
+					portal.Params[i] = converted
+				}
+			} else {
+				// Fall back to string conversion
+				portal.Params[i] = string(param)
+			}
 		}
 	}
 	
@@ -568,6 +605,71 @@ func (s *PostgreSQLServer) handleBind(backend *pgproto3.Backend, msg *pgproto3.B
 	
 	logger.Debug("Bind completed successfully")
 	return false
+}
+
+// convertParameterByOID converts a parameter byte slice to the appropriate Go type based on PostgreSQL OID
+func (s *PostgreSQLServer) convertParameterByOID(param []byte, oid uint32) (interface{}, error) {
+	paramStr := string(param)
+	
+	// Common PostgreSQL OIDs for parameter types
+	const (
+		BOOLOID     = 16
+		BYTEAOID    = 17
+		CHAROID     = 18
+		NAMEOID     = 19
+		INT8OID     = 20
+		INT2OID     = 21
+		INT4OID     = 23
+		TEXTOID     = 25
+		OIDOID      = 26
+		FLOAT4OID   = 700
+		FLOAT8OID   = 701
+		VARCHAROID  = 1043
+		DATEOID     = 1082
+		TIMEOID     = 1083
+		TIMESTAMPOID = 1114
+	)
+	
+	switch oid {
+	case INT2OID, INT4OID, INT8OID:
+		// Integer types
+		val, err := strconv.ParseInt(paramStr, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse integer parameter: %w", err)
+		}
+		if oid == INT2OID {
+			return int16(val), nil
+		} else if oid == INT4OID {
+			return int32(val), nil
+		}
+		return val, nil
+	case FLOAT4OID, FLOAT8OID:
+		// Float types
+		val, err := strconv.ParseFloat(paramStr, 64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse float parameter: %w", err)
+		}
+		if oid == FLOAT4OID {
+			return float32(val), nil
+		}
+		return val, nil
+	case BOOLOID:
+		// Boolean type
+		switch strings.ToLower(paramStr) {
+		case "t", "true", "1", "y", "yes":
+			return true, nil
+		case "f", "false", "0", "n", "no":
+			return false, nil
+		default:
+			return nil, fmt.Errorf("invalid boolean value: %s", paramStr)
+		}
+	case TEXTOID, VARCHAROID, CHAROID:
+		// String types
+		return paramStr, nil
+	default:
+		// For unknown types, return as string
+		return paramStr, nil
+	}
 }
 
 func (s *PostgreSQLServer) handleDescribe(backend *pgproto3.Backend, msg *pgproto3.Describe) bool {
@@ -596,11 +698,25 @@ func (s *PostgreSQLServer) handleExecute(backend *pgproto3.Backend, msg *pgproto
 		return false
 	}
 	
-	// For now, we'll just execute the query as-is
-	// In a full implementation, we would substitute the parameters
+	// Bind parameters to the query
+	boundQuery := portal.Statement.Query
+	if len(portal.Params) > 0 {
+		var err error
+		boundQuery, err = BindParametersInQuery(portal.Statement.Query, portal.Params)
+		if err != nil {
+			logger.Warn("Failed to bind parameters", "error", err, "query", portal.Statement.Query)
+			s.sendErrorAndReady(backend, "42000", fmt.Sprintf("Failed to bind parameters: %v", err))
+			return false
+		}
+		logger.Debug("Bound parameters to query", "original", portal.Statement.Query, "bound", boundQuery)
+		
+		// DEBUG: Log the bound query to verify it's working
+		logger.Debug("DEBUG: Bound query result", "boundQuery", boundQuery)
+	}
+	
 	ctx := context.Background()
 	startTime := time.Now()
-	result, err := s.planner.Execute(ctx, portal.Statement.Query)
+	result, err := s.planner.Execute(ctx, boundQuery)
 	executeDuration := time.Since(startTime)
 	if err != nil {
 		logger.Warn("Portal execution failed", "error", err, "query", portal.Statement.Query, "execute_duration", executeDuration.String())
@@ -682,4 +798,47 @@ func (s *PostgreSQLServer) handleExecute(backend *pgproto3.Backend, msg *pgproto
 	
 	logger.Debug("Execute completed successfully")
 	return false
+}
+
+func (s *PostgreSQLServer) startProfilingServer() {
+	logger.Info("Starting profiling HTTP server", "port", s.httpPort)
+	
+	// Setup router
+	r := chi.NewRouter()
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	
+	// Register pprof handlers for profiling
+	r.HandleFunc("/debug/pprof/", pprof.Index)
+	r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	r.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	r.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	r.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
+	r.Handle("/debug/pprof/heap", pprof.Handler("heap"))
+	r.Handle("/debug/pprof/threadcreate", pprof.Handler("threadcreate"))
+	r.Handle("/debug/pprof/block", pprof.Handler("block"))
+	r.Handle("/debug/pprof/mutex", pprof.Handler("mutex"))
+	
+	// Create HTTP server
+	s.httpServer = &http.Server{
+		Addr:    ":" + s.httpPort,
+		Handler: r,
+	}
+	
+	logger.Info("Profiling HTTP server listening", "port", s.httpPort)
+	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logger.Error("Profiling HTTP server failed to start", "error", err, "port", s.httpPort)
+		log.Printf("Profiling HTTP server failed to start: %v", err)
+	}
+}
+
+func (s *PostgreSQLServer) stopProfilingServer() {
+	if s.httpServer != nil {
+		logger.Info("Shutting down profiling HTTP server...")
+		if err := s.httpServer.Shutdown(context.Background()); err != nil {
+			logger.Error("Profiling HTTP server shutdown failed", "error", err)
+		}
+		logger.Info("Profiling HTTP server shutdown complete")
+	}
 }

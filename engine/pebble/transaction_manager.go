@@ -36,10 +36,16 @@ func (e *pebbleEngine) BeginTx(ctx context.Context) (engineTypes.Transaction, er
 	}
 
 	tx := &transaction{
-		engine:   e,
-		kvTxn:    kvTxn,
-		codec:    e.codec,
+		engine:    e,
+		kvTxn:     kvTxn,
+		codec:     e.codec,
 		isolation: storage.ReadCommitted,
+	}
+	
+	// Register transaction with deadlock detector
+	if e.deadlockDetector != nil {
+		txnID := getTransactionID(kvTxn)
+		e.deadlockDetector.AddTransaction(txnID)
 	}
 	
 	// Track transaction for leak detection

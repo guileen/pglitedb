@@ -75,3 +75,13 @@ func NewPebbleKV(config *PebbleConfig) (KV, error) {
 func DefaultPebbleConfig(path string) *PebbleConfig {
 	return kv.DefaultPebbleConfig(path)
 }
+
+// TestOptimizedPebbleConfig creates a configuration optimized for testing performance
+func TestOptimizedPebbleConfig(path string) *PebbleConfig {
+	return kv.TestOptimizedPebbleConfig(path)
+}
+
+// PostgreSQLOptimizedPebbleConfig creates a configuration optimized for PostgreSQL-like workloads
+func PostgreSQLOptimizedPebbleConfig(path string) *PebbleConfig {
+	return kv.PostgreSQLOptimizedPebbleConfig(path)
+}

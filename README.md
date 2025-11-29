@@ -248,6 +248,24 @@ See [examples/benchmark](examples/benchmark) for performance testing tools and r
 
 Recent benchmark results show over 2,509 transactions per second with sub-3.984ms latency, demonstrating the high performance of the optimized storage engine.
 
+### Benchmark Profiling
+
+PGLiteDB includes comprehensive benchmark profiling capabilities to help analyze performance characteristics:
+
+```bash
+# Run benchmarks with profiling enabled
+./scripts/run_benchmarks_with_profiling.sh
+
+# Or manually run with specific profiling options
+go test -bench=BenchmarkStorageEngine_ -cpuprofile -memprofile -allocprofile -blockprofile -mutexprofile -profiledir=./profiles -profileprefix=pebble ./engine/...
+
+# Analyze profiles
+go tool pprof profiles/pebble_BenchmarkStorageEngine_*_cpu.prof
+go tool pprof -http=:8080 profiles/pebble_BenchmarkStorageEngine_*_cpu.prof
+```
+
+For detailed usage instructions, see [benchprof/README.md](benchprof/README.md).
+
 ## Project Structure
 
 ```

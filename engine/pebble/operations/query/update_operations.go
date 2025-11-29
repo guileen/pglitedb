@@ -46,7 +46,12 @@ func (u *UpdateOperations) UpdateRow(ctx context.Context, tenantID, tableID, row
 	// Update timestamps
 	oldRow.UpdatedAt = time.Now()
 
-	key := u.codec.EncodeTableKey(tenantID, tableID, rowID)
+	// Use buffer-aware encoding to reduce allocations
+	key, err := u.codec.EncodeTableKeyBuffer(tenantID, tableID, rowID, nil)
+	if err != nil {
+		return fmt.Errorf("encode table key: %w", err)
+	}
+	
 	value, err := u.codec.EncodeRow(oldRow, schemaDef)
 	if err != nil {
 		return fmt.Errorf("encode row: %w", err)
@@ -91,6 +96,10 @@ func (u *UpdateOperations) UpdateRowBatch(ctx context.Context, tenantID, tableID
 	}
 
 	updatedRows := make(map[int64]*dbTypes.Record, len(updates))
+	
+	// Reuse a buffer for key encoding to reduce allocations
+	var keyBuf []byte
+	
 	for _, update := range updates {
 		oldRow, ok := oldRows[update.RowID]
 		if !ok {
@@ -107,8 +116,13 @@ func (u *UpdateOperations) UpdateRowBatch(ctx context.Context, tenantID, tableID
 			return fmt.Errorf("encode row %d: %w", update.RowID, err)
 		}
 
-		key := u.codec.EncodeTableKey(tenantID, tableID, update.RowID)
-		if err := batch.Set(key, value); err != nil {
+		// Use buffer-aware encoding to reduce allocations
+		keyBuf, err = u.codec.EncodeTableKeyBuffer(tenantID, tableID, update.RowID, keyBuf)
+		if err != nil {
+			return fmt.Errorf("encode table key for row %d: %w", update.RowID, err)
+		}
+		
+		if err := batch.Set(keyBuf, value); err != nil {
 			return fmt.Errorf("batch set row %d: %w", update.RowID, err)
 		}
 	}

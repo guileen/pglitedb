@@ -13,6 +13,21 @@ import (
 type TableScanner struct {
 	kv    storage.KV
 	codec codec.Codec
+	iteratorPool interface {
+		GetRowIterator(
+			iter storage.Iterator,
+			codec codec.Codec,
+			schemaDef *dbTypes.TableDefinition,
+			opts *engineTypes.ScanOptions,
+			engine interface {
+				EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool
+			},
+			pool interface {
+				Put(interface{})
+			},
+		) *RowIterator
+		Put(interface{})
+	}
 }
 
 // NewTableScanner creates a new table scanner
@@ -21,6 +36,26 @@ func NewTableScanner(kv storage.KV, codec codec.Codec) *TableScanner {
 		kv:    kv,
 		codec: codec,
 	}
+}
+
+// WithIteratorPool sets the iterator pool for the table scanner
+func (ts *TableScanner) WithIteratorPool(pool interface {
+	GetRowIterator(
+		iter storage.Iterator,
+		codec codec.Codec,
+		schemaDef *dbTypes.TableDefinition,
+		opts *engineTypes.ScanOptions,
+		engine interface {
+			EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool
+		},
+		pool interface {
+			Put(interface{})
+		},
+	) *RowIterator
+	Put(interface{})
+}) *TableScanner {
+	ts.iteratorPool = pool
+	return ts
 }
 
 // ScanRows performs a table scan
@@ -50,5 +85,9 @@ func (ts *TableScanner) ScanRows(ctx context.Context, tenantID, tableID int64, s
 
 	iter := ts.kv.NewIterator(iterOpts)
 
+	// Use the pool if available, otherwise create a new iterator
+	if ts.iteratorPool != nil {
+		return ts.iteratorPool.GetRowIterator(iter, ts.codec, schemaDef, opts, nil, ts.iteratorPool), nil
+	}
 	return NewRowIterator(iter, ts.codec, schemaDef, opts, nil, nil), nil
 }

@@ -9,16 +9,23 @@ import (
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 )
 
-// PGParser implements the Parser interface using pganalyze/pg_query_go/v6
-type PGParser struct{}
+// FullPGParser implements the Parser interface using pganalyze/pg_query_go/v6
+type FullPGParser struct{}
+
+// NewFullPGParser creates a new PostgreSQL parser instance
+// This is the default build variant that uses the full CGO parser
+func NewFullPGParser() *FullPGParser {
+	return &FullPGParser{}
+}
 
 // NewPGParser creates a new PostgreSQL parser instance
-func NewPGParser() *PGParser {
-	return &PGParser{}
+// This is the default build variant that uses the full CGO parser
+func NewPGParser() *FullPGParser {
+	return NewFullPGParser()
 }
 
 // Parse takes a raw SQL query string and returns a parsed representation
-func (p *PGParser) Parse(query string) (*ParsedQuery, error) {
+func (p *FullPGParser) Parse(query string) (*ParsedQuery, error) {
 	result, err := pg_query.Parse(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse SQL query: %w", err)
@@ -43,7 +50,7 @@ func (p *PGParser) Parse(query string) (*ParsedQuery, error) {
 }
 
 // getStatementType determines the type of SQL statement from the pg_query AST
-func (p *PGParser) getStatementType(stmt *pg_query.Node) StatementType {
+func (p *FullPGParser) getStatementType(stmt *pg_query.Node) StatementType {
 	switch {
 	case stmt.GetSelectStmt() != nil:
 		return SelectStatement
@@ -99,12 +106,12 @@ func (p *PGParser) getStatementType(stmt *pg_query.Node) StatementType {
 }
 
 // ExtractReturningColumns extracts RETURNING columns from a pg_query AST node
-func (p *PGParser) ExtractReturningColumns(stmt *pg_query.Node) []string {
+func (p *FullPGParser) ExtractReturningColumns(stmt *pg_query.Node) []string {
 	return p.extractReturningColumns(stmt)
 }
 
 // extractReturningColumns extracts RETURNING columns from the pg_query AST
-func (p *PGParser) extractReturningColumns(stmt *pg_query.Node) []string {
+func (p *FullPGParser) extractReturningColumns(stmt *pg_query.Node) []string {
 	switch {
 	case stmt.GetInsertStmt() != nil:
 		insertStmt := stmt.GetInsertStmt()
@@ -126,7 +133,7 @@ func (p *PGParser) extractReturningColumns(stmt *pg_query.Node) []string {
 }
 
 // parseReturningClause parses the RETURNING clause from the pg_query AST
-func (p *PGParser) parseReturningClause(returningList []*pg_query.Node) []string {
+func (p *FullPGParser) parseReturningClause(returningList []*pg_query.Node) []string {
 	// Implementation to parse RETURNING clause from pg_query AST
 	columns := make([]string, len(returningList))
 	for i, node := range returningList {
@@ -154,18 +161,18 @@ func (p *PGParser) parseReturningClause(returningList []*pg_query.Node) []string
 }
 
 // Validate checks if a query is syntactically valid
-func (p *PGParser) Validate(query string) error {
+func (p *FullPGParser) Validate(query string) error {
 	_, err := pg_query.Parse(query)
 	return err
 }
 
 // ParseWithParams parses a query with parameter information
-func (p *PGParser) ParseWithParams(query string, paramCount int) (*ParsedQuery, error) {
+func (p *FullPGParser) ParseWithParams(query string, paramCount int) (*ParsedQuery, error) {
 	return p.Parse(query)
 }
 
 // GetStatementType returns the type of the SQL statement
-func (p *PGParser) GetStatementType(stmt interface{}) StatementType {
+func (p *FullPGParser) GetStatementType(stmt interface{}) StatementType {
 	if pgStmt, ok := stmt.(*pg_query.Node); ok {
 		return p.getStatementType(pgStmt)
 	}
@@ -173,6 +180,6 @@ func (p *PGParser) GetStatementType(stmt interface{}) StatementType {
 }
 
 // SupportsParameterPlaceholders returns whether the parser supports parameter placeholders
-func (p *PGParser) SupportsParameterPlaceholders() bool {
+func (p *FullPGParser) SupportsParameterPlaceholders() bool {
 	return true
 }

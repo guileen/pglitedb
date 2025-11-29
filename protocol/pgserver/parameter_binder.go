@@ -155,6 +155,20 @@ func (pb *ParameterBinder) bindNode(node *pg_query.Node) *pg_query.Node {
 		}
 		return &pg_query.Node{Node: &pg_query.Node_ResTarget{ResTarget: newResTarget}}
 
+	case *pg_query.Node_List:
+		// Process items in the list
+		newItems := make([]*pg_query.Node, len(n.List.Items))
+		for i, item := range n.List.Items {
+			newItems[i] = pb.bindNode(item)
+		}
+		return &pg_query.Node{
+			Node: &pg_query.Node_List{
+				List: &pg_query.List{
+					Items: newItems,
+				},
+			},
+		}
+
 	// For other node types, return as-is
 	default:
 		return node

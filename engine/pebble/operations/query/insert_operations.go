@@ -28,7 +28,13 @@ func (i *InsertOperations) InsertRow(ctx context.Context, tenantID, tableID int6
 	if err != nil {
 		return 0, fmt.Errorf("generate row id: %w", err)
 	}
-	key := i.codec.EncodeTableKey(tenantID, tableID, rowID)
+	
+	// Use buffer-aware encoding to reduce allocations
+	key, err := i.codec.EncodeTableKeyBuffer(tenantID, tableID, rowID, nil)
+	if err != nil {
+		return 0, fmt.Errorf("encode table key: %w", err)
+	}
+	
 	value, err := i.codec.EncodeRow(row, schemaDef)
 	if err != nil {
 		return 0, fmt.Errorf("encode row: %w", err)
@@ -69,15 +75,24 @@ func (i *InsertOperations) InsertRowBatch(ctx context.Context, tenantID, tableID
 	batch := i.kv.NewBatch()
 	defer batch.Close()
 
+	// Reuse a buffer for key encoding to reduce allocations
+	var keyBuf []byte
+
 	// Process rows in batch with reduced allocations
 	for idx, row := range rows {
-		key := i.codec.EncodeTableKey(tenantID, tableID, rowIDs[idx])
+		// Use buffer-aware encoding to reduce allocations
+		var err error
+		keyBuf, err = i.codec.EncodeTableKeyBuffer(tenantID, tableID, rowIDs[idx], keyBuf)
+		if err != nil {
+			return nil, fmt.Errorf("encode table key for row %d: %w", idx, err)
+		}
+		
 		value, err := i.codec.EncodeRow(row, schemaDef)
 		if err != nil {
 			return nil, fmt.Errorf("encode row %d: %w", idx, err)
 		}
 
-		if err := batch.Set(key, value); err != nil {
+		if err := batch.Set(keyBuf, value); err != nil {
 			return nil, fmt.Errorf("batch set row %d: %w", idx, err)
 		}
 

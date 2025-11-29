@@ -43,34 +43,33 @@ func (ap *AdaptiveConnectionPool) GetAdaptiveMetrics() AdaptivePoolMetrics {
 	baseMetrics := ap.GetMetrics()
 	
 	// Get adaptive-specific information
-	ap.mu.Lock()
-	historyLen := len(ap.hitRateHistory)
+	history := ap.GetHitRateHistory()
+	historyLen := len(history)
 	var avgHitRate float64
 	if historyLen > 0 {
-		for _, rate := range ap.hitRateHistory {
+		for _, rate := range history {
 			avgHitRate += rate
 		}
 		avgHitRate /= float64(historyLen)
 	}
-	lastAdaptation := ap.lastAdaptationTime
-	ap.mu.Unlock()
+	lastAdaptation := ap.GetLastAdaptationTime()
 	
 	current, max := ap.GetPoolCapacity()
 	
 	return AdaptivePoolMetrics{
-		PoolMetrics:           baseMetrics,
-		CurrentPoolSize:       current,
-		MaxPoolSize:           max,
-		AverageHitRate:        avgHitRate,
-		HitRateHistoryLength:  historyLen,
-		TimeSinceLastAdapt:    time.Since(lastAdaptation),
-		AdaptivePoolingEnabled: ap.IsAdaptivePoolingEnabled(),
+		PoolMetrics:             baseMetrics,
+		CurrentPoolSize:         current,
+		MaxPoolSize:             max,
+		AverageHitRate:          avgHitRate,
+		HitRateHistoryLength:    historyLen,
+		TimeSinceLastAdapt:      time.Since(lastAdaptation),
+		AdaptivePoolingEnabled:  ap.IsAdaptivePoolingEnabled(),
 	}
 }
 
 // ForceAdaptation triggers an immediate adaptation of the pool size
 func (ap *AdaptiveConnectionPool) ForceAdaptation() {
-	ap.adaptPoolSize()
+	ap.ConnectionPool.ForceAdaptation()
 }
 
 // AdaptivePoolMetrics extends PoolMetrics with adaptive pooling information
@@ -88,20 +87,12 @@ type AdaptivePoolMetrics struct {
 
 // SetAdaptiveConfig updates the adaptive pooling configuration
 func (ap *AdaptiveConnectionPool) SetAdaptiveConfig(target, minThreshold, maxThreshold float64) {
-	ap.mu.Lock()
-	defer ap.mu.Unlock()
-	
-	ap.config.TargetHitRate = target
-	ap.config.MinHitRateThreshold = minThreshold
-	ap.config.MaxHitRateThreshold = maxThreshold
+	ap.ConnectionPool.SetAdaptiveConfig(target, minThreshold, maxThreshold)
 }
 
 // EnableAdaptivePooling enables or disables adaptive pooling
 func (ap *AdaptiveConnectionPool) EnableAdaptivePooling(enabled bool) {
-	ap.mu.Lock()
-	defer ap.mu.Unlock()
-	
-	ap.config.AdaptivePoolingEnabled = enabled
+	ap.ConnectionPool.EnableAdaptivePooling(enabled)
 }
 
 // GetCurrentHitRate returns the current hit rate of the pool
@@ -112,11 +103,5 @@ func (ap *AdaptiveConnectionPool) GetCurrentHitRate() float64 {
 
 // GetHitRateHistory returns the recent hit rate history
 func (ap *AdaptiveConnectionPool) GetHitRateHistory() []float64 {
-	ap.mu.Lock()
-	defer ap.mu.Unlock()
-	
-	// Return a copy of the history
-	history := make([]float64, len(ap.hitRateHistory))
-	copy(history, ap.hitRateHistory)
-	return history
+	return ap.ConnectionPool.GetHitRateHistory()
 }

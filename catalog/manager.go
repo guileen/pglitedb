@@ -17,6 +17,7 @@ type tableManager struct {
 	DataManager
 	QueryManager
 	IndexManager
+	ViewManager
 
 	rowOps   engineTypes.RowOperations
 	indexOps engineTypes.IndexOperations
@@ -42,12 +43,14 @@ func NewTableManager(eng engineTypes.StorageEngine) Manager {
 	dm := newDataManager(eng, eng, cache, sm)
 	qm := newQueryManager(eng, cache, nil) // Will be set below
 	im := newIndexManager(eng, nil, cache)
+	vm := newViewManager(nil, cache)
 	
 	tm := &tableManager{
 		SchemaManager: sm,
 		DataManager:   dm,
 		QueryManager:  qm,
 		IndexManager:  im,
+		ViewManager:   vm,
 		rowOps:        eng,
 		indexOps:      eng,
 		scanOps:       eng,
@@ -71,12 +74,14 @@ func NewTableManagerWithKV(eng engineTypes.StorageEngine, kv storage.KV) Manager
 	dm := newDataManager(eng, eng, cache, sm)
 	qm := newQueryManager(eng, cache, nil) // Will be set below
 	im := newIndexManager(eng, kv, cache)
+	vm := newViewManager(kv, cache)
 	
 	tm := &tableManager{
 		SchemaManager: sm,
 		DataManager:   dm,
 		QueryManager:  qm,
 		IndexManager:  im,
+		ViewManager:   vm,
 		rowOps:        eng,
 		indexOps:      eng,
 		scanOps:       eng,
@@ -143,17 +148,17 @@ func (tm *tableManager) SystemTableQuery(ctx context.Context, fullTableName stri
 	return tm.systemCatalog.QuerySystemTable(ctx, fullTableName, filter)
 }
 
-// Implement view management methods by delegating to SchemaManager
+// Implement view management methods by delegating to ViewManager
 func (tm *tableManager) CreateView(ctx context.Context, tenantID int64, viewName string, query string, replace bool) error {
-	return tm.SchemaManager.CreateView(ctx, tenantID, viewName, query, replace)
+	return tm.ViewManager.CreateView(ctx, tenantID, viewName, query, replace)
 }
 
 func (tm *tableManager) DropView(ctx context.Context, tenantID int64, viewName string) error {
-	return tm.SchemaManager.DropView(ctx, tenantID, viewName)
+	return tm.ViewManager.DropView(ctx, tenantID, viewName)
 }
 
 func (tm *tableManager) GetViewDefinition(ctx context.Context, tenantID int64, viewName string) (*types.ViewDefinition, error) {
-	return tm.SchemaManager.GetViewDefinition(ctx, tenantID, viewName)
+	return tm.ViewManager.GetViewDefinition(ctx, tenantID, viewName)
 }
 
 // Implement constraint validation by delegating to SchemaManager

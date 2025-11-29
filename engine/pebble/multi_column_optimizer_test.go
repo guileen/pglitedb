@@ -50,6 +50,14 @@ func (mc *mockCodec) EncodeValue(value interface{}, colType dbTypes.ColumnType) 
 func (mc *mockCodec) DecodeValue(data []byte, colType dbTypes.ColumnType) (interface{}, error) { return nil, nil }
 func (mc *mockCodec) EncodeCompositeKey(values []interface{}, types []dbTypes.ColumnType) ([]byte, error) { return nil, nil }
 func (mc *mockCodec) DecodeCompositeKey(data []byte, types []dbTypes.ColumnType) ([]interface{}, error) { return nil, nil }
+func (mc *mockCodec) ExtractRowIDFromIndexKey(key []byte) (int64, error) { return 0, nil }
+func (mc *mockCodec) ReleaseTableKey(buf []byte) {}
+func (mc *mockCodec) ReleaseIndexKey(buf []byte) {}
+func (mc *mockCodec) ReleaseCompositeIndexKey(buf []byte) {}
+func (mc *mockCodec) ReleasePKKey(buf []byte) {}
+func (mc *mockCodec) ReleaseMetaKey(buf []byte) {}
+func (mc *mockCodec) ReleaseSequenceKey(buf []byte) {}
+func (mc *mockCodec) ReleaseIndexScanKey(buf []byte) {}
 
 func TestMultiColumnOptimizer_BuildIndexRangeFromFilter(t *testing.T) {
 	// Create a mock codec for testing

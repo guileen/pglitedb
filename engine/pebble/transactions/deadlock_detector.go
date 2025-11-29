@@ -15,6 +15,7 @@ type DeadlockDetector struct {
 	detectionInterval time.Duration
 	stopChan      chan struct{}
 	wg            sync.WaitGroup
+	abortCallback func(uint64) // Callback to abort a transaction
 }
 
 // TransactionInfo holds information about an active transaction
@@ -26,12 +27,13 @@ type TransactionInfo struct {
 }
 
 // NewDeadlockDetector creates a new deadlock detector
-func NewDeadlockDetector(detectionInterval time.Duration) *DeadlockDetector {
+func NewDeadlockDetector(detectionInterval time.Duration, abortCallback func(uint64)) *DeadlockDetector {
 	dd := &DeadlockDetector{
 		waitGraph:     make(map[uint64]map[uint64]bool),
 		activeTxns:    make(map[uint64]*TransactionInfo),
 		detectionInterval: detectionInterval,
 		stopChan:      make(chan struct{}),
+		abortCallback: abortCallback,
 	}
 	
 	dd.wg.Add(1)
@@ -103,11 +105,14 @@ func (dd *DeadlockDetector) RemoveWaitingLock(txnID uint64, key string) {
 }
 
 // CheckForConflicts checks for conflicts with the given key and updates wait graph
-func (dd *DeadlockDetector) CheckForConflicts(currentTxnID uint64, key string, kv storage.KV) error {
-	dd.mu.RLock()
-	defer dd.mu.RUnlock()
+func (dd *DeadlockDetector) CheckForConflicts(currentTxnID uint64, key string) error {
+	dd.mu.Lock()
+	defer dd.mu.Unlock()
 	
 	// Check if any other active transaction has written to this key
+	conflictFound := false
+	var conflictingTxnID uint64
+	
 	for txnID, txnInfo := range dd.activeTxns {
 		// Skip the current transaction
 		if txnID == currentTxnID {
@@ -116,20 +121,39 @@ func (dd *DeadlockDetector) CheckForConflicts(currentTxnID uint64, key string, k
 		
 		// Check if the other transaction has written to this key
 		if _, written := txnInfo.locksHeld[key]; written {
-			// Add to wait graph
-			if waits, exists := dd.waitGraph[currentTxnID]; exists {
-				waits[txnID] = true
-			} else {
-				dd.waitGraph[currentTxnID] = map[uint64]bool{txnID: true}
-			}
-			
-			// Check for deadlock
-			if dd.hasCycle(currentTxnID) {
-				return storage.ErrConflict
-			}
-			
+			conflictFound = true
+			conflictingTxnID = txnID
+			break
+		}
+	}
+	
+	if conflictFound {
+		// Add to wait graph - currentTxnID is waiting for conflictingTxnID
+		if waits, exists := dd.waitGraph[currentTxnID]; exists {
+			waits[conflictingTxnID] = true
+		} else {
+			dd.waitGraph[currentTxnID] = map[uint64]bool{conflictingTxnID: true}
+		}
+		
+		// Mark that current transaction is waiting for this key
+		if txnInfo, exists := dd.activeTxns[currentTxnID]; exists {
+			txnInfo.locksWaiting[key] = true
+		}
+		
+		// Check for deadlock
+		if dd.hasCycle(currentTxnID) {
+			// Deadlock detected, abort the younger transaction
+			dd.abortYoungestTransaction(currentTxnID, conflictingTxnID)
 			return storage.ErrConflict
 		}
+		
+		return storage.ErrConflict
+	}
+	
+	// No conflict, mark that this transaction now holds this lock
+	if txnInfo, exists := dd.activeTxns[currentTxnID]; exists {
+		txnInfo.locksHeld[key] = true
+		delete(txnInfo.locksWaiting, key) // Remove from waiting if it was waiting
 	}
 	
 	return nil
@@ -220,9 +244,35 @@ func (dd *DeadlockDetector) detectCycleAndAbort(txnID uint64, visited, recStack 
 
 // abortYoungestTransaction aborts the youngest transaction in a deadlock cycle
 func (dd *DeadlockDetector) abortYoungestTransaction(txnID1, txnID2 uint64) {
-	// In a real implementation, we would abort the transaction with the latest start time
-	// For now, we'll just log that a deadlock was detected
-	// Actual transaction abortion would require integration with the transaction manager
+	// Get transaction info for both transactions
+	txnInfo1, exists1 := dd.activeTxns[txnID1]
+	txnInfo2, exists2 := dd.activeTxns[txnID2]
+	
+	if !exists1 || !exists2 {
+		return
+	}
+	
+	// Abort the transaction with the later start time (younger transaction)
+	var abortTxnID uint64
+	if txnInfo1.startTime.After(txnInfo2.startTime) {
+		abortTxnID = txnID1
+	} else {
+		abortTxnID = txnID2
+	}
+	
+	// Remove from our tracking
+	delete(dd.activeTxns, abortTxnID)
+	delete(dd.waitGraph, abortTxnID)
+	
+	// Remove this transaction from all other transactions' wait lists
+	for _, waits := range dd.waitGraph {
+		delete(waits, abortTxnID)
+	}
+	
+	// Call the abort callback if provided
+	if dd.abortCallback != nil {
+		dd.abortCallback(abortTxnID)
+	}
 }
 
 // Close stops the deadlock detector

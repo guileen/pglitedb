@@ -15,11 +15,6 @@ type SchemaManager interface {
 	ListTables(ctx context.Context, tenantID int64) ([]*types.TableDefinition, error)
 	LoadSchemas(ctx context.Context) error
 	
-	// View management
-	CreateView(ctx context.Context, tenantID int64, viewName string, query string, replace bool) error
-	DropView(ctx context.Context, tenantID int64, viewName string) error
-	GetViewDefinition(ctx context.Context, tenantID int64, viewName string) (*types.ViewDefinition, error)
-	
 	// Constraint validation
 	ValidateConstraint(ctx context.Context, tenantID int64, tableName string, constraint *types.ConstraintDef) error
 }
@@ -46,11 +41,19 @@ type IndexManager interface {
 	DropIndex(ctx context.Context, tenantID int64, tableName string, indexName string) error
 }
 
+type ViewManager interface {
+	CreateView(ctx context.Context, tenantID int64, viewName string, query string, replace bool) error
+	DropView(ctx context.Context, tenantID int64, viewName string) error
+	GetViewDefinition(ctx context.Context, tenantID int64, viewName string) (*types.ViewDefinition, error)
+	ListViews(ctx context.Context, tenantID int64) ([]*types.ViewDefinition, error)
+}
+
 type Manager interface {
 	SchemaManager
 	DataManager
 	QueryManager
 	IndexManager
+	ViewManager
 	QuerySystemTable(ctx context.Context, fullTableName string, filter map[string]interface{}) (*types.QueryResult, error)
 	
 	// New methods for DML operations with more flexible interfaces

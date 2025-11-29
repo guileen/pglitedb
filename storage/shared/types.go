@@ -119,6 +119,13 @@ type Transaction interface {
 	SetIsolation(level IsolationLevel) error
 }
 
+// TransactionWithID is an extension of Transaction that provides a transaction ID
+type TransactionWithID interface {
+	Transaction
+	// TxnID returns the transaction ID
+	TxnID() uint64
+}
+
 // KVStats provides statistics about the KV store
 type KVStats struct {
 	KeyCount        int64
@@ -127,6 +134,15 @@ type KVStats struct {
 	FlushCount      int64
 	CompactionCount int64
 	PendingWrites   int64
+	
+	// Compaction-specific statistics
+	L0FileCount     int64
+	L1FileCount     int64
+	L2FileCount     int64
+	ReadAmplification int64  // Read amplification factor
+	WriteAmplification float64 // Write amplification factor
+	SpaceAmplification float64 // Space amplification factor
+	CompactionBytesWritten int64 // Total bytes written during compactions
 }
 
 // Error types
