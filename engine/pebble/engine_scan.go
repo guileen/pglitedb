@@ -8,11 +8,11 @@ import (
 )
 
 func (e *pebbleEngine) ScanRows(ctx context.Context, tenantID, tableID int64, schemaDef *dbTypes.TableDefinition, opts *engineTypes.ScanOptions) (engineTypes.RowIterator, error) {
-	scanner := NewScanner(e.kv, e.codec, e)
+	scanner := NewScanner(e.kv, e.codec, e, e.iteratorPool)
 	return scanner.ScanRows(ctx, tenantID, tableID, schemaDef, opts)
 }
 
 func (e *pebbleEngine) ScanIndex(ctx context.Context, tenantID, tableID, indexID int64, schemaDef *dbTypes.TableDefinition, opts *engineTypes.ScanOptions) (engineTypes.RowIterator, error) {
-	scanner := NewScanner(e.kv, e.codec, e)
+	scanner := NewScanner(e.kv, e.codec, e, e.iteratorPool)
 	return scanner.ScanIndex(ctx, tenantID, tableID, indexID, schemaDef, opts)
 }
