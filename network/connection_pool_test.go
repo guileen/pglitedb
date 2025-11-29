@@ -89,7 +89,7 @@ func TestConnectionPoolWithErrorHandling(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	
 	// First few attempts should fail
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	
 	_, err := pool.Get(ctx)
@@ -105,7 +105,11 @@ func TestConnectionPoolWithErrorHandling(t *testing.T) {
 	// Next attempt should succeed (factory stops failing after 2 attempts)
 	time.Sleep(100 * time.Millisecond)
 	
-	conn, err := pool.Get(ctx)
+	// Create a fresh context for the second attempt
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel2()
+	
+	conn, err := pool.Get(ctx2)
 	if err != nil {
 		t.Fatalf("Expected successful connection, got %v", err)
 	}

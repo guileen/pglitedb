@@ -212,11 +212,16 @@ func (h *RESTHandler) InsertRecord(w http.ResponseWriter, r *http.Request) {
 	sb.WriteString(") VALUES (")
 	sb.WriteString(strings.Join(values, ", "))
 	sb.WriteString(")")
-	
+
 	sqlQuery := sb.String()
+	
+	// Debug output
+	fmt.Printf("Executing SQL query: %s\n", sqlQuery)
 	
 	resultSet, err := h.executor.Execute(r.Context(), sqlQuery)
 	if err != nil {
+		// Debug output
+		fmt.Printf("SQL execution failed for query: %s\nError: %v\n", sqlQuery, err)
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}

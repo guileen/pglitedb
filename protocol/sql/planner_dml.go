@@ -1,6 +1,7 @@
 package sql
 
 import (
+	"fmt"
 	"strconv"
 	
 	pg_query "github.com/pganalyze/pg_query_go/v6"
@@ -48,6 +49,9 @@ func (p *Planner) extractConditionsFromExpr(expr *pg_query.Node) []Condition {
 				} else if s := aConst.GetSval(); s != nil {
 					condition.Value = s.GetSval()
 				}
+			} else if paramRef := rexpr.GetParamRef(); paramRef != nil {
+				// Handle parameter placeholders like $1, $2, etc.
+				condition.Value = fmt.Sprintf("$%d", paramRef.GetNumber())
 			}
 		}
 
@@ -91,9 +95,18 @@ func (p *Planner) extractUpdateInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 					if aConst := val.GetAConst(); aConst != nil {
 						if i := aConst.GetIval(); i != nil {
 							updates[fieldName] = i.GetIval()
+						} else if f := aConst.GetFval(); f != nil {
+							if val, err := strconv.ParseFloat(f.GetFval(), 64); err == nil {
+								updates[fieldName] = val
+							}
 						} else if s := aConst.GetSval(); s != nil {
 							updates[fieldName] = s.GetSval()
+						} else if b := aConst.GetBoolval(); b != nil {
+							updates[fieldName] = b.GetBoolval()
 						}
+					} else if paramRef := val.GetParamRef(); paramRef != nil {
+						// Handle parameter placeholders like $1, $2, etc.
+						updates[fieldName] = fmt.Sprintf("$%d", paramRef.GetNumber())
 					}
 				}
 			}
@@ -120,8 +133,50 @@ func (p *Planner) extractInsertInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
 		plan.Table = relation.GetRelname()
 	}
 
-	// Extract columns and values - simplified implementation
+	// Extract columns and values
 	plan.Values = make(map[string]interface{})
+
+	// Extract column names
+	columns := make([]string, 0)
+	if cols := insertStmt.GetCols(); len(cols) > 0 {
+		for _, col := range cols {
+			if resTarget := col.GetResTarget(); resTarget != nil {
+				columns = append(columns, resTarget.GetName())
+			}
+		}
+	}
+
+	// Extract values from the select statement (which contains the VALUES clause)
+	if selectStmt := insertStmt.GetSelectStmt(); selectStmt != nil {
+		if selStmt := selectStmt.GetSelectStmt(); selStmt != nil {
+			if valuesLists := selStmt.GetValuesLists(); len(valuesLists) > 0 {
+				// Get the first row of values (assuming single row insert)
+				if len(valuesLists) > 0 {
+					firstRow := valuesLists[0]
+					if list := firstRow.GetList(); list != nil {
+						items := list.GetItems()
+						for i, item := range items {
+							if i < len(columns) {
+								if aConst := item.GetAConst(); aConst != nil {
+									if ival := aConst.GetIval(); ival != nil {
+										plan.Values[columns[i]] = ival.GetIval()
+									} else if f := aConst.GetFval(); f != nil {
+										if val, err := strconv.ParseFloat(f.GetFval(), 64); err == nil {
+											plan.Values[columns[i]] = val
+										}
+									} else if s := aConst.GetSval(); s != nil {
+										plan.Values[columns[i]] = s.GetSval()
+									} else if b := aConst.GetBoolval(); b != nil {
+										plan.Values[columns[i]] = b.GetBoolval()
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 // extractDeleteInfoFromPGNode extracts DELETE statement information from a PG query node

@@ -57,6 +57,11 @@ type PoolMetrics struct {
 	HitRate         float64
 	ErrorRate       float64
 	AvgWaitTime     time.Duration
+	
+	// Additional fields for backward compatibility with tests
+	CurrentConnections int
+	ConnectionHits     uint64
+	ConnectionMisses   uint64
 }
 
 // PooledConnection wraps a net.Conn with pool lifecycle management

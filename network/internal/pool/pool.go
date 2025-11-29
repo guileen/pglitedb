@@ -50,7 +50,8 @@ func NewConnectionPool(config PoolConfig, factory ConnectionFactory) *Connection
 
 // createConnection creates a new connection and adds it to the pool
 func (p *ConnectionPool) createConnection() {
-	conn, err := p.factory.CreateConnection()
+	ctx := context.Background()
+	conn, err := p.factory.CreateConnection(ctx)
 	if err != nil {
 		// Log error but don't fail the pool creation
 		atomic.AddUint64(&p.stats.ConnectionErrors, 1)
