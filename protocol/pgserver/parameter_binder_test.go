@@ -51,6 +51,18 @@ func TestParameterBinder_BindParametersInQuery(t *testing.T) {
 			params:   []interface{}{99.99},
 			expected: "SELECT * FROM products WHERE price > 99.99",
 		},
+		{
+			name:     "String parameter that looks like integer",
+			query:    "SELECT * FROM users WHERE age = $1",
+			params:   []interface{}{"25"},
+			expected: "SELECT * FROM users WHERE age = '25'",
+		},
+		{
+			name:     "Mixed string parameters",
+			query:    "SELECT * FROM users WHERE name = $1 AND age > $2",
+			params:   []interface{}{"Alice", "30"},
+			expected: "SELECT * FROM users WHERE name = 'Alice' AND age > '30'",
+		},
 		// 注释掉这个复杂的测试用例，因为我们当前的实现可能还不完整
 		/*
 		{
@@ -172,6 +184,81 @@ func TestParameterBinder_CreateConstantNode(t *testing.T) {
 				assert.NotNil(t, node.GetAConst())
 				assert.NotNil(t, node.GetAConst().GetBoolval())
 			}
+		})
+	}
+}
+
+func TestPostgreSQLServer_ConvertParameterByOID(t *testing.T) {
+	server := &PostgreSQLServer{}
+	
+	tests := []struct {
+		name     string
+		param    []byte
+		oid      uint32
+		expected interface{}
+		wantErr  bool
+	}{
+		{
+			name:     "Integer parameter with INT4OID",
+			param:    []byte("25"),
+			oid:      23, // INT4OID
+			expected: int32(25),
+			wantErr:  false,
+		},
+		{
+			name:     "Integer parameter with INT8OID",
+			param:    []byte("123456789"),
+			oid:      20, // INT8OID
+			expected: int64(123456789),
+			wantErr:  false,
+		},
+		{
+			name:     "Float parameter with FLOAT8OID",
+			param:    []byte("99.99"),
+			oid:      701, // FLOAT8OID
+			expected: 99.99,
+			wantErr:  false,
+		},
+		{
+			name:     "Boolean parameter with BOOLOID (true)",
+			param:    []byte("t"),
+			oid:      16, // BOOLOID
+			expected: true,
+			wantErr:  false,
+		},
+		{
+			name:     "Boolean parameter with BOOLOID (false)",
+			param:    []byte("f"),
+			oid:      16, // BOOLOID
+			expected: false,
+			wantErr:  false,
+		},
+		{
+			name:     "String parameter with TEXTOID",
+			param:    []byte("hello"),
+			oid:      25, // TEXTOID
+			expected: "hello",
+			wantErr:  false,
+		},
+		{
+			name:     "Invalid integer parameter",
+			param:    []byte("not_a_number"),
+			oid:      23, // INT4OID
+			expected: nil,
+			wantErr:  true,
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := server.convertParameterByOID(tt.param, tt.oid)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
