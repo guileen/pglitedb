@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
+	"net/http/pprof"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/guileen/pglitedb/protocol/sql"
 	"github.com/guileen/pglitedb/network"
 	"github.com/guileen/pglitedb/types"
@@ -27,6 +31,10 @@ type PostgreSQLServer struct {
 	mu       sync.Mutex
 	closed   bool
 	connectionPool *network.ConnectionPool
+	
+	// HTTP server for profiling endpoints
+	httpServer *http.Server
+	httpPort   string
 	
 	// Buffer pools for network I/O
 	bufferPool *pool.MultiBufferPool
@@ -67,14 +75,27 @@ func NewPostgreSQLServer(executor *sql.Executor, planner *sql.Planner) *PostgreS
 		bufferPool: pool.NewMultiBufferPool("pgserver", bufferSizes),
 		preparedStatements: make(map[string]*PreparedStatement),
 		portals:           make(map[string]*Portal),
+		httpPort:          "", // No profiling by default
 	}
 	
 	logger.Info("PostgreSQL server instance created successfully")
 	return server
 }
 
+// WithProfiling enables profiling on the specified port
+func (s *PostgreSQLServer) WithProfiling(port string) *PostgreSQLServer {
+	s.httpPort = port
+	return s
+}
+
 func (s *PostgreSQLServer) Start(port string) error {
 	logger.Info("Starting PostgreSQL server", "port", port, "protocol", "TCP")
+	
+	// Start the profiling HTTP server if enabled
+	if s.httpPort != "" {
+		go s.startProfilingServer()
+	}
+	
 	return s.StartTCP(port)
 }
 
@@ -166,6 +187,9 @@ func (s *PostgreSQLServer) Close() error {
 		}
 		logger.Info("PostgreSQL server listener closed successfully")
 	}
+	
+	// Stop the profiling server
+	s.stopProfilingServer()
 	
 	logger.Info("PostgreSQL server closed successfully")
 	return nil
@@ -682,4 +706,47 @@ func (s *PostgreSQLServer) handleExecute(backend *pgproto3.Backend, msg *pgproto
 	
 	logger.Debug("Execute completed successfully")
 	return false
+}
+
+func (s *PostgreSQLServer) startProfilingServer() {
+	logger.Info("Starting profiling HTTP server", "port", s.httpPort)
+	
+	// Setup router
+	r := chi.NewRouter()
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	
+	// Register pprof handlers for profiling
+	r.HandleFunc("/debug/pprof/", pprof.Index)
+	r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	r.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	r.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	r.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
+	r.Handle("/debug/pprof/heap", pprof.Handler("heap"))
+	r.Handle("/debug/pprof/threadcreate", pprof.Handler("threadcreate"))
+	r.Handle("/debug/pprof/block", pprof.Handler("block"))
+	r.Handle("/debug/pprof/mutex", pprof.Handler("mutex"))
+	
+	// Create HTTP server
+	s.httpServer = &http.Server{
+		Addr:    ":" + s.httpPort,
+		Handler: r,
+	}
+	
+	logger.Info("Profiling HTTP server listening", "port", s.httpPort)
+	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logger.Error("Profiling HTTP server failed to start", "error", err, "port", s.httpPort)
+		log.Printf("Profiling HTTP server failed to start: %v", err)
+	}
+}
+
+func (s *PostgreSQLServer) stopProfilingServer() {
+	if s.httpServer != nil {
+		logger.Info("Shutting down profiling HTTP server...")
+		if err := s.httpServer.Shutdown(context.Background()); err != nil {
+			logger.Error("Profiling HTTP server shutdown failed", "error", err)
+		}
+		logger.Info("Profiling HTTP server shutdown complete")
+	}
 }
