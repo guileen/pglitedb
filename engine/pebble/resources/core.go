@@ -2,7 +2,6 @@ package resources
 
 import (
 	engineTypes "github.com/guileen/pglitedb/engine/types"
-	"github.com/guileen/pglitedb/engine/pebble/operations/scan"
 	"github.com/guileen/pglitedb/engine/pebble/resources/leak"
 	"github.com/guileen/pglitedb/engine/pebble/resources/metrics"
 	"github.com/guileen/pglitedb/engine/pebble/resources/pools"
@@ -60,18 +59,6 @@ func (rm *ResourceManager) LeakDetector() *leak.Detector {
 // SizingManager returns the sizing manager for adaptive pool sizing
 func (rm *ResourceManager) SizingManager() *sizing.Manager {
 	return rm.sizingManager
-}
-
-// === Backward Compatibility Methods ===
-
-// AcquireIterator gets an iterator from the pool
-func (rm *ResourceManager) AcquireIterator() *scan.RowIterator {
-	return rm.poolManager.AcquireIterator()
-}
-
-// ReleaseIterator returns an iterator to the pool
-func (rm *ResourceManager) ReleaseIterator(iter *scan.RowIterator) {
-	rm.poolManager.ReleaseIterator(iter)
 }
 
 // AcquireTransaction gets a transaction from the pool

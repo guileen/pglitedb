@@ -193,11 +193,6 @@ func TestRaceConditions(t *testing.T) {
                     // Use goroutineID to make operations unique
                     _ = goroutineID
                     
-                    // Acquire iterator
-                    iter := rm.AcquireIterator()
-                    time.Sleep(time.Microsecond) // Simulate some work
-                    rm.ReleaseIterator(iter)
-                    
                     // Acquire buffer
                     buf := rm.AcquireBuffer(100)
                     time.Sleep(time.Microsecond) // Simulate some work
