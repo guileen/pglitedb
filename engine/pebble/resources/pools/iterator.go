@@ -33,7 +33,11 @@ func (ip *IteratorPool) Acquire() *scan.RowIterator {
 	// Track iterator for leak detection
 	rowIter := iter.(*scan.RowIterator)
 	if ip.leakDetector != nil {
-		ip.leakDetector.TrackIterator(rowIter)
+		// Use the leak detector's GetLeakDetector() method to access the actual leak detector
+		if ld := ip.leakDetector.GetLeakDetector(); ld != nil {
+			stackTrace := "iterator acquisition stack trace" // In a real implementation, this would be an actual stack trace
+			ld.TrackIterator(rowIter, stackTrace)
+		}
 	}
 
 	return rowIter
