@@ -30,7 +30,7 @@ func TestLockManagerDeadlockDetection(t *testing.T) {
 		Columns: []types.ColumnDefinition{
 			{
 				Name:       "id",
-				Type:       types.ColumnTypeNumber,
+				Type:       types.ColumnTypeBigInt,
 				PrimaryKey: true,
 			},
 			{
@@ -57,7 +57,7 @@ func TestLockManagerDeadlockDetection(t *testing.T) {
 		ID:    "lockmgr_record_1",
 		Table: "test_table",
 		Data: map[string]*types.Value{
-			"id":   {Type: types.ColumnTypeNumber, Data: float64(30)},
+			"id":   {Type: types.ColumnTypeBigInt, Data: int64(30)},
 			"data": {Type: types.ColumnTypeString, Data: "init_1"},
 		},
 	}
@@ -66,14 +66,14 @@ func TestLockManagerDeadlockDetection(t *testing.T) {
 		ID:    "lockmgr_record_2",
 		Table: "test_table",
 		Data: map[string]*types.Value{
-			"id":   {Type: types.ColumnTypeNumber, Data: float64(31)},
+			"id":   {Type: types.ColumnTypeBigInt, Data: int64(31)},
 			"data": {Type: types.ColumnTypeString, Data: "init_2"},
 		},
 	}
 
-	_, err = initTx.InsertRow(ctx, 1, 1, record1, schemaDef)
+	rowID1, err := initTx.InsertRow(ctx, 1, 1, record1, schemaDef)
 	require.NoError(t, err)
-	_, err = initTx.InsertRow(ctx, 1, 1, record2, schemaDef)
+	rowID2, err := initTx.InsertRow(ctx, 1, 1, record2, schemaDef)
 	require.NoError(t, err)
 	err = initTx.Commit()
 	require.NoError(t, err)
@@ -97,7 +97,7 @@ func TestLockManagerDeadlockDetection(t *testing.T) {
 		updates1 := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "tx1_modified"},
 		}
-		err := tx1.UpdateRow(ctx, 1, 1, 30, updates1, schemaDef)
+		err := tx1.UpdateRow(ctx, 1, 1, rowID1, updates1, schemaDef)
 		assert.NoError(t, err)
 
 		// Signal that phase 1 is complete
@@ -110,7 +110,7 @@ func TestLockManagerDeadlockDetection(t *testing.T) {
 		updates2 := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "tx1_modified_record2"},
 		}
-		err = tx1.UpdateRow(ctx, 1, 1, 31, updates2, schemaDef)
+		err = tx1.UpdateRow(ctx, 1, 1, rowID2, updates2, schemaDef)
 		if err != nil {
 			// This is expected in a deadlock scenario
 			t.Logf("Transaction 1 conflict as expected: %v", err)
@@ -129,7 +129,7 @@ func TestLockManagerDeadlockDetection(t *testing.T) {
 		updates2 := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "tx2_modified"},
 		}
-		err := tx2.UpdateRow(ctx, 1, 1, 31, updates2, schemaDef)
+		err := tx2.UpdateRow(ctx, 1, 1, rowID2, updates2, schemaDef)
 		assert.NoError(t, err)
 
 		// Signal that phase 1 is complete
@@ -142,7 +142,7 @@ func TestLockManagerDeadlockDetection(t *testing.T) {
 		updates1 := map[string]*types.Value{
 			"data": {Type: types.ColumnTypeString, Data: "tx2_modified_record1"},
 		}
-		err = tx2.UpdateRow(ctx, 1, 1, 30, updates1, schemaDef)
+		err = tx2.UpdateRow(ctx, 1, 1, rowID1, updates1, schemaDef)
 		if err != nil {
 			// This is expected in a deadlock scenario
 			t.Logf("Transaction 2 conflict as expected: %v", err)
