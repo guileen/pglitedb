@@ -34,18 +34,35 @@ func NewResourceManager() *ResourceManager {
 		sizingManager: sizingManager,
 	}
 	
-	// Start leak detection monitoring
-	// Note: This would need to be adapted based on the actual leak detector implementation
-	
 	return rm
 }
-
-
 
 // GetResourceManager returns the default resource manager
 func GetResourceManager() *ResourceManager {
 	return defaultResourceManager
 }
+
+// PoolManager returns the pool manager for direct access to resource pools
+func (rm *ResourceManager) PoolManager() *pools.Manager {
+	return rm.poolManager
+}
+
+// Metrics returns the metrics collector for accessing resource usage statistics
+func (rm *ResourceManager) Metrics() *metrics.Collector {
+	return rm.metrics
+}
+
+// LeakDetector returns the leak detector for leak detection functionality
+func (rm *ResourceManager) LeakDetector() *leak.Detector {
+	return rm.leakDetector
+}
+
+// SizingManager returns the sizing manager for adaptive pool sizing
+func (rm *ResourceManager) SizingManager() *sizing.Manager {
+	return rm.sizingManager
+}
+
+// === Backward Compatibility Methods ===
 
 // AcquireIterator gets an iterator from the pool
 func (rm *ResourceManager) AcquireIterator() *scan.RowIterator {
