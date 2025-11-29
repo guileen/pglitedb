@@ -97,3 +97,25 @@ func (c *SchemaCache) Range(fn func(key string, schema *types.TableDefinition, t
 		return fn(key, schema, tableID)
 	})
 }
+
+func (c *SchemaCache) RangeViews(fn func(key string, view *types.ViewDefinition, viewID int64) bool) {
+	c.items.Range(func(k, v interface{}) bool {
+		key := k.(string)
+		item := v.(*CacheItem)
+		
+		// Only process view items in this range function
+		if item.Type != "view" {
+			return true
+		}
+		
+		view := item.Value.(*types.ViewDefinition)
+		
+		idVal, ok := c.tableIDs.Load(key)
+		if !ok {
+			return true
+		}
+		viewID := idVal.(int64)
+		
+		return fn(key, view, viewID)
+	})
+}

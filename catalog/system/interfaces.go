@@ -36,6 +36,8 @@ type IndexManager interface {
 type ViewManager interface {
 	ListViews(ctx context.Context, tenantID int64) ([]*types.ViewDefinition, error)
 	GetViewDefinition(ctx context.Context, tenantID int64, viewName string) (*types.ViewDefinition, error)
+	CreateView(ctx context.Context, tenantID int64, viewName string, query string, replace bool) error
+	DropView(ctx context.Context, tenantID int64, viewName string) error
 }
 
 // ConstraintManager interface defines the methods for constraint operations
