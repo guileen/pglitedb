@@ -21,6 +21,16 @@ func (e *Executor) GetCatalog() catalog.Manager {
 	return e.catalog
 }
 
+// SetCatalog sets the catalog manager
+func (e *Executor) SetCatalog(catalog catalog.Manager) {
+	e.catalog = catalog
+}
+
+// SetPlanner sets the planner for this executor
+func (e *Executor) SetPlanner(planner *Planner) {
+	e.planner = planner
+}
+
 // getTenantIDFromContext extracts tenant ID from context, defaulting to 1 if not found
 func (e *Executor) getTenantIDFromContext(ctx context.Context) int64 {
 	if ctx == nil {
@@ -48,7 +58,9 @@ func NewExecutorWithCatalog(planner *Planner, catalog catalog.Manager) *Executor
 	}
 	
 	// Initialize pipeline for batched execution
-	exec.pipeline = NewQueryPipeline(exec, 10)
+	if exec.planner != nil {
+		exec.pipeline = NewQueryPipeline(exec, 10)
+	}
 	
 	return exec
 }
@@ -60,6 +72,10 @@ func (e *Executor) Execute(ctx context.Context, query string) (*types.ResultSet,
 		// Only release if not returning successfully
 		// Note: This is a simplified approach - in practice, the caller would need to release
 	// }()
+	
+	if e.planner == nil {
+		return nil, fmt.Errorf("planner not initialized")
+	}
 	
 	parsed, err := e.planner.parser.Parse(query)
 	if err != nil {

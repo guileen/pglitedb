@@ -3,50 +3,11 @@ package sql
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
-
+	
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 	"github.com/guileen/pglitedb/catalog"
 	"github.com/guileen/pglitedb/types"
 )
-
-// Plan represents a query execution plan
-type Plan struct {
-	Type        StatementType
-	Operation   string
-	Table       string
-	Fields      []string
-	Conditions  []Condition
-	Limit       *int64
-	Offset      *int64
-	OrderBy     []OrderBy
-	GroupBy     []string
-	Aggregates  []Aggregate
-	QueryString string
-	Values      map[string]interface{} // For INSERT operations
-	Updates     map[string]interface{} // For UPDATE operations
-}
-
-// Condition represents a WHERE clause condition
-type Condition struct {
-	Field    string
-	Operator string
-	Value    interface{}
-}
-
-// OrderBy represents an ORDER BY clause
-type OrderBy struct {
-	Field string
-	Order string // ASC or DESC
-}
-
-// Aggregate represents an aggregation function
-type Aggregate struct {
-	Function string // COUNT, SUM, AVG, etc.
-	Field    string
-	Alias    string
-}
 
 // Planner is responsible for creating execution plans from parsed queries
 type Planner struct {
@@ -98,519 +59,78 @@ func (p *Planner) SetCatalog(catalogMgr catalog.Manager) {
 		// Create a new executor with catalog
 		p.executor = NewExecutorWithCatalog(p, catalogMgr)
 	} else {
-		// Update existing executor with catalog
-		p.executor.catalog = catalogMgr
+		p.executor.SetCatalog(catalogMgr)
 	}
 }
 
-// CreatePlan generates an execution plan from a SQL query string
+// CreatePlan creates an execution plan from a SQL query
 func (p *Planner) CreatePlan(query string) (*Plan, error) {
-	parsed, err := p.parser.Parse(query)
+	// Parse the query using pg_query
+	result, err := pg_query.Parse(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse query: %w", err)
 	}
 
+	if len(result.Stmts) == 0 {
+		return nil, fmt.Errorf("empty query")
+	}
+
+	// For now, we only handle the first statement
+	stmt := result.Stmts[0].GetStmt()
+	if stmt == nil {
+		return nil, fmt.Errorf("invalid statement")
+	}
+
 	plan := &Plan{
-		Type:        parsed.Type,
 		QueryString: query,
 	}
 
-	// Handle different types of statements based on the parser used
-	switch stmt := parsed.Statement.(type) {
-	case string:
-		// Handle string-based statements from our new parser
-		lowerStmt := strings.ToLower(strings.TrimSpace(stmt))
-		switch {
-		case strings.HasPrefix(lowerStmt, "select"):
-			plan.Operation = "select"
-			// Extract table name and fields for SELECT
-
-		case strings.HasPrefix(lowerStmt, "insert"):
-			plan.Operation = "insert"
-			// Extract table name for INSERT
-
-		case strings.HasPrefix(lowerStmt, "update"):
-			plan.Operation = "update"
-			// Extract table name for UPDATE
-
-		case strings.HasPrefix(lowerStmt, "delete"):
-			plan.Operation = "delete"
-			// Extract table name for DELETE
-
-		case strings.HasPrefix(lowerStmt, "begin"), strings.HasPrefix(lowerStmt, "commit"), strings.HasPrefix(lowerStmt, "rollback"):
-			plan.Operation = "transaction"
-		case strings.HasPrefix(lowerStmt, "create"), strings.HasPrefix(lowerStmt, "drop"), strings.HasPrefix(lowerStmt, "alter"):
-			plan.Operation = "ddl"
-		default:
-			plan.Operation = "unsupported"
+	// Determine statement type and extract relevant information
+	switch {
+	case stmt.GetSelectStmt() != nil:
+		plan.Type = SelectStatement
+		p.extractSelectInfoFromPGNode(stmt, plan)
+	case stmt.GetInsertStmt() != nil:
+		plan.Type = InsertStatement
+		p.extractInsertInfoFromPGNode(stmt, plan)
+	case stmt.GetUpdateStmt() != nil:
+		plan.Type = UpdateStatement
+		p.extractUpdateInfoFromPGNode(stmt, plan)
+	case stmt.GetDeleteStmt() != nil:
+		plan.Type = DeleteStatement
+		p.extractDeleteInfoFromPGNode(stmt, plan)
+	case stmt.GetCreateStmt() != nil:
+		plan.Type = CreateTableStatement
+	case stmt.GetDropStmt() != nil:
+		plan.Type = DropTableStatement
+	case stmt.GetAlterTableStmt() != nil:
+		plan.Type = AlterTableStatement
+	case stmt.GetIndexStmt() != nil:
+		plan.Type = CreateIndexStatement
+	case stmt.GetDropStmt() != nil:
+		plan.Type = DropIndexStatement
+	case stmt.GetViewStmt() != nil:
+		plan.Type = CreateViewStatement
+	case stmt.GetDropStmt() != nil:
+		plan.Type = DropViewStatement
+	case stmt.GetTransactionStmt() != nil:
+		transStmt := stmt.GetTransactionStmt()
+		switch transStmt.GetKind() {
+		case pg_query.TransactionStmtKind_TRANS_STMT_BEGIN:
+			plan.Type = BeginStatement
+		case pg_query.TransactionStmtKind_TRANS_STMT_COMMIT:
+			plan.Type = CommitStatement
+		case pg_query.TransactionStmtKind_TRANS_STMT_ROLLBACK:
+			plan.Type = RollbackStatement
 		}
-	case *pg_query.Node:
-		// Handle pg_query.Node based statements from the professional parser
-		switch parsed.Type {
-		case SelectStatement:
-			plan.Operation = "select"
-			// Extract table name and fields for SELECT from pg_query AST
-			p.extractSelectInfoFromPGNode(stmt, plan)
-		case InsertStatement:
-			plan.Operation = "insert"
-			// Extract table name for INSERT from pg_query AST
-			p.extractInsertInfoFromPGNode(stmt, plan)
-		case UpdateStatement:
-			plan.Operation = "update"
-			// Extract table name for UPDATE from pg_query AST
-			p.extractUpdateInfoFromPGNode(stmt, plan)
-		case DeleteStatement:
-			plan.Operation = "delete"
-			// Extract table name for DELETE from pg_query AST
-			p.extractDeleteInfoFromPGNode(stmt, plan)
-		case CreateTableStatement, DropTableStatement, AlterTableStatement, 
-		     CreateIndexStatement, DropIndexStatement, CreateViewStatement, DropViewStatement:
-			plan.Operation = "ddl"
-		case AnalyzeStatementType:
-			plan.Operation = "analyze"
-		default:
-			plan.Operation = "unsupported"
-		}
-	case *ParsedQuery:
-		// Handle ParsedQuery from our new AST parser
-		plan.Table = stmt.Table
-		plan.Fields = stmt.Fields
-		plan.Conditions = stmt.Conditions
-		plan.OrderBy = stmt.OrderBy
-		plan.Limit = stmt.Limit
-		
-		switch stmt.Type {
-		case SelectStatement:
-			plan.Operation = "select"
-		case InsertStatement:
-			plan.Operation = "insert"
-		case UpdateStatement:
-			plan.Operation = "update"
-		case DeleteStatement:
-			plan.Operation = "delete"
-		default:
-			plan.Operation = "unsupported"
+	case stmt.GetVacuumStmt() != nil:
+		vacuumStmt := stmt.GetVacuumStmt()
+		if !vacuumStmt.GetIsVacuumcmd() {
+			plan.Type = AnalyzeStatementType
 		}
 	default:
-		plan.Operation = "unsupported"
+		plan.Type = UnknownStatement
 	}
 
-		// Apply query optimization if we have an optimizer
-	if p.optimizer != nil {
-		optimizedPlan, err := p.optimizer.OptimizePlan(plan)
-		if err != nil {
-			// If optimization fails, return the original plan
-			return plan, nil
-		}
-		return optimizedPlan, nil
-	}
-	
 	return plan, nil
-}
-
-// extractSelectInfoFromPGNode extracts table name, fields, and conditions for SELECT statements from pg_query AST
-func (p *Planner) extractSelectInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
-	// Implementation to extract information from pg_query.SelectStmt
-	selectStmt := stmt.GetSelectStmt()
-	if selectStmt == nil {
-		return
-	}
-	
-	// Extract table name from FROM clause with schema support
-	if len(selectStmt.GetFromClause()) > 0 {
-		fromClause := selectStmt.GetFromClause()[0]
-		if rangeVar := fromClause.GetRangeVar(); rangeVar != nil {
-			tableName := rangeVar.GetRelname()
-			
-			// Check if schema is specified
-			schemaName := rangeVar.GetSchemaname()
-			if schemaName != "" {
-				// Combine schema and table name
-				plan.Table = schemaName + "." + tableName
-			} else {
-				// No schema specified, use table name as-is
-				// The executor will handle schema resolution
-				plan.Table = tableName
-			}
-		}
-	}
-	
-	// Extract fields (target list) and aggregates
-	if targetList := selectStmt.GetTargetList(); targetList != nil {
-		fields := make([]string, 0, len(targetList))
-		aggregates := make([]Aggregate, 0)
-		
-		for _, target := range targetList {
-			if resTarget := target.GetResTarget(); resTarget != nil {
-				if val := resTarget.GetVal(); val != nil {
-					if columnRef := val.GetColumnRef(); columnRef != nil {
-						// Extract column name from ColumnRef
-						if len(columnRef.GetFields()) > 0 {
-							if str := columnRef.GetFields()[len(columnRef.GetFields())-1].GetString_(); str != nil {
-								fields = append(fields, str.GetSval())
-							}
-						}
-					} else if funcCall := val.GetFuncCall(); funcCall != nil {
-						// Handle function calls, especially aggregate functions
-						if len(funcCall.GetFuncname()) > 0 {
-							if str := funcCall.GetFuncname()[0].GetString_(); str != nil {
-								funcName := str.GetSval()
-								
-								// Mark this as a function call by prefixing with "func:"
-								fields = append(fields, "func:"+funcName)
-								
-								// Extract aggregate information
-								aggregate := Aggregate{
-									Function: strings.ToUpper(funcName),
-									Alias:    resTarget.GetName(),
-								}
-								
-								// Extract argument for the aggregate function
-								if len(funcCall.GetArgs()) > 0 {
-									arg := funcCall.GetArgs()[0]
-									if argColRef := arg.GetColumnRef(); argColRef != nil {
-										// Extract column name from ColumnRef argument
-										if len(argColRef.GetFields()) > 0 {
-											if argStr := argColRef.GetFields()[len(argColRef.GetFields())-1].GetString_(); argStr != nil {
-												aggregate.Field = argStr.GetSval()
-											}
-										}
-									} else if arg.GetAStar() != nil {
-										// Handle COUNT(*) case
-										aggregate.Field = "*"
-									}
-								} else if funcCall.GetAggStar() {
-									// Handle COUNT(*) case from agg_star flag
-									aggregate.Field = "*"
-								}
-								
-								aggregates = append(aggregates, aggregate)
-							}
-						}
-					} else if sqlValueFunc := val.GetSqlvalueFunction(); sqlValueFunc != nil {
-						// Handle SQL value functions like current_user, current_database, etc.
-						switch sqlValueFunc.GetOp() {
-						case pg_query.SQLValueFunctionOp_SVFOP_CURRENT_USER:
-							fields = append(fields, "func:current_user")
-						case pg_query.SQLValueFunctionOp_SVFOP_CURRENT_CATALOG:
-							fields = append(fields, "func:current_database")
-						case pg_query.SQLValueFunctionOp_SVFOP_CURRENT_SCHEMA:
-							fields = append(fields, "func:current_schema")
-						case pg_query.SQLValueFunctionOp_SVFOP_CURRENT_ROLE:
-							fields = append(fields, "func:current_role")
-						case pg_query.SQLValueFunctionOp_SVFOP_SESSION_USER:
-							fields = append(fields, "func:session_user")
-						case pg_query.SQLValueFunctionOp_SVFOP_USER:
-							fields = append(fields, "func:user")
-						}
-					} else if aConst := val.GetAConst(); aConst != nil {
-						// Handle constants like '*'
-						fields = append(fields, "*")
-					}
-				}
-			}
-		}
-		plan.Fields = fields
-		if len(aggregates) > 0 {
-			plan.Aggregates = aggregates
-		}
-	}
-	
-	// Extract WHERE conditions
-	if whereClause := selectStmt.GetWhereClause(); whereClause != nil {
-		// Extract simple equality conditions
-		conditions := p.extractConditionsFromExpr(whereClause)
-		plan.Conditions = conditions
-	}
-	
-	// Extract ORDER BY
-	if sortClause := selectStmt.GetSortClause(); sortClause != nil {
-		orderBy := make([]OrderBy, 0, len(sortClause))
-		for _, sortBy := range sortClause {
-			if sortNode := sortBy.GetSortBy(); sortNode != nil {
-				var field string
-				// Extract field name from sort expression
-				if node := sortNode.GetNode(); node != nil {
-					if columnRef := node.GetColumnRef(); columnRef != nil {
-						if len(columnRef.GetFields()) > 0 {
-							if str := columnRef.GetFields()[len(columnRef.GetFields())-1].GetString_(); str != nil {
-								field = str.GetSval()
-							}
-						}
-					}
-				}
-				
-				// Determine sort order
-				order := "ASC"
-				if sortNode.GetSortbyDir() == pg_query.SortByDir_SORTBY_DESC {
-					order = "DESC"
-				}
-				
-				if field != "" {
-					orderBy = append(orderBy, OrderBy{
-						Field: field,
-						Order: order,
-					})
-				}
-			}
-		}
-		plan.OrderBy = orderBy
-	}
-	
-	// Extract LIMIT
-	if limitCount := selectStmt.GetLimitCount(); limitCount != nil {
-		if aConst := limitCount.GetAConst(); aConst != nil {
-			if iConst := aConst.GetIval(); iConst != nil {
-				limit := int64(iConst.GetIval())
-				plan.Limit = &limit
-			}
-		}
-	}
-	
-	// Extract GROUP BY clause
-	if groupClause := selectStmt.GetGroupClause(); groupClause != nil {
-		groupBy := make([]string, 0, len(groupClause))
-		for _, groupNode := range groupClause {
-			if columnRef := groupNode.GetColumnRef(); columnRef != nil {
-				// Extract column name from ColumnRef
-				if len(columnRef.GetFields()) > 0 {
-					if str := columnRef.GetFields()[len(columnRef.GetFields())-1].GetString_(); str != nil {
-						groupBy = append(groupBy, str.GetSval())
-					}
-				}
-			}
-		}
-		if len(groupBy) > 0 {
-			plan.GroupBy = groupBy
-		}
-	}
-}
-
-// extractConditionsFromExpr extracts simple conditions from a pg_query expression
-func (p *Planner) extractConditionsFromExpr(expr *pg_query.Node) []Condition {
-	// Pre-allocate with reasonable capacity to reduce reallocations
-	conditions := make([]Condition, 0, 4)
-	
-	if expr == nil {
-		return conditions
-	}
-	
-	// Handle A_Expr (arithmetic expressions like =, >, <, etc.)
-	if aExpr := expr.GetAExpr(); aExpr != nil {
-		// Check if this is a simple equality condition
-		if aExpr.GetKind() == pg_query.A_Expr_Kind_AEXPR_OP {
-			// Get the operator name
-			var opName string
-			if nameParts := aExpr.GetName(); len(nameParts) > 0 {
-				if str := nameParts[0].GetString_(); str != nil {
-					opName = str.GetSval()
-				}
-			}
-			
-			// Get left side (should be a column reference)
-			if left := aExpr.GetLexpr(); left != nil {
-				// Get right side (should be a constant)
-				if right := aExpr.GetRexpr(); right != nil {
-					// Extract column name from left side
-					var columnName string
-					if columnRef := left.GetColumnRef(); columnRef != nil {
-						if fields := columnRef.GetFields(); len(fields) > 0 {
-							if str := fields[len(fields)-1].GetString_(); str != nil {
-								columnName = str.GetSval()
-							}
-						}
-					}
-					
-					// Extract value from right side
-					var value interface{}
-					if aConst := right.GetAConst(); aConst != nil {
-						switch {
-						case aConst.GetSval() != nil:
-							value = aConst.GetSval().GetSval()
-						case aConst.GetIval() != nil:
-							value = aConst.GetIval().GetIval()
-						case aConst.GetFval() != nil:
-							if f, err := strconv.ParseFloat(aConst.GetFval().GetFval(), 64); err == nil {
-								value = f
-							}
-						case aConst.GetBoolval() != nil:
-							value = aConst.GetBoolval().GetBoolval()
-						}
-					} else if paramRef := right.GetParamRef(); paramRef != nil {
-						// Handle parameter references in conditions
-						value = fmt.Sprintf("$%d", paramRef.GetNumber())
-					}
-					
-					// Only add condition if we have both field and operator
-					if columnName != "" && opName != "" {
-						conditions = append(conditions, Condition{
-							Field:    columnName,
-							Operator: opName,
-							Value:    value,
-						})
-					}
-				}
-			}
-		}
-	} else if boolExpr := expr.GetBoolExpr(); boolExpr != nil {
-		// Handle Boolean expressions (AND, OR)
-		if boolExpr.GetBoolop() == pg_query.BoolExprType_AND_EXPR {
-			// Extract conditions from each operand with pre-allocation
-			args := boolExpr.GetArgs()
-			// Pre-size the conditions slice to reduce reallocations
-			totalCap := cap(conditions) + len(args)*2
-			if totalCap > cap(conditions) {
-				newConditions := make([]Condition, len(conditions), totalCap)
-				copy(newConditions, conditions)
-				conditions = newConditions
-			}
-			
-			// Extract conditions from each operand
-			for _, operand := range args {
-				subConditions := p.extractConditionsFromExpr(operand)
-				conditions = append(conditions, subConditions...)
-			}
-		}
-	}
-	
-	return conditions
-}
-
-
-
-
-
-
-// extractUpdateInfoFromPGNode extracts table name, values, and conditions for UPDATE statements from pg_query AST
-func (p *Planner) extractUpdateInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
-	updateStmt := stmt.GetUpdateStmt()
-	if updateStmt == nil {
-		return
-	}
-	
-	// Extract table name
-	if relation := updateStmt.GetRelation(); relation != nil {
-		plan.Table = relation.GetRelname()
-	}
-	
-	// Extract SET values
-	if targetList := updateStmt.GetTargetList(); targetList != nil {
-		updates := make(map[string]interface{})
-		for _, target := range targetList {
-			if resTarget := target.GetResTarget(); resTarget != nil {
-				fieldName := resTarget.GetName()
-				if val := resTarget.GetVal(); val != nil {
-					// For parameter references, we'll store them as placeholders
-					// Actual parameter binding happens later in execution
-					if paramRef := val.GetParamRef(); paramRef != nil {
-						updates[fieldName] = fmt.Sprintf("$%d", paramRef.GetNumber())
-					} else if aConst := val.GetAConst(); aConst != nil {
-						// Extract constant values
-						switch {
-						case aConst.GetSval() != nil:
-							updates[fieldName] = aConst.GetSval().GetSval()
-						case aConst.GetIval() != nil:
-							updates[fieldName] = aConst.GetIval().GetIval()
-						case aConst.GetFval() != nil:
-							if f, err := strconv.ParseFloat(aConst.GetFval().GetFval(), 64); err == nil {
-								updates[fieldName] = f
-							}
-						case aConst.GetBoolval() != nil:
-							updates[fieldName] = aConst.GetBoolval().GetBoolval()
-						}
-					}
-				}
-			}
-		}
-		plan.Updates = updates
-	}
-	
-	// Extract WHERE conditions
-	if whereClause := updateStmt.GetWhereClause(); whereClause != nil {
-		conditions := p.extractConditionsFromExpr(whereClause)
-		plan.Conditions = conditions
-	}
-}
-
-
-// extractInsertInfoFromPGNode extracts table name and values for INSERT statements from pg_query AST
-func (p *Planner) extractInsertInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
-	insertStmt := stmt.GetInsertStmt()
-	if insertStmt == nil {
-		return
-	}
-	
-	// Extract table name
-	if relation := insertStmt.GetRelation(); relation != nil {
-		plan.Table = relation.GetRelname()
-	}
-	
-	// Extract column names
-	var columns []string
-	if insertStmt.GetCols() != nil {
-		for _, col := range insertStmt.GetCols() {
-			if resTarget := col.GetResTarget(); resTarget != nil {
-				columns = append(columns, resTarget.GetName())
-			}
-		}
-	}
-	
-	// Extract values
-	if selectStmt := insertStmt.GetSelectStmt(); selectStmt != nil {
-		// Handle VALUES clause
-		if valuesLists := selectStmt.GetNode().(*pg_query.Node_SelectStmt).SelectStmt.GetValuesLists(); valuesLists != nil && len(valuesLists) > 0 {
-			if rows := valuesLists[0]; rows != nil {
-				values := make(map[string]interface{})
-				// Get the first row of values (assuming single row insert)
-				if list := rows.GetList(); list != nil {
-					if items := list.GetItems(); len(items) > 0 {
-						// Process each item in the first row directly
-						for i, item := range items {
-							if i < len(columns) {
-								columnName := columns[i]
-								// Handle parameter references
-								if paramRef := item.GetParamRef(); paramRef != nil {
-									values[columnName] = fmt.Sprintf("$%d", paramRef.GetNumber())
-								} else if aConst := item.GetAConst(); aConst != nil {
-									// Extract constant values
-									switch {
-									case aConst.GetSval() != nil:
-										values[columnName] = aConst.GetSval().GetSval()
-									case aConst.GetIval() != nil:
-										values[columnName] = aConst.GetIval().GetIval()
-									case aConst.GetFval() != nil:
-										if f, err := strconv.ParseFloat(aConst.GetFval().GetFval(), 64); err == nil {
-											values[columnName] = f
-										}
-									case aConst.GetBoolval() != nil:
-										values[columnName] = aConst.GetBoolval().GetBoolval()
-									}
-								}
-							}
-						}
-						plan.Values = values
-					}
-				}
-			}
-		}
-	}
-}
-
-// extractDeleteInfoFromPGNode extracts table name and conditions for DELETE statements from pg_query AST
-func (p *Planner) extractDeleteInfoFromPGNode(stmt *pg_query.Node, plan *Plan) {
-	deleteStmt := stmt.GetDeleteStmt()
-	if deleteStmt == nil {
-		return
-	}
-	
-	// Extract table name
-	if relation := deleteStmt.GetRelation(); relation != nil {
-		plan.Table = relation.GetRelname()
-	}
-	
-	// Extract WHERE conditions
-	if whereClause := deleteStmt.GetWhereClause(); whereClause != nil {
-		conditions := p.extractConditionsFromExpr(whereClause)
-		plan.Conditions = conditions
-	}
 }

@@ -11,14 +11,14 @@ mkdir -p test_logs
 # 1. Unit Tests
 echo ""
 echo "=== 1. Running Unit Tests ==="
-go test -v ./... 2>&1 | tee test_logs/unit.log
+go test -v ./... -timeout 30s 2>&1 | tee test_logs/unit.log
 UNIT_EXIT=$?
 
 # 2. Integration Tests
 echo ""
 echo "=== 2. Running Integration Tests ==="
 cd examples/integration_test
-go test -v ./... 2>&1 | tee ../../test_logs/integration.log
+go test -v ./... -timeout 30s 2>&1 | tee ../../test_logs/integration.log
 INTEGRATION_EXIT=$?
 cd ../..
 
@@ -36,7 +36,7 @@ sleep 3
 echo ""
 echo "=== 4. Running GORM Client Test ==="
 cd examples/gorm_test
-go run main.go 2>&1 | tee ../../test_logs/gorm.log
+timeout 30s go run main.go 2>&1 | tee ../../test_logs/gorm.log
 GORM_EXIT=$?
 cd ../..
 
