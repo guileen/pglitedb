@@ -2,7 +2,6 @@ package pebble
 
 import (
 	"context"
-	"reflect"
 	"time"
 
 	"github.com/guileen/pglitedb/codec"
@@ -81,24 +80,11 @@ func (e *pebbleEngine) GetKV() storage.KV {
 func getTransactionID(txn storage.Transaction) uint64 {
 	// Try to get the transaction ID from the extended interface
 	if txnWithID, ok := txn.(interface{ TxnID() uint64 }); ok {
-		txnID := txnWithID.TxnID()
-		return txnID
+		return txnWithID.TxnID()
 	}
 	
-	// Fallback to reflection for other transaction types
-	val := reflect.ValueOf(txn)
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
-	
-	if val.Kind() == reflect.Struct {
-		field := val.FieldByName("txnID")
-		if field.IsValid() && field.Kind() == reflect.Uint64 {
-			txnID := field.Uint()
-			return txnID
-		}
-	}
-	
+	// When reflection is needed, it should be logged as a WARNING in production
+	// All transaction implementations should satisfy the TxnID() interface
 	return 0
 }
 

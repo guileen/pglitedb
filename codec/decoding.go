@@ -60,7 +60,7 @@ func (c *memcodec) DecodeIndexKeyWithSchema(key []byte, indexColumnTypes []types
 				err = errors.Errorf(errors.ErrCodeCodec, "invalid string/bytes encoding at index value %d", i)
 				return
 			}
-		case types.ColumnTypeNumber, types.ColumnTypeTimestamp, types.ColumnTypeDate:
+		case types.ColumnTypeNumber, types.ColumnTypeNumeric, types.ColumnTypeTimestamp, types.ColumnTypeDate:
 			// Fixed size: flag byte + 8 bytes for numeric values
 			valueEnd = offset + 9
 		case types.ColumnTypeBoolean:
@@ -249,7 +249,7 @@ func (c *memcodec) DecodeValue(data []byte, colType types.ColumnType) (interface
 	switch colType {
 	case types.ColumnTypeString, types.ColumnTypeText:
 		return decodeString(data)
-	case types.ColumnTypeNumber, types.ColumnTypeSmallInt, types.ColumnTypeInteger, types.ColumnTypeBigInt:
+	case types.ColumnTypeNumber, types.ColumnTypeSmallInt, types.ColumnTypeInteger, types.ColumnTypeBigInt, types.ColumnTypeNumeric:
 		return decodeNumber(data)
 	case types.ColumnTypeBoolean:
 		return decodeBoolean(data)
@@ -296,7 +296,7 @@ func (c *memcodec) DecodeCompositeKey(data []byte, colTypes []types.ColumnType) 
 				}
 				endIdx++
 			}
-		case types.ColumnTypeNumber, types.ColumnTypeSmallInt, types.ColumnTypeInteger, types.ColumnTypeBigInt, types.ColumnTypeTimestamp, types.ColumnTypeDate:
+		case types.ColumnTypeNumber, types.ColumnTypeSmallInt, types.ColumnTypeInteger, types.ColumnTypeBigInt, types.ColumnTypeNumeric, types.ColumnTypeTimestamp, types.ColumnTypeDate:
 			endIdx = offset + 9
 		case types.ColumnTypeBoolean:
 			endIdx = offset + 1

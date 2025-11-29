@@ -3,6 +3,9 @@ package sql
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
+	"sync/atomic"
 	
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 	"github.com/guileen/pglitedb/catalog"
@@ -15,6 +18,10 @@ type Planner struct {
 	executor  *Executor
 	optimizer *QueryOptimizer
 	planCache *LRUCache
+	
+	// Metrics for plan caching
+	cacheHits   int64
+	cacheMisses int64
 }
 
 // NewPlanner creates a new query planner
@@ -98,17 +105,46 @@ func (p *Planner) PlanCacheSize() int {
 	return 0
 }
 
+// CacheStats returns cache hit and miss statistics
+func (p *Planner) CacheStats() (hits, misses int64) {
+	return atomic.LoadInt64(&p.cacheHits), atomic.LoadInt64(&p.cacheMisses)
+}
+
+// CacheHitRate returns the cache hit rate as a percentage
+func (p *Planner) CacheHitRate() float64 {
+	hits, misses := p.CacheStats()
+	total := hits + misses
+	if total == 0 {
+		return 0.0
+	}
+	return float64(hits) / float64(total) * 100
+}
+
+// ResetCacheStats resets the cache hit/miss counters
+func (p *Planner) ResetCacheStats() {
+	atomic.StoreInt64(&p.cacheHits, 0)
+	atomic.StoreInt64(&p.cacheMisses, 0)
+}
+
 // CreatePlan creates an execution plan from a SQL query
 func (p *Planner) CreatePlan(query string) (*Plan, error) {
+	// Normalize the query for cache key
+	normalizedQuery := p.normalizeSQL(query)
+	
 	// Check cache first
 	if p.planCache != nil {
-		if cachedPlan, ok := p.planCache.Get(query); ok {
+		if cachedPlan, ok := p.planCache.Get(normalizedQuery); ok {
 			if plan, ok := cachedPlan.(*Plan); ok {
+				// Increment cache hit counter
+				atomic.AddInt64(&p.cacheHits, 1)
 				// Return a copy of the cached plan to avoid concurrency issues
 				return p.copyPlan(plan), nil
 			}
 		}
 	}
+	
+	// Increment cache miss counter (we're about to parse/create a new plan)
+	atomic.AddInt64(&p.cacheMisses, 1)
 
 	// Parse the query using the configured parser
 	parsedQuery, err := p.parser.Parse(query)
@@ -162,9 +198,9 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 			plan.Operation = "unknown"
 		}
 		
-		// Cache the plan
+		// Cache the plan with normalized query as key
 		if p.planCache != nil {
-			p.planCache.Put(query, p.copyPlan(plan))
+			p.planCache.Put(normalizedQuery, p.copyPlan(plan))
 		}
 		
 		return plan, nil
@@ -249,12 +285,27 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 		}
 	}
 	
-	// Cache the plan
+	// Cache the plan with normalized query as key
 	if p.planCache != nil {
-		p.planCache.Put(query, p.copyPlan(plan))
+		p.planCache.Put(normalizedQuery, p.copyPlan(plan))
 	}
 
 	return plan, nil
+}
+
+// normalizeSQL normalizes a SQL query string for use as a cache key
+// This removes extra whitespace, normalizes case, and standardizes formatting
+func (p *Planner) normalizeSQL(query string) string {
+	// Convert to lowercase for case-insensitive comparison
+	// Remove extra whitespace and standardize spacing
+	result := strings.ToLower(strings.TrimSpace(query))
+	
+	// Standardize whitespace around common SQL keywords
+	result = regexp.MustCompile(`\s+`).ReplaceAllString(result, " ")
+	result = regexp.MustCompile(`\s*,\s*`).ReplaceAllString(result, ", ")
+	result = regexp.MustCompile(`\s*=\s*`).ReplaceAllString(result, " = ")
+	
+	return result
 }
 
 // copyPlan creates a deep copy of a Plan for thread safety

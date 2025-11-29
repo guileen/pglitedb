@@ -53,14 +53,24 @@ func NewIndexIterator(
 ) *IndexIterator {
 	// Use adaptive batch size based on expected result set size
 	initialBatchSize := 200
-	if opts != nil && opts.Limit > 0 {
-		// If limit is specified, use smaller of limit or initial batch size
-		if opts.Limit < initialBatchSize {
-			initialBatchSize = opts.Limit
+	if opts != nil {
+		if opts.Limit > 0 {
+			// If limit is specified, use smaller of limit or initial batch size
+			if opts.Limit < initialBatchSize {
+				initialBatchSize = opts.Limit
+			}
+		} else if opts.Offset > 0 {
+			// For offset queries, use larger batch size to skip efficiently
+			initialBatchSize = 500
 		}
 	} else {
 		// For unlimited scans, start with larger batch size to reduce round trips
 		initialBatchSize = 1000
+	}
+	
+	// Cap batch size to prevent excessive memory usage
+	if initialBatchSize > 5000 {
+		initialBatchSize = 5000
 	}
 	
 	return &IndexIterator{
@@ -98,14 +108,24 @@ func (ii *IndexIterator) Initialize(
 ) {
 	// Use adaptive batch size based on expected result set size
 	initialBatchSize := 200
-	if opts != nil && opts.Limit > 0 {
-		// If limit is specified, use smaller of limit or initial batch size
-		if opts.Limit < initialBatchSize {
-			initialBatchSize = opts.Limit
+	if opts != nil {
+		if opts.Limit > 0 {
+			// If limit is specified, use smaller of limit or initial batch size
+			if opts.Limit < initialBatchSize {
+				initialBatchSize = opts.Limit
+			}
+		} else if opts.Offset > 0 {
+			// For offset queries, use larger batch size to skip efficiently
+			initialBatchSize = 500
 		}
 	} else {
 		// For unlimited scans, start with larger batch size to reduce round trips
 		initialBatchSize = 1000
+	}
+	
+	// Cap batch size to prevent excessive memory usage
+	if initialBatchSize > 5000 {
+		initialBatchSize = 5000
 	}
 	
 	ii.iter = iter

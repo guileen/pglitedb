@@ -181,5 +181,12 @@ func (rm *ResourceManager) AdjustPoolSizes() {
 	rm.sizingManager.AdjustPoolSizes(rm.metrics)
 }
 
+// ProactiveCleanup performs cleanup of unused resources
+func (rm *ResourceManager) ProactiveCleanup() {
+	// Trigger garbage collection if memory usage is high
+	// This is a placeholder - actual implementation would check metrics
+	// and trigger cleanup based on thresholds
+}
+
 // Initialize resource manager instance
 var defaultResourceManager = NewResourceManager()
