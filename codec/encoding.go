@@ -156,24 +156,30 @@ func (c *memcodec) EncodeRow(row *types.Record, schemaDef *types.TableDefinition
 	encoded.TxnID = 0
 	encoded.TxnTimestamp = 0
 
-	for colName, value := range row.Data {
-		var colType types.ColumnType
-		for _, col := range schemaDef.Columns {
-			if col.Name == colName {
-				colType = col.Type
-				break
-			}
-		}
+	// Create a map for faster column lookup
+	columnMap := make(map[string]types.ColumnType, len(schemaDef.Columns))
+	for _, col := range schemaDef.Columns {
+		columnMap[col.Name] = col.Type
+	}
 
-		if colType == "" {
+	for colName, value := range row.Data {
+		colType, exists := columnMap[colName]
+		if !exists {
 			ReleaseEncodedRow(encoded) // Return to pool on error
-			return nil, errors.Errorf(errors.ErrCodeCodec, "column %s not found in schema", colName)
+			
+			// Provide more detailed error information
+			var definedColumns []string
+			for _, col := range schemaDef.Columns {
+				definedColumns = append(definedColumns, col.Name)
+			}
+			
+			return nil, errors.Errorf(errors.ErrCodeCodec, "column '%s' not found in schema. Available columns: %v", colName, definedColumns)
 		}
 
 		valueBytes, err := c.EncodeValue(value.Data, colType)
 		if err != nil {
 			ReleaseEncodedRow(encoded) // Return to pool on error
-			return nil, errors.Wrapf(err, errors.ErrCodeCodec, "EncodeRow", "failed to encode column %s", colName)
+			return nil, errors.Wrapf(err, errors.ErrCodeCodec, "EncodeRow", "failed to encode column '%s'", colName)
 		}
 		encoded.Columns[colName] = valueBytes
 	}
