@@ -14,8 +14,8 @@ import (
 // =============================================================================
 
 func (c *memcodec) EncodeTableKey(tenantID, tableID, rowID int64) []byte {
-	// Pre-allocate with a reasonable size for table keys
-	buf := make([]byte, 0, 32)
+	// Use pooled buffer for table keys
+	buf := c.keyBufferPools.AcquireTableKeyBuffer()
 	buf = append(buf, byte(KeyTypeTable))
 	buf = appendMemComparableInt64(buf, tenantID)
 	buf = append(buf, byte(KeyTypeRow))
@@ -25,8 +25,8 @@ func (c *memcodec) EncodeTableKey(tenantID, tableID, rowID int64) []byte {
 }
 
 func (c *memcodec) EncodeIndexKey(tenantID, tableID, indexID int64, indexValue interface{}, rowID int64) ([]byte, error) {
-	// Pre-allocate with a reasonable size for index keys
-	buf := make([]byte, 0, 64)
+	// Use pooled buffer for index keys
+	buf := c.keyBufferPools.AcquireIndexKeyBuffer()
 	buf = append(buf, byte(KeyTypeTable))
 	buf = appendMemComparableInt64(buf, tenantID)
 	buf = append(buf, byte(KeyTypeIndex))
@@ -35,6 +35,7 @@ func (c *memcodec) EncodeIndexKey(tenantID, tableID, indexID int64, indexValue i
 
 	valueBytes, err := c.encodeMemComparableValue(indexValue)
 	if err != nil {
+		c.keyBufferPools.ReleaseIndexKeyBuffer(buf)
 		return nil, errors.Wrapf(err, errors.ErrCodeCodec, "EncodeIndexKey", "failed to encode index value")
 	}
 	buf = append(buf, valueBytes...)
@@ -48,8 +49,8 @@ func (c *memcodec) EncodeCompositeIndexKey(tenantID, tableID, indexID int64, ind
 		return nil, errors.New(errors.ErrCodeCodec, "index values cannot be empty")
 	}
 
-	// Pre-allocate with a reasonable size for composite index keys
-	buf := make([]byte, 0, 128)
+	// Use pooled buffer for composite index keys
+	buf := c.keyBufferPools.AcquireCompositeIndexKeyBuffer()
 	buf = append(buf, byte(KeyTypeTable))
 	buf = appendMemComparableInt64(buf, tenantID)
 	buf = append(buf, byte(KeyTypeIndex))
@@ -60,6 +61,7 @@ func (c *memcodec) EncodeCompositeIndexKey(tenantID, tableID, indexID int64, ind
 	for _, value := range indexValues {
 		valueBytes, err := c.encodeMemComparableValue(value)
 		if err != nil {
+			c.keyBufferPools.ReleaseCompositeIndexKeyBuffer(buf)
 			return nil, errors.Wrapf(err, errors.ErrCodeCodec, "EncodeCompositeIndexKey", "failed to encode index value")
 		}
 		buf = append(buf, valueBytes...)
@@ -71,8 +73,8 @@ func (c *memcodec) EncodeCompositeIndexKey(tenantID, tableID, indexID int64, ind
 
 // EncodeIndexScanStartKey creates a start key for index scanning
 func (c *memcodec) EncodeIndexScanStartKey(tenantID, tableID, indexID int64) []byte {
-	// Pre-allocate with a reasonable size for index scan keys
-	buf := make([]byte, 0, 32)
+	// Use pooled buffer for index scan keys
+	buf := c.keyBufferPools.AcquireIndexScanKeyBuffer()
 	buf = append(buf, byte(KeyTypeTable))
 	buf = appendMemComparableInt64(buf, tenantID)
 	buf = append(buf, byte(KeyTypeIndex))
@@ -83,8 +85,8 @@ func (c *memcodec) EncodeIndexScanStartKey(tenantID, tableID, indexID int64) []b
 
 // EncodeIndexScanEndKey creates an end key for index scanning
 func (c *memcodec) EncodeIndexScanEndKey(tenantID, tableID, indexID int64) []byte {
-	// Pre-allocate with a reasonable size for index scan keys
-	buf := make([]byte, 0, 33)
+	// Use pooled buffer for index scan keys
+	buf := c.keyBufferPools.AcquireFromSizeTieredPool(33)
 	buf = append(buf, byte(KeyTypeTable))
 	buf = appendMemComparableInt64(buf, tenantID)
 	buf = append(buf, byte(KeyTypeIndex))
@@ -98,8 +100,8 @@ func (c *memcodec) EncodeIndexScanEndKey(tenantID, tableID, indexID int64) []byt
 
 // EncodePKKey encodes a primary key
 func (c *memcodec) EncodePKKey(tenantID, tableID int64, pkValue interface{}) ([]byte, error) {
-	// Pre-allocate with a reasonable size for PK keys
-	buf := make([]byte, 0, 64)
+	// Use pooled buffer for PK keys
+	buf := c.keyBufferPools.AcquirePKKeyBuffer()
 	buf = append(buf, byte(KeyTypeTable))
 	buf = appendMemComparableInt64(buf, tenantID)
 	buf = append(buf, byte(KeyTypePK))
@@ -107,6 +109,7 @@ func (c *memcodec) EncodePKKey(tenantID, tableID int64, pkValue interface{}) ([]
 
 	valueBytes, err := c.encodeMemComparableValue(pkValue)
 	if err != nil {
+		c.keyBufferPools.ReleasePKKeyBuffer(buf)
 		return nil, errors.Wrapf(err, errors.ErrCodeCodec, "EncodePKKey", "failed to encode pk value")
 	}
 	buf = append(buf, valueBytes...)
@@ -116,8 +119,14 @@ func (c *memcodec) EncodePKKey(tenantID, tableID int64, pkValue interface{}) ([]
 
 // EncodeMetaKey encodes a metadata key
 func (c *memcodec) EncodeMetaKey(tenantID int64, metaType string, key string) []byte {
-	// Pre-allocate with a reasonable size for meta keys
-	buf := make([]byte, 0, 64)
+	// Calculate approximate size needed
+	sizeHint := 1 + 8 + len(metaType) + 1 + len(key) // keyType + tenantID + metaType + separator + key
+	if sizeHint < 64 {
+		sizeHint = 64 // Minimum size for meta key buffer
+	}
+	
+	// Use pooled buffer for meta keys
+	buf := c.keyBufferPools.AcquireFromSizeTieredPool(sizeHint)
 	buf = append(buf, byte(KeyTypeMeta))
 	buf = appendMemComparableInt64(buf, tenantID)
 	buf = append(buf, metaType...)
@@ -128,8 +137,8 @@ func (c *memcodec) EncodeMetaKey(tenantID int64, metaType string, key string) []
 
 // EncodeSequenceKey encodes a sequence key
 func (c *memcodec) EncodeSequenceKey(tenantID int64, seqName string) []byte {
-	// Pre-allocate with a reasonable size for sequence keys
-	buf := make([]byte, 0, 32)
+	// Use pooled buffer for sequence keys
+	buf := c.keyBufferPools.AcquireSequenceKeyBuffer()
 	buf = append(buf, byte(KeyTypeSequence))
 	buf = appendMemComparableInt64(buf, tenantID)
 	buf = append(buf, seqName...)
@@ -271,11 +280,14 @@ func (c *memcodec) encodeMemComparableValue(value interface{}) ([]byte, error) {
 
 // EncodeTableKeyBuffer encodes a table key into the provided buffer, reusing it when possible
 func (c *memcodec) EncodeTableKeyBuffer(tenantID, tableID, rowID int64, buf []byte) ([]byte, error) {
-	// Reuse buffer when possible to eliminate allocations
+	// If buffer is provided, use it; otherwise acquire from pool
+	shouldRelease := false
 	if buf == nil {
-		buf = make([]byte, 0, 32) // Pre-allocate with reasonable size
+		buf = c.keyBufferPools.AcquireTableKeyBuffer()
+		shouldRelease = true
+	} else {
+		buf = buf[:0]
 	}
-	buf = buf[:0]
 
 	// Encode the key components
 	buf = append(buf, byte(KeyTypeTable))
@@ -284,16 +296,24 @@ func (c *memcodec) EncodeTableKeyBuffer(tenantID, tableID, rowID int64, buf []by
 	buf = appendMemComparableInt64(buf, tableID)
 	buf = appendMemComparableInt64(buf, rowID)
 
+	// If we acquired from pool but the caller provided their own buffer, release back to pool
+	if shouldRelease && cap(buf) != 32 {
+		c.keyBufferPools.ReleaseToSizeTieredPool(buf)
+	}
+
 	return buf, nil
 }
 
 // EncodeIndexKeyBuffer encodes an index key into the provided buffer, reusing it when possible
 func (c *memcodec) EncodeIndexKeyBuffer(tenantID, tableID, indexID int64, indexValue interface{}, rowID int64, buf []byte) ([]byte, error) {
-	// Reuse buffer when possible to eliminate allocations
+	// If buffer is provided, use it; otherwise acquire from pool
+	shouldRelease := false
 	if buf == nil {
-		buf = make([]byte, 0, 64) // Pre-allocate with reasonable size
+		buf = c.keyBufferPools.AcquireIndexKeyBuffer()
+		shouldRelease = true
+	} else {
+		buf = buf[:0]
 	}
-	buf = buf[:0]
 
 	buf = append(buf, byte(KeyTypeTable))
 	buf = appendMemComparableInt64(buf, tenantID)
@@ -303,10 +323,19 @@ func (c *memcodec) EncodeIndexKeyBuffer(tenantID, tableID, indexID int64, indexV
 
 	valueBytes, err := c.encodeMemComparableValue(indexValue)
 	if err != nil {
+		// If we acquired from pool, release it back
+		if shouldRelease {
+			c.keyBufferPools.ReleaseIndexKeyBuffer(buf)
+		}
 		return nil, errors.Wrapf(err, errors.ErrCodeCodec, "EncodeIndexKeyBuffer", "failed to encode index value")
 	}
 	buf = append(buf, valueBytes...)
 	buf = appendMemComparableInt64(buf, rowID)
+
+	// If we acquired from pool but the caller provided their own buffer, release back to pool
+	if shouldRelease && cap(buf) != 64 {
+		c.keyBufferPools.ReleaseToSizeTieredPool(buf)
+	}
 
 	return buf, nil
 }
@@ -317,11 +346,14 @@ func (c *memcodec) EncodeCompositeIndexKeyBuffer(tenantID, tableID, indexID int6
 		return nil, errors.New(errors.ErrCodeCodec, "index values cannot be empty")
 	}
 
-	// Reuse buffer when possible to eliminate allocations
+	// If buffer is provided, use it; otherwise acquire from pool
+	shouldRelease := false
 	if buf == nil {
-		buf = make([]byte, 0, 128) // Pre-allocate with reasonable size
+		buf = c.keyBufferPools.AcquireCompositeIndexKeyBuffer()
+		shouldRelease = true
+	} else {
+		buf = buf[:0]
 	}
-	buf = buf[:0]
 
 	buf = append(buf, byte(KeyTypeTable))
 	buf = appendMemComparableInt64(buf, tenantID)
@@ -333,11 +365,56 @@ func (c *memcodec) EncodeCompositeIndexKeyBuffer(tenantID, tableID, indexID int6
 	for _, value := range indexValues {
 		valueBytes, err := c.encodeMemComparableValue(value)
 		if err != nil {
+			// If we acquired from pool, release it back
+			if shouldRelease {
+				c.keyBufferPools.ReleaseCompositeIndexKeyBuffer(buf)
+			}
 			return nil, errors.Wrapf(err, errors.ErrCodeCodec, "EncodeCompositeIndexKeyBuffer", "failed to encode index value")
 		}
 		buf = append(buf, valueBytes...)
 	}
 
 	buf = appendMemComparableInt64(buf, rowID)
+
+	// If we acquired from pool but the caller provided their own buffer, release back to pool
+	if shouldRelease && cap(buf) != 128 {
+		c.keyBufferPools.ReleaseToSizeTieredPool(buf)
+	}
+
 	return buf, nil
+}
+
+// ReleaseTableKey releases a table key buffer back to the pool
+func (c *memcodec) ReleaseTableKey(buf []byte) {
+	c.keyBufferPools.ReleaseTableKeyBuffer(buf)
+}
+
+// ReleaseIndexKey releases an index key buffer back to the pool
+func (c *memcodec) ReleaseIndexKey(buf []byte) {
+	c.keyBufferPools.ReleaseIndexKeyBuffer(buf)
+}
+
+// ReleaseCompositeIndexKey releases a composite index key buffer back to the pool
+func (c *memcodec) ReleaseCompositeIndexKey(buf []byte) {
+	c.keyBufferPools.ReleaseCompositeIndexKeyBuffer(buf)
+}
+
+// ReleasePKKey releases a primary key buffer back to the pool
+func (c *memcodec) ReleasePKKey(buf []byte) {
+	c.keyBufferPools.ReleasePKKeyBuffer(buf)
+}
+
+// ReleaseMetaKey releases a metadata key buffer back to the pool
+func (c *memcodec) ReleaseMetaKey(buf []byte) {
+	c.keyBufferPools.ReleaseMetaKeyBuffer(buf)
+}
+
+// ReleaseSequenceKey releases a sequence key buffer back to the pool
+func (c *memcodec) ReleaseSequenceKey(buf []byte) {
+	c.keyBufferPools.ReleaseSequenceKeyBuffer(buf)
+}
+
+// ReleaseIndexScanKey releases an index scan key buffer back to the pool
+func (c *memcodec) ReleaseIndexScanKey(buf []byte) {
+	c.keyBufferPools.ReleaseIndexScanKeyBuffer(buf)
 }

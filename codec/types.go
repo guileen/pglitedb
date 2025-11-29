@@ -45,6 +45,15 @@ type Codec interface {
 
 	EncodeCompositeKey(values []interface{}, types []types.ColumnType) ([]byte, error)
 	DecodeCompositeKey(data []byte, types []types.ColumnType) ([]interface{}, error)
+	
+	// Release methods for returning buffers to pools
+	ReleaseTableKey(buf []byte)
+	ReleaseIndexKey(buf []byte)
+	ReleaseCompositeIndexKey(buf []byte)
+	ReleasePKKey(buf []byte)
+	ReleaseMetaKey(buf []byte)
+	ReleaseSequenceKey(buf []byte)
+	ReleaseIndexScanKey(buf []byte)
 }
 
 type EncodedRow struct {

@@ -48,8 +48,12 @@ func ReleaseEncodedRow(er *EncodedRow) {
 	encodedRowPool.Put(er)
 }
 
-type memcodec struct{}
+type memcodec struct {
+	keyBufferPools *KeyBufferPools
+}
 
 func NewMemComparableCodec() Codec {
-	return &memcodec{}
+	return &memcodec{
+		keyBufferPools: NewKeyBufferPools(),
+	}
 }
