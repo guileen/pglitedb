@@ -21,12 +21,21 @@ func (tx *snapshotTransaction) GetRow(ctx context.Context, tenantID, tableID, ro
 	key := pe.codec.EncodeTableKey(tenantID, tableID, rowID)
 
 	if val, ok := tx.mutations[string(key)]; ok {
+		if val == nil {
+			// Row is marked for deletion
+			return nil, storage.ErrNotFound
+		}
 		return pe.codec.DecodeRow(val, schemaDef)
 	}
 
 	val, err := tx.snapshot.Get(key)
 	if err != nil {
 		return nil, err
+	}
+
+	// Check if the value is nil (marked for deletion)
+	if val == nil {
+		return nil, storage.ErrNotFound
 	}
 
 	return pe.codec.DecodeRow(val, schemaDef)
@@ -328,7 +337,7 @@ func (tx *snapshotTransaction) DeleteRows(ctx context.Context, tenantID, tableID
 	}
 	defer iter.Close()
 	
-	// Call First() and check if it succeeded
+	// Call First() to position the iterator at the first element
 	if !iter.First() {
 		// Check if there was an error
 		if err := iter.Error(); err != nil {
@@ -339,7 +348,7 @@ func (tx *snapshotTransaction) DeleteRows(ctx context.Context, tenantID, tableID
 	}
 	
 	// Continue with the iteration
-	for iter.Valid() {
+	for {
 		_, _, rowID, err := pe.codec.DecodeTableKey(iter.Key())
 		if err != nil {
 			return 0, fmt.Errorf("decode table key: %w", err)
