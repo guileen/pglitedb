@@ -11,7 +11,7 @@ import (
 	"github.com/guileen/pglitedb/engine/pebble/operations/query"
 	"github.com/guileen/pglitedb/engine/pebble/operations/scan"
 	"github.com/guileen/pglitedb/engine/pebble/resources"
-	"github.com/guileen/pglitedb/engine/pebble/transactions"
+	"github.com/guileen/pglitedb/engine/pebble/utils"
 	"github.com/guileen/pglitedb/idgen"
 	"github.com/guileen/pglitedb/storage"
 )
@@ -27,7 +27,7 @@ type pebbleEngine struct {
 	insertOperations    *query.InsertOperations
 	updateOperations    *query.UpdateOperations
 	deleteOperations    *query.DeleteOperations
-	deadlockDetector    *transactions.DeadlockDetector
+	deadlockDetector    *utils.DeadlockDetector
 	iteratorPool        *scan.IteratorPool
 }
 
@@ -42,7 +42,7 @@ func NewPebbleEngine(kvStore storage.KV, c codec.Codec) engineTypes.StorageEngin
 	rm.TrackConnection(kvStore)
 	
 	// Create deadlock detector with abort callback
-	deadlockDetector := transactions.NewDeadlockDetector(100*time.Millisecond, func(txnID uint64) {
+	deadlockDetector := utils.NewDeadlockDetector(100*time.Millisecond, func(txnID uint64) {
 		// This is a placeholder - in a real implementation we would need to signal
 		// the transaction manager to abort this transaction
 	})
@@ -103,7 +103,7 @@ func getTransactionID(txn storage.Transaction) uint64 {
 }
 
 // GetDeadlockDetector returns the deadlock detector used by the engine
-func (e *pebbleEngine) GetDeadlockDetector() *transactions.DeadlockDetector {
+func (e *pebbleEngine) GetDeadlockDetector() *utils.DeadlockDetector {
 	return e.deadlockDetector
 }
 
