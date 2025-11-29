@@ -18,6 +18,7 @@ type QueryOperations struct {
 // Codec interface defines the methods needed for encoding/decoding
 type Codec interface {
 	EncodeTableKey(tenantID, tableID, rowID int64) []byte
+	EncodeTableKeyBuffer(tenantID, tableID, rowID int64, buf []byte) ([]byte, error)
 	DecodeTableKey(key []byte) (tenantID, tableID, rowID int64, err error)
 	EncodeRow(record *dbTypes.Record, schemaDef *dbTypes.TableDefinition) ([]byte, error)
 	DecodeRow(data []byte, schemaDef *dbTypes.TableDefinition) (*dbTypes.Record, error)
@@ -33,7 +34,11 @@ func NewQueryOperations(kv storage.KV, codec Codec) *QueryOperations {
 
 // GetRow retrieves a single row by its ID
 func (q *QueryOperations) GetRow(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *dbTypes.TableDefinition) (*dbTypes.Record, error) {
-	key := q.codec.EncodeTableKey(tenantID, tableID, rowID)
+	// Use buffer-aware encoding to reduce allocations
+	key, err := q.codec.EncodeTableKeyBuffer(tenantID, tableID, rowID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("encode table key: %w", err)
+	}
 
 	value, err := q.kv.Get(ctx, key)
 	if err != nil {
@@ -63,8 +68,16 @@ func (q *QueryOperations) GetRowBatch(ctx context.Context, tenantID, tableID int
 	copy(sorted, rowIDs)
 	sortInt64Slice(sorted)
 
-	startKey := q.codec.EncodeTableKey(tenantID, tableID, sorted[0])
-	endKey := q.codec.EncodeTableKey(tenantID, tableID, sorted[len(sorted)-1]+1)
+	// Use buffer-aware encoding to reduce allocations
+	startKey, err := q.codec.EncodeTableKeyBuffer(tenantID, tableID, sorted[0], nil)
+	if err != nil {
+		return nil, fmt.Errorf("encode start key: %w", err)
+	}
+	
+	endKey, err := q.codec.EncodeTableKeyBuffer(tenantID, tableID, sorted[len(sorted)-1]+1, nil)
+	if err != nil {
+		return nil, fmt.Errorf("encode end key: %w", err)
+	}
 
 	iter := q.kv.NewIterator(&storage.IteratorOptions{
 		LowerBound: startKey,

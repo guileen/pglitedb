@@ -25,6 +25,12 @@ func (kep *KeyEncoderPool) Acquire() interface{} {
 
 	if !fromPool {
 		encoder = codec.NewMemComparableCodec()
+		return encoder
+	}
+
+	// Reset the encoder state if possible
+	if resetter, ok := encoder.(interface{ Reset() }); ok {
+		resetter.Reset()
 	}
 
 	return encoder
@@ -32,5 +38,9 @@ func (kep *KeyEncoderPool) Acquire() interface{} {
 
 // Release returns a key encoder to the pool
 func (kep *KeyEncoderPool) Release(encoder interface{}) {
+	// Reset the encoder state if possible before returning to pool
+	if resetter, ok := encoder.(interface{ Reset() }); ok {
+		resetter.Reset()
+	}
 	kep.BasePool.Put(encoder)
 }

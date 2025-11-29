@@ -38,7 +38,12 @@ func (d *DeleteOperations) DeleteRow(ctx context.Context, tenantID, tableID, row
 	batch := d.kv.NewBatch()
 	defer batch.Close()
 
-	key := d.codec.EncodeTableKey(tenantID, tableID, rowID)
+	// Use buffer-aware encoding to reduce allocations
+	key, err := d.codec.EncodeTableKeyBuffer(tenantID, tableID, rowID, nil)
+	if err != nil {
+		return fmt.Errorf("encode table key: %w", err)
+	}
+	
 	if err := batch.Delete(key); err != nil {
 		return fmt.Errorf("batch delete row: %w", err)
 	}
@@ -74,13 +79,21 @@ func (d *DeleteOperations) DeleteRowBatch(ctx context.Context, tenantID, tableID
 
 	sort.Slice(rowIDs, func(i, j int) bool { return rowIDs[i] < rowIDs[j] })
 
+	// Reuse a buffer for key encoding to reduce allocations
+	var keyBuf []byte
+	
 	for _, rowID := range rowIDs {
 		if _, ok := oldRows[rowID]; !ok {
 			continue
 		}
 
-		key := d.codec.EncodeTableKey(tenantID, tableID, rowID)
-		if err := batch.Delete(key); err != nil {
+		// Use buffer-aware encoding to reduce allocations
+		keyBuf, err = d.codec.EncodeTableKeyBuffer(tenantID, tableID, rowID, keyBuf)
+		if err != nil {
+			return fmt.Errorf("encode table key for row %d: %w", rowID, err)
+		}
+		
+		if err := batch.Delete(keyBuf); err != nil {
 			return fmt.Errorf("batch delete row %d: %w", rowID, err)
 		}
 	}
