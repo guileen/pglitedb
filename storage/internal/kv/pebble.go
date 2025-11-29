@@ -459,8 +459,8 @@ func (p *PebbleKV) Stats() shared.KVStats {
 }
 
 func (p *PebbleKV) Flush() error {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	if p.closed {
 		return shared.ErrClosed

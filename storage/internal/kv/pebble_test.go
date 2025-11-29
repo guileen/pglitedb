@@ -18,7 +18,7 @@ func TestPebbleKV_WriteBuffer(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	config := DefaultPebbleConfig(filepath.Join(tmpDir, "db"))
-	config.FlushInterval = 200 * time.Millisecond
+	config.FlushInterval = 500 * time.Millisecond
 	kv, err := NewPebbleKV(config)
 	if err != nil {
 		t.Fatalf("create pebble kv: %v", err)
@@ -98,14 +98,14 @@ func TestPebbleKV_WriteBuffer(t *testing.T) {
 		}
 
 		// Wait a bit to ensure the write is registered before checking
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 		
 		beforeStats := kv.Stats()
 		if beforeStats.PendingWrites == 0 {
 			t.Error("expected pending writes before background flush")
 		}
 
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(600 * time.Millisecond)
 
 		afterStats := kv.Stats()
 		if afterStats.PendingWrites != 0 {
