@@ -10,8 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-
-
 func BenchmarkSimple() {
 	// Connect to the database
 	connString := "postgresql://postgres@localhost:5666/postgres"

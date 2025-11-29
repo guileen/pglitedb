@@ -52,7 +52,8 @@ func NewIndexIterator(
 	},
 ) *IndexIterator {
 	// Use adaptive batch size based on expected result set size
-	initialBatchSize := 200
+	// Optimized for better performance with larger batch sizes
+	initialBatchSize := 500
 	if opts != nil {
 		if opts.Limit > 0 {
 			// If limit is specified, use smaller of limit or initial batch size
@@ -61,16 +62,17 @@ func NewIndexIterator(
 			}
 		} else if opts.Offset > 0 {
 			// For offset queries, use larger batch size to skip efficiently
-			initialBatchSize = 500
+			initialBatchSize = 1000
 		}
 	} else {
 		// For unlimited scans, start with larger batch size to reduce round trips
-		initialBatchSize = 1000
+		initialBatchSize = 2000
 	}
 	
 	// Cap batch size to prevent excessive memory usage
-	if initialBatchSize > 5000 {
-		initialBatchSize = 5000
+	// Increased from 5000 to 10000 for better throughput
+	if initialBatchSize > 10000 {
+		initialBatchSize = 10000
 	}
 	
 	return &IndexIterator{
@@ -107,7 +109,8 @@ func (ii *IndexIterator) Initialize(
 	},
 ) {
 	// Use adaptive batch size based on expected result set size
-	initialBatchSize := 200
+	// Optimized for better performance with larger batch sizes
+	initialBatchSize := 500
 	if opts != nil {
 		if opts.Limit > 0 {
 			// If limit is specified, use smaller of limit or initial batch size
@@ -116,16 +119,17 @@ func (ii *IndexIterator) Initialize(
 			}
 		} else if opts.Offset > 0 {
 			// For offset queries, use larger batch size to skip efficiently
-			initialBatchSize = 500
+			initialBatchSize = 1000
 		}
 	} else {
 		// For unlimited scans, start with larger batch size to reduce round trips
-		initialBatchSize = 1000
+		initialBatchSize = 2000
 	}
 	
 	// Cap batch size to prevent excessive memory usage
-	if initialBatchSize > 5000 {
-		initialBatchSize = 5000
+	// Increased from 5000 to 10000 for better throughput
+	if initialBatchSize > 10000 {
+		initialBatchSize = 10000
 	}
 	
 	ii.iter = iter
@@ -144,7 +148,8 @@ func (ii *IndexIterator) Initialize(
 	
 	// Initialize or reuse rowCache
 	if ii.rowCache == nil {
-		ii.rowCache = make(map[int64]*dbTypes.Record, initialBatchSize)
+		// Pre-allocate with a larger capacity to reduce resizing
+		ii.rowCache = make(map[int64]*dbTypes.Record, initialBatchSize*2)
 	} else {
 		// Clear the map without reallocating
 		for k := range ii.rowCache {
@@ -192,7 +197,8 @@ func (ii *IndexIterator) Next() bool {
 				ii.started = true
 				// Reuse rowCache map to reduce allocations
 				if ii.rowCache == nil {
-					ii.rowCache = make(map[int64]*dbTypes.Record, ii.batchSize)
+					// Pre-allocate with a larger capacity to reduce resizing
+					ii.rowCache = make(map[int64]*dbTypes.Record, ii.batchSize*2)
 				} else {
 					// Clear the map without reallocating
 					for k := range ii.rowCache {

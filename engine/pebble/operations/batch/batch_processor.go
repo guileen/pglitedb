@@ -23,9 +23,9 @@ type BatchProcessorConfig struct {
 // DefaultBatchProcessorConfig returns the default batch processor configuration
 func DefaultBatchProcessorConfig() *BatchProcessorConfig {
 	return &BatchProcessorConfig{
-		MaxBatchSize:     10000,
-		MinBatchSize:     100,
-		TargetBatchSize:  1000,
+		MaxBatchSize:     50000,  // Increased from 10000
+		MinBatchSize:     500,    // Increased from 100
+		TargetBatchSize:  5000,   // Increased from 1000
 		AdaptiveBatching: true,
 	}
 }
@@ -103,6 +103,10 @@ func (bp *BatchProcessorImpl) ProcessBatchInsert(ctx context.Context, tenantID, 
 	if err := bp.kv.Commit(ctx, batch); err != nil {
 		return nil, fmt.Errorf("commit batch: %w", err)
 	}
+
+	// Update statistics
+	atomic.AddInt64(&bp.stats.TotalBatchesProcessed, 1)
+	atomic.AddInt64(&bp.stats.TotalRowsProcessed, int64(len(rows)))
 
 	return rowIDs, nil
 }
