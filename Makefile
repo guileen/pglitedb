@@ -1,4 +1,4 @@
-.PHONY: all build test coverage clean run run-pg run-http install dev fmt vet benchmark integration-test help test-all test-unit test-client
+.PHONY: all build test coverage clean run run-pg run-http install dev fmt vet benchmark integration-test help test-all test-unit test-client concurrent-validate concurrent-validate-short concurrent-validate-long concurrent-clean
 
 # 变量定义
 BINARY_NAME=pglitedb-server
@@ -41,6 +41,10 @@ help:
 	@echo "  make integration-test - 运行集成测试"
 	@echo "  make benchmark      - 运行性能测试"
 	@echo "  make pgbench        - 运行 pgbench 性能测试"
+	@echo "  make concurrent-validate - 运行并发访问验证"
+	@echo "  make concurrent-validate-short - 运行短时间并发访问验证"
+	@echo "  make concurrent-validate-long - 运行长时间并发访问验证"
+	@echo "  make concurrent-clean - 清理并发验证数据"
 	@echo ""
 	@echo "运行相关:"
 	@echo "  make run            - 运行 HTTP 服务器"
@@ -232,6 +236,23 @@ ts-test:
 watch:
 	@which air > /dev/null || (echo "Please install air: go install github.com/air-verse/air@latest" && exit 1)
 	air
+
+## concurrent-validate: Run concurrent access validation with default settings
+concurrent-validate:
+	go run concurrent_access_validation.go
+
+## concurrent-validate-short: Run concurrent access validation for 1 minute per level
+concurrent-validate-short:
+	go run concurrent_access_validation.go -duration=1m
+
+## concurrent-validate-long: Run concurrent access validation for 5 minutes per level
+concurrent-validate-long:
+	go run concurrent_access_validation.go -duration=5m
+
+## concurrent-clean: Clean up concurrent validation data and profiles
+concurrent-clean:
+	rm -rf /tmp/pglitedb-concurrent-validation*
+	rm -rf concurrent_profiles/
 
 ## lint: 运行 golangci-lint（需要安装 golangci-lint）
 lint:
