@@ -162,6 +162,8 @@ type ParsedQuery struct {
 	OrderBy          []OrderBy
 	Limit            *int64
 	Updates          map[string]interface{}
+	// Raw statement for planners that need direct access to the AST
+	RawStmt          interface{}
 }
 
 type Statement interface {
@@ -245,6 +247,7 @@ func (p *SimplePGParser) Parse(query string) (*ParsedQuery, error) {
 		Query:            query,
 		Type:             stmtType,
 		ReturningColumns: returningColumns,
+		RawStmt:          nil, // Simple parser doesn't produce a raw statement
 	}
 
 	return parsed, nil

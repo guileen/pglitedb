@@ -65,19 +65,74 @@ func (p *Planner) SetCatalog(catalogMgr catalog.Manager) {
 
 // CreatePlan creates an execution plan from a SQL query
 func (p *Planner) CreatePlan(query string) (*Plan, error) {
-	// Parse the query using pg_query
-	result, err := pg_query.Parse(query)
+	// Parse the query using the configured parser
+	parsedQuery, err := p.parser.Parse(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse query: %w", err)
 	}
+	
+	// Extract the statement from the parsed query
+	stmt := parsedQuery.RawStmt
+	if stmt == nil {
+		// Handle case when RawStmt is nil (simple parser result)
+		// Create a basic plan using the information available in ParsedQuery
+		plan := &Plan{
+			QueryString: query,
+			Type:        parsedQuery.Type,
+		}
+		
+		// Set operation based on statement type
+		switch parsedQuery.Type {
+		case SelectStatement:
+			plan.Operation = "select"
+		case InsertStatement:
+			plan.Operation = "insert"
+		case UpdateStatement:
+			plan.Operation = "update"
+		case DeleteStatement:
+			plan.Operation = "delete"
+		case BeginStatement:
+			plan.Operation = "begin"
+		case CommitStatement:
+			plan.Operation = "commit"
+		case RollbackStatement:
+			plan.Operation = "rollback"
+		case CreateTableStatement:
+			plan.Operation = "create_table"
+		case DropTableStatement:
+			plan.Operation = "drop_table"
+		case AlterTableStatement:
+			plan.Operation = "alter_table"
+		case CreateIndexStatement:
+			plan.Operation = "create_index"
+		case DropIndexStatement:
+			plan.Operation = "drop_index"
+		case CreateViewStatement:
+			plan.Operation = "create_view"
+		case DropViewStatement:
+			plan.Operation = "drop_view"
+		case AnalyzeStatementType:
+			plan.Operation = "analyze"
+		default:
+			plan.Operation = "unknown"
+		}
+		
+		return plan, nil
+	}
+	
+	// Type assert to the correct type
+	pgStmt, ok := stmt.(*pg_query.ParseResult)
+	if !ok {
+		return nil, fmt.Errorf("statement is not of expected type")
+	}
 
-	if len(result.Stmts) == 0 {
+	if len(pgStmt.Stmts) == 0 {
 		return nil, fmt.Errorf("empty query")
 	}
 
 	// For now, we only handle the first statement
-	stmt := result.Stmts[0].GetStmt()
-	if stmt == nil {
+	stmtNode := pgStmt.Stmts[0].GetStmt()
+	if stmtNode == nil {
 		return nil, fmt.Errorf("invalid statement")
 	}
 
@@ -87,38 +142,38 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 
 	// Determine statement type and extract relevant information
 	switch {
-	case stmt.GetSelectStmt() != nil:
+	case stmtNode.GetSelectStmt() != nil:
 		plan.Type = SelectStatement
 		plan.Operation = "select"
-		p.extractSelectInfoFromPGNode(stmt, plan)
-	case stmt.GetInsertStmt() != nil:
+		p.extractSelectInfoFromPGNode(pgStmt, plan)
+	case stmtNode.GetInsertStmt() != nil:
 		plan.Type = InsertStatement
 		plan.Operation = "insert"
-		p.extractInsertInfoFromPGNode(stmt, plan)
-	case stmt.GetUpdateStmt() != nil:
+		p.extractInsertInfoFromPGNode(pgStmt, plan)
+	case stmtNode.GetUpdateStmt() != nil:
 		plan.Type = UpdateStatement
 		plan.Operation = "update"
-		p.extractUpdateInfoFromPGNode(stmt, plan)
-	case stmt.GetDeleteStmt() != nil:
+		p.extractUpdateInfoFromPGNode(pgStmt, plan)
+	case stmtNode.GetDeleteStmt() != nil:
 		plan.Type = DeleteStatement
 		plan.Operation = "delete"
-		p.extractDeleteInfoFromPGNode(stmt, plan)
-	case stmt.GetCreateStmt() != nil:
+		p.extractDeleteInfoFromPGNode(pgStmt, plan)
+	case stmtNode.GetCreateStmt() != nil:
 		plan.Type = CreateTableStatement
-	case stmt.GetDropStmt() != nil:
+	case stmtNode.GetDropStmt() != nil:
 		plan.Type = DropTableStatement
-	case stmt.GetAlterTableStmt() != nil:
+	case stmtNode.GetAlterTableStmt() != nil:
 		plan.Type = AlterTableStatement
-	case stmt.GetIndexStmt() != nil:
+	case stmtNode.GetIndexStmt() != nil:
 		plan.Type = CreateIndexStatement
-	case stmt.GetDropStmt() != nil:
+	case stmtNode.GetDropStmt() != nil:
 		plan.Type = DropIndexStatement
-	case stmt.GetViewStmt() != nil:
+	case stmtNode.GetViewStmt() != nil:
 		plan.Type = CreateViewStatement
-	case stmt.GetDropStmt() != nil:
+	case stmtNode.GetDropStmt() != nil:
 		plan.Type = DropViewStatement
-	case stmt.GetTransactionStmt() != nil:
-		transStmt := stmt.GetTransactionStmt()
+	case stmtNode.GetTransactionStmt() != nil:
+		transStmt := stmtNode.GetTransactionStmt()
 		switch transStmt.GetKind() {
 		case pg_query.TransactionStmtKind_TRANS_STMT_BEGIN:
 			plan.Type = BeginStatement
@@ -127,8 +182,8 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 		case pg_query.TransactionStmtKind_TRANS_STMT_ROLLBACK:
 			plan.Type = RollbackStatement
 		}
-	case stmt.GetVacuumStmt() != nil:
-		vacuumStmt := stmt.GetVacuumStmt()
+	case stmtNode.GetVacuumStmt() != nil:
+		vacuumStmt := stmtNode.GetVacuumStmt()
 		if !vacuumStmt.GetIsVacuumcmd() {
 			plan.Type = AnalyzeStatementType
 		}
