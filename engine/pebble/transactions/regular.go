@@ -9,6 +9,7 @@ import (
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/codec"
 	dbTypes "github.com/guileen/pglitedb/types"
+	"github.com/guileen/pglitedb/engine/pebble/transactions/errors"
 )
 
 // RegularTransaction represents a regular transaction implementation
@@ -34,7 +35,7 @@ func NewRegularTransaction(engine engineTypes.StorageEngine, kvTxn storage.Trans
 // GetRow retrieves a row by its ID
 func (t *RegularTransaction) GetRow(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *dbTypes.TableDefinition) (*dbTypes.Record, error) {
 	if t.closed {
-		return nil, storage.ErrClosed
+		return nil, errors.ErrClosed
 	}
 
 	key := t.codec.EncodeTableKey(tenantID, tableID, rowID)
@@ -42,14 +43,14 @@ func (t *RegularTransaction) GetRow(ctx context.Context, tenantID, tableID, rowI
 	value, err := t.kvTxn.Get(key)
 	if err != nil {
 		if storage.IsNotFound(err) {
-			return nil, dbTypes.ErrRecordNotFound
+			return nil, errors.ErrRowNotFound
 		}
-		return nil, fmt.Errorf("get row: %w", err)
+		return nil, errors.Wrap(err, "get_failure", "get row")
 	}
 
 	record, err := t.codec.DecodeRow(value, schemaDef)
 	if err != nil {
-		return nil, fmt.Errorf("decode row: %w", err)
+		return nil, errors.Wrap(err, "decoding_failure", "decode row")
 	}
 
 	return record, nil
@@ -58,28 +59,28 @@ func (t *RegularTransaction) GetRow(ctx context.Context, tenantID, tableID, rowI
 // InsertRow inserts a new row
 func (t *RegularTransaction) InsertRow(ctx context.Context, tenantID, tableID int64, row *dbTypes.Record, schemaDef *dbTypes.TableDefinition) (int64, error) {
 	if t.closed {
-		return 0, storage.ErrClosed
+		return 0, errors.ErrClosed
 	}
 
 	rowID, err := t.engine.NextRowID(ctx, tenantID, tableID)
 	if err != nil {
-		return 0, fmt.Errorf("generate row id: %w", err)
+		return 0, errors.Wrap(err, "generate_id_failure", "generate row id")
 	}
 
 	key := t.codec.EncodeTableKey(tenantID, tableID, rowID)
 
 	// Check for conflicts before writing
 	// if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
-	// 	return 0, fmt.Errorf("conflict check failed: %w", err)
+	// 	return 0, errors.Wrap(err, "conflict_check", "conflict check failed")
 	// }
 
 	value, err := t.codec.EncodeRow(row, schemaDef)
 	if err != nil {
-		return 0, fmt.Errorf("encode row: %w", err)
+		return 0, errors.Wrap(err, "encoding_failure", "encode row")
 	}
 
 	if err := t.kvTxn.Set(key, value); err != nil {
-		return 0, fmt.Errorf("insert row: %w", err)
+		return 0, errors.Wrap(err, "set_failure", "insert row")
 	}
 
 	return rowID, nil
@@ -88,12 +89,12 @@ func (t *RegularTransaction) InsertRow(ctx context.Context, tenantID, tableID in
 // UpdateRow updates an existing row
 func (t *RegularTransaction) UpdateRow(ctx context.Context, tenantID, tableID, rowID int64, updates map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
 	if t.closed {
-		return storage.ErrClosed
+		return errors.ErrClosed
 	}
 
 	oldRow, err := t.GetRow(ctx, tenantID, tableID, rowID, schemaDef)
 	if err != nil {
-		return fmt.Errorf("get old row: %w", err)
+		return errors.Wrap(err, "get_row_failure", "get old row")
 	}
 
 	for k, v := range updates {
@@ -104,16 +105,16 @@ func (t *RegularTransaction) UpdateRow(ctx context.Context, tenantID, tableID, r
 
 	// Check for conflicts before writing
 	// if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
-	// 	return fmt.Errorf("conflict check failed: %w", err)
+	// 	return errors.Wrap(err, "conflict_check", "conflict check failed")
 	// }
 
 	value, err := t.codec.EncodeRow(oldRow, schemaDef)
 	if err != nil {
-		return fmt.Errorf("encode row: %w", err)
+		return errors.Wrap(err, "encoding_failure", "encode row")
 	}
 
 	if err := t.kvTxn.Set(key, value); err != nil {
-		return fmt.Errorf("update row: %w", err)
+		return errors.Wrap(err, "set_failure", "update row")
 	}
 
 	return nil
@@ -122,18 +123,18 @@ func (t *RegularTransaction) UpdateRow(ctx context.Context, tenantID, tableID, r
 // DeleteRow deletes a row by its ID
 func (t *RegularTransaction) DeleteRow(ctx context.Context, tenantID, tableID, rowID int64, schemaDef *dbTypes.TableDefinition) error {
 	if t.closed {
-		return storage.ErrClosed
+		return errors.ErrClosed
 	}
 
 	key := t.codec.EncodeTableKey(tenantID, tableID, rowID)
 
 	// Check for conflicts before deleting
 	// if err := t.engine.CheckForConflicts(t.kvTxn, key); err != nil {
-	// 	return fmt.Errorf("conflict check failed: %w", err)
+	// 	return errors.Wrap(err, "conflict_check", "conflict check failed")
 	// }
 
 	if err := t.kvTxn.Delete(key); err != nil {
-		return fmt.Errorf("delete row: %w", err)
+		return errors.Wrap(err, "delete_failure", "delete row")
 	}
 
 	return nil
@@ -142,13 +143,13 @@ func (t *RegularTransaction) DeleteRow(ctx context.Context, tenantID, tableID, r
 // UpdateRowsBatch updates multiple rows in a single batch operation
 func (t *RegularTransaction) UpdateRowsBatch(ctx context.Context, tenantID, tableID int64, rowUpdates map[int64]map[string]*dbTypes.Value, schemaDef *dbTypes.TableDefinition) error {
 	if t.closed {
-		return storage.ErrClosed
+		return errors.ErrClosed
 	}
 
 	// Process all updates in a single batch to minimize transaction overhead
 	for rowID, updates := range rowUpdates {
 		if err := t.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
-			return fmt.Errorf("update row %d: %w", rowID, err)
+			return errors.Wrap(err, "batch_update_failure", "update row %d", rowID)
 		}
 	}
 	return nil
@@ -157,13 +158,13 @@ func (t *RegularTransaction) UpdateRowsBatch(ctx context.Context, tenantID, tabl
 // DeleteRowsBatch deletes multiple rows in a single batch operation
 func (t *RegularTransaction) DeleteRowsBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) error {
 	if t.closed {
-		return storage.ErrClosed
+		return errors.ErrClosed
 	}
 
 	// Process all deletions in a single batch to minimize transaction overhead
 	for _, rowID := range rowIDs {
 		if err := t.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
-			return fmt.Errorf("delete row %d: %w", rowID, err)
+			return errors.Wrap(err, "batch_delete_failure", "delete row %d", rowID)
 		}
 	}
 	return nil
@@ -172,12 +173,12 @@ func (t *RegularTransaction) DeleteRowsBatch(ctx context.Context, tenantID, tabl
 // DeleteRowBatch deletes multiple rows in batch
 func (t *RegularTransaction) DeleteRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) error {
 	if t.closed {
-		return storage.ErrClosed
+		return errors.ErrClosed
 	}
 
 	for _, rowID := range rowIDs {
 		if err := t.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
-			return err
+			return errors.Wrap(err, "batch_delete_failure", "delete row %d", rowID)
 		}
 	}
 	return nil
@@ -186,12 +187,12 @@ func (t *RegularTransaction) DeleteRowBatch(ctx context.Context, tenantID, table
 // UpdateRowBatch updates multiple rows in batch
 func (t *RegularTransaction) UpdateRowBatch(ctx context.Context, tenantID, tableID int64, updates []engineTypes.RowUpdate, schemaDef *dbTypes.TableDefinition) error {
 	if t.closed {
-		return storage.ErrClosed
+		return errors.ErrClosed
 	}
 
 	for _, update := range updates {
 		if err := t.UpdateRow(ctx, tenantID, tableID, update.RowID, update.Updates, schemaDef); err != nil {
-			return err
+			return errors.Wrap(err, "batch_update_failure", "update row %d", update.RowID)
 		}
 	}
 	return nil
@@ -200,7 +201,7 @@ func (t *RegularTransaction) UpdateRowBatch(ctx context.Context, tenantID, table
 // UpdateRows updates multiple rows that match the given conditions
 func (t *RegularTransaction) UpdateRows(ctx context.Context, tenantID, tableID int64, updates map[string]*dbTypes.Value, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
 	if t.closed {
-		return 0, storage.ErrClosed
+		return 0, errors.ErrClosed
 	}
 
 	// Collect all matching row IDs by scanning through the table
@@ -214,7 +215,7 @@ func (t *RegularTransaction) UpdateRows(ctx context.Context, tenantID, tableID i
 	
 	iter := t.kvTxn.NewIterator(iterOpts)
 	if iter == nil {
-		return 0, fmt.Errorf("failed to create iterator")
+		return 0, errors.ErrIteratorCreation
 	}
 	defer iter.Close()
 	
@@ -222,7 +223,7 @@ func (t *RegularTransaction) UpdateRows(ctx context.Context, tenantID, tableID i
 	if !iter.First() {
 		// Check if there was an error
 		if err := iter.Error(); err != nil {
-			return 0, fmt.Errorf("iterator error: %w", err)
+			return 0, errors.Wrap(err, "iterator_failure", "iterator error")
 		}
 		// No rows to iterate over, which is fine
 		return 0, nil
@@ -232,14 +233,14 @@ func (t *RegularTransaction) UpdateRows(ctx context.Context, tenantID, tableID i
 	for iter.Valid() {
 		_, _, rowID, err := t.codec.DecodeTableKey(iter.Key())
 		if err != nil {
-			return 0, fmt.Errorf("decode table key: %w", err)
+			return 0, errors.Wrap(err, "decoding_failure", "decode table key")
 		}
 		
 		// Decode the row
 		value := iter.Value()
 		record, err := t.codec.DecodeRow(value, schemaDef)
 		if err != nil {
-			return 0, fmt.Errorf("decode row: %w", err)
+			return 0, errors.Wrap(err, "decoding_failure", "decode row")
 		}
 		
 		// Check conditions
@@ -265,7 +266,7 @@ func (t *RegularTransaction) UpdateRows(ctx context.Context, tenantID, tableID i
 			rowUpdates[rowID] = updates
 		}
 		if err := t.UpdateRowsBatch(ctx, tenantID, tableID, rowUpdates, schemaDef); err != nil {
-			return 0, fmt.Errorf("batch update rows: %w", err)
+			return 0, errors.Wrap(err, "batch_update_failure", "batch update rows")
 		}
 		return int64(len(matchingRowIDs)), nil
 	}
@@ -274,7 +275,7 @@ func (t *RegularTransaction) UpdateRows(ctx context.Context, tenantID, tableID i
 	var count int64
 	for _, rowID := range matchingRowIDs {
 		if err := t.UpdateRow(ctx, tenantID, tableID, rowID, updates, schemaDef); err != nil {
-			return count, fmt.Errorf("update row %d: %w", rowID, err)
+			return count, errors.Wrap(err, "update_failure", "update row %d", rowID)
 		}
 		count++
 	}
@@ -285,7 +286,7 @@ func (t *RegularTransaction) UpdateRows(ctx context.Context, tenantID, tableID i
 // DeleteRows deletes multiple rows that match the given conditions
 func (t *RegularTransaction) DeleteRows(ctx context.Context, tenantID, tableID int64, conditions map[string]interface{}, schemaDef *dbTypes.TableDefinition) (int64, error) {
 	if t.closed {
-		return 0, storage.ErrClosed
+		return 0, errors.ErrClosed
 	}
 
 	// Collect all matching row IDs by scanning through the table
@@ -299,7 +300,7 @@ func (t *RegularTransaction) DeleteRows(ctx context.Context, tenantID, tableID i
 	
 	iter := t.kvTxn.NewIterator(iterOpts)
 	if iter == nil {
-		return 0, fmt.Errorf("failed to create iterator")
+		return 0, errors.ErrIteratorCreation
 	}
 	defer iter.Close()
 	
@@ -307,7 +308,7 @@ func (t *RegularTransaction) DeleteRows(ctx context.Context, tenantID, tableID i
 	if !iter.First() {
 		// Check if there was an error
 		if err := iter.Error(); err != nil {
-			return 0, fmt.Errorf("iterator error: %w", err)
+			return 0, errors.Wrap(err, "iterator_failure", "iterator error")
 		}
 		// No rows to iterate over, which is fine
 		return 0, nil
@@ -317,14 +318,14 @@ func (t *RegularTransaction) DeleteRows(ctx context.Context, tenantID, tableID i
 	for iter.Valid() {
 		_, _, rowID, err := t.codec.DecodeTableKey(iter.Key())
 		if err != nil {
-			return 0, fmt.Errorf("decode table key: %w", err)
+			return 0, errors.Wrap(err, "decoding_failure", "decode table key")
 		}
 		
 		// Decode the row
 		value := iter.Value()
 		record, err := t.codec.DecodeRow(value, schemaDef)
 		if err != nil {
-			return 0, fmt.Errorf("decode row: %w", err)
+			return 0, errors.Wrap(err, "decoding_failure", "decode row")
 		}
 		
 		// Check conditions
@@ -346,7 +347,7 @@ func (t *RegularTransaction) DeleteRows(ctx context.Context, tenantID, tableID i
 	// Use batch delete if there are multiple rows
 	if len(matchingRowIDs) > 1 {
 		if err := t.DeleteRowsBatch(ctx, tenantID, tableID, matchingRowIDs, schemaDef); err != nil {
-			return 0, fmt.Errorf("batch delete rows: %w", err)
+			return 0, errors.Wrap(err, "batch_delete_failure", "batch delete rows")
 		}
 		return int64(len(matchingRowIDs)), nil
 	}
@@ -355,7 +356,7 @@ func (t *RegularTransaction) DeleteRows(ctx context.Context, tenantID, tableID i
 	var count int64
 	for _, rowID := range matchingRowIDs {
 		if err := t.DeleteRow(ctx, tenantID, tableID, rowID, schemaDef); err != nil {
-			return count, fmt.Errorf("delete row %d: %w", rowID, err)
+			return count, errors.Wrap(err, "delete_failure", "delete row %d", rowID)
 		}
 		count++
 	}
@@ -366,7 +367,7 @@ func (t *RegularTransaction) DeleteRows(ctx context.Context, tenantID, tableID i
 // Commit commits the transaction
 func (t *RegularTransaction) Commit() error {
 	if t.closed {
-		return storage.ErrClosed
+		return errors.ErrClosed
 	}
 
 	t.closed = true
@@ -386,11 +387,11 @@ func (t *RegularTransaction) Rollback() error {
 // SetIsolation sets the isolation level for the transaction
 func (t *RegularTransaction) SetIsolation(level storage.IsolationLevel) error {
 	if t.closed {
-		return storage.ErrClosed
+		return errors.ErrClosed
 	}
 
 	if err := t.kvTxn.SetIsolation(level); err != nil {
-		return err
+		return errors.Wrap(err, "isolation_set_failure", "set isolation level")
 	}
 	t.isolation = level
 
