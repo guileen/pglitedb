@@ -2,7 +2,6 @@ package transactions
 
 import (
 	"context"
-	"fmt"
 
 	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/engine/pebble/utils"

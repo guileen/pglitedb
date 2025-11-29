@@ -4,13 +4,13 @@ This repository includes a pre-commit hook that prevents binary files from being
 
 ## How it works
 
-The pre-commit hook runs automatically before each commit and checks all staged files for:
+The pre-commit hook runs automatically before each commit and checks all staged files for binary content based on the actual file content, not just file extensions. The hook uses multiple methods to detect binary files:
 
-1. Files with extensions commonly associated with binary files (e.g., .exe, .dll, .so, .dylib, .app, .jar, .war, .zip, .tar, .gz, etc.)
-2. Files detected as binary by the `file` command
-3. Files containing a high percentage of non-printable characters
+1. File type detection using the `file` command
+2. Null byte detection (binary files often contain null bytes)
+3. Non-printable character ratio analysis
 
-Note: Files without extensions are now excluded from binary checking as per user requirements.
+The hook prioritizes text files by first checking if the `file` command identifies them as text, ASCII, UTF-8, Unicode, source code, or scripts.
 
 ## Installation
 
@@ -22,7 +22,7 @@ chmod +x .git/hooks/pre-commit
 
 ## Configuration
 
-The hook can be customized by modifying the `.git/hooks/pre-commit` file. You can add or remove file extensions from the `forbidden_extensions` regex pattern.
+The hook can be customized by modifying the `.git/hooks/pre-commit` file. You can adjust the thresholds for binary file detection or add additional file type checks.
 
 ## Bypassing the hook
 
@@ -52,9 +52,10 @@ echo "!filename" >> .gitignore
 
 We've recently enhanced our binary file prevention system:
 
-1. Added more comprehensive rules to `.gitignore` to exclude profiling results and build artifacts
-2. Improved the pre-commit hook to be more accurate in detecting binary files
-3. Removed all existing binary files from the repository history
-4. Added specific exclusions for profiling directories and files
+1. **Content-based detection**: The pre-commit hook now detects binary files based on their actual content rather than just file extensions
+2. Added more comprehensive rules to `.gitignore` to exclude profiling results and build artifacts
+3. Improved the pre-commit hook to be more accurate in detecting binary files while avoiding false positives
+4. Removed all existing binary files from the repository history
+5. Added specific exclusions for profiling directories and files
 
-These changes ensure that binary files will not accidentally be committed to the repository in the future.
+These changes ensure that binary files will not accidentally be committed to the repository in the future, while still allowing legitimate text files to be committed regardless of their extensions.
