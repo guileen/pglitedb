@@ -191,22 +191,19 @@ func (c *memcodec) DecodeRow(data []byte, schemaDef *types.TableDefinition) (*ty
 		return nil, errors.Wrapf(err, errors.ErrCodeCodec, "DecodeRow", "failed to decode encoded row")
 	}
 
-	// Ensure we release the encoded row back to the pool
-	defer ReleaseEncodedRow(encoded)
-
-	record := &types.Record{
-		ID:        "",
-		Table:     schemaDef.Name,
-		Data:      make(map[string]*types.Value),
-		CreatedAt: time.Unix(encoded.CreatedAt, 0),
-		UpdatedAt: time.Unix(encoded.UpdatedAt, 0),
-		Version:   encoded.Version,
-	}
+	// Reuse record from pool if available
+	record := AcquireDecodedRecord()
+	record.Table = schemaDef.Name
+	record.Data = make(map[string]*types.Value, len(schemaDef.Columns)) // Pre-allocate with known size
+	record.CreatedAt = time.Unix(encoded.CreatedAt, 0)
+	record.UpdatedAt = time.Unix(encoded.UpdatedAt, 0)
+	record.Version = encoded.Version
 
 	for _, col := range schemaDef.Columns {
 		if valueBytes, ok := encoded.Columns[col.Name]; ok {
 			value, err := c.DecodeValue(valueBytes, col.Type)
 			if err != nil {
+				ReleaseDecodedRecord(record) // Return to pool on error
 				return nil, errors.Wrapf(err, errors.ErrCodeCodec, "DecodeRow", "failed to decode column %s", col.Name)
 			}
 			record.Data[col.Name] = &types.Value{
@@ -216,6 +213,9 @@ func (c *memcodec) DecodeRow(data []byte, schemaDef *types.TableDefinition) (*ty
 		}
 	}
 
+	// Ensure we release the encoded row back to the pool
+	ReleaseEncodedRow(encoded)
+	
 	return record, nil
 }
 

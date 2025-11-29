@@ -20,18 +20,23 @@ type RowIterator struct {
 	count     int
 	started   bool
 	engine    interface{ EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool }
+	// Reusable buffer for key decoding to reduce allocations
+	rowIDValue *dbTypes.Value
 }
 
 // NewRowIterator creates a new RowIterator
 func NewRowIterator(iter storage.Iterator, codec codec.Codec, schemaDef *dbTypes.TableDefinition, opts *engineTypes.ScanOptions, engine interface{ EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool }) *RowIterator {
 	return &RowIterator{
-		iter:      iter,
-		codec:     codec,
-		schemaDef: schemaDef,
-		opts:      opts,
-		engine:    engine,
-		count:     0,
-		started:   false,
+		iter:        iter,
+		codec:       codec,
+		schemaDef:   schemaDef,
+		opts:        opts,
+		engine:      engine,
+		count:       0,
+		started:     false,
+		rowIDValue: &dbTypes.Value{
+			Type: dbTypes.ColumnTypeNumber,
+		},
 	}
 }
 
@@ -46,6 +51,16 @@ func (ri *RowIterator) Initialize(iter storage.Iterator, codec codec.Codec, sche
 	ri.started = false
 	ri.current = nil
 	ri.err = nil
+	
+	// Initialize reusable value object if not already done
+	if ri.rowIDValue == nil {
+		ri.rowIDValue = &dbTypes.Value{
+			Type: dbTypes.ColumnTypeNumber,
+		}
+	} else {
+		ri.rowIDValue.Type = dbTypes.ColumnTypeNumber
+		ri.rowIDValue.Data = nil
+	}
 }
 
 func (ri *RowIterator) Next() bool {
@@ -84,10 +99,9 @@ func (ri *RowIterator) Next() bool {
 		return false
 	}
 
-	record.Data["_rowid"] = &dbTypes.Value{
-		Type: dbTypes.ColumnTypeNumber,
-		Data: rowID,
-	}
+	// Reuse the rowIDValue object to reduce allocations
+	ri.rowIDValue.Data = rowID
+	record.Data["_rowid"] = ri.rowIDValue
 	
 	// Apply filter if present
 	if ri.opts != nil && ri.opts.Filter != nil && ri.engine != nil {
@@ -130,4 +144,9 @@ func (ri *RowIterator) ResetForReuse() {
 	ri.count = 0
 	ri.started = false
 	ri.engine = nil
+	// Keep the rowIDValue object for reuse
+	if ri.rowIDValue != nil {
+		ri.rowIDValue.Data = nil
+		ri.rowIDValue.Type = dbTypes.ColumnTypeNumber
+	}
 }

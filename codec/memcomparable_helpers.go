@@ -76,12 +76,14 @@ func decodeString(data []byte) (interface{}, error) {
 	if len(data) < 1 || data[0] != bytesFlag {
 		return nil, fmt.Errorf("invalid string encoding")
 	}
-	result := &bytes.Buffer{}
+	
+	// Pre-calculate the resulting string length to avoid buffer growth
+	resultLen := 0
 	i := 1
 	for i < len(data) {
 		if data[i] == 0x00 {
 			if i+1 < len(data) && data[i+1] == 0xFF {
-				result.WriteByte(0x00)
+				resultLen++
 				i += 2
 			} else if i+1 < len(data) && data[i+1] == 0x00 {
 				break
@@ -89,11 +91,34 @@ func decodeString(data []byte) (interface{}, error) {
 				i++
 			}
 		} else {
-			result.WriteByte(data[i])
+			resultLen++
 			i++
 		}
 	}
-	return result.String(), nil
+	
+	// Pre-allocate result slice
+	result := make([]byte, resultLen)
+	pos := 0
+	i = 1
+	for i < len(data) {
+		if data[i] == 0x00 {
+			if i+1 < len(data) && data[i+1] == 0xFF {
+				result[pos] = 0x00
+				pos++
+				i += 2
+			} else if i+1 < len(data) && data[i+1] == 0x00 {
+				break
+			} else {
+				i++
+			}
+		} else {
+			result[pos] = data[i]
+			pos++
+			i++
+		}
+	}
+	
+	return string(result), nil
 }
 
 func encodeNumber(value interface{}) ([]byte, error) {
@@ -200,13 +225,13 @@ func decodeJSON(data []byte) (interface{}, error) {
 		return nil, fmt.Errorf("invalid JSON encoding")
 	}
 
-	// Extract the JSON bytes using the existing string decoding logic
-	result := &bytes.Buffer{}
+	// Pre-calculate the resulting JSON bytes length
+	resultLen := 0
 	i := 1
 	for i < len(data) {
 		if data[i] == 0x00 {
 			if i+1 < len(data) && data[i+1] == 0xFF {
-				result.WriteByte(0x00)
+				resultLen++
 				i += 2
 			} else if i+1 < len(data) && data[i+1] == 0x00 {
 				break
@@ -214,14 +239,36 @@ func decodeJSON(data []byte) (interface{}, error) {
 				i++
 			}
 		} else {
-			result.WriteByte(data[i])
+			resultLen++
+			i++
+		}
+	}
+
+	// Pre-allocate result slice
+	result := make([]byte, resultLen)
+	pos := 0
+	i = 1
+	for i < len(data) {
+		if data[i] == 0x00 {
+			if i+1 < len(data) && data[i+1] == 0xFF {
+				result[pos] = 0x00
+				pos++
+				i += 2
+			} else if i+1 < len(data) && data[i+1] == 0x00 {
+				break
+			} else {
+				i++
+			}
+		} else {
+			result[pos] = data[i]
+			pos++
 			i++
 		}
 	}
 
 	// Unmarshal the JSON bytes back to interface{}
 	var value interface{}
-	if err := json.Unmarshal(result.Bytes(), &value); err != nil {
+	if err := json.Unmarshal(result, &value); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
 	}
 
@@ -243,12 +290,14 @@ func decodeBytes(data []byte) (interface{}, error) {
 	if len(data) < 1 || data[0] != bytesFlag {
 		return nil, fmt.Errorf("invalid bytes encoding")
 	}
-	result := &bytes.Buffer{}
+	
+	// Pre-calculate the resulting bytes length
+	resultLen := 0
 	i := 1
 	for i < len(data) {
 		if data[i] == 0x00 {
 			if i+1 < len(data) && data[i+1] == 0xFF {
-				result.WriteByte(0x00)
+				resultLen++
 				i += 2
 			} else if i+1 < len(data) && data[i+1] == 0x00 {
 				break
@@ -256,11 +305,34 @@ func decodeBytes(data []byte) (interface{}, error) {
 				i++
 			}
 		} else {
-			result.WriteByte(data[i])
+			resultLen++
 			i++
 		}
 	}
-	return result.Bytes(), nil
+	
+	// Pre-allocate result slice
+	result := make([]byte, resultLen)
+	pos := 0
+	i = 1
+	for i < len(data) {
+		if data[i] == 0x00 {
+			if i+1 < len(data) && data[i+1] == 0xFF {
+				result[pos] = 0x00
+				pos++
+				i += 2
+			} else if i+1 < len(data) && data[i+1] == 0x00 {
+				break
+			} else {
+				i++
+			}
+		} else {
+			result[pos] = data[i]
+			pos++
+			i++
+		}
+	}
+	
+	return result, nil
 }
 
 func encodeUUID(value interface{}) ([]byte, error) {
@@ -295,12 +367,13 @@ func decodeUUID(data []byte) (interface{}, error) {
 		return nil, fmt.Errorf("invalid UUID encoding")
 	}
 
-	result := &bytes.Buffer{}
+	// Pre-calculate the resulting UUID bytes length
+	resultLen := 0
 	i := 1
 	for i < len(data) {
 		if data[i] == 0x00 {
 			if i+1 < len(data) && data[i+1] == 0xFF {
-				result.WriteByte(0x00)
+				resultLen++
 				i += 2
 			} else if i+1 < len(data) && data[i+1] == 0x00 {
 				break
@@ -308,18 +381,41 @@ func decodeUUID(data []byte) (interface{}, error) {
 				i++
 			}
 		} else {
-			result.WriteByte(data[i])
+			resultLen++
+			i++
+		}
+	}
+
+	// UUID should be exactly 16 bytes
+	if resultLen != 16 {
+		return nil, fmt.Errorf("invalid UUID byte length: %d", resultLen)
+	}
+
+	// Pre-allocate result slice
+	result := make([]byte, 16)
+	pos := 0
+	i = 1
+	for i < len(data) {
+		if data[i] == 0x00 {
+			if i+1 < len(data) && data[i+1] == 0xFF {
+				result[pos] = 0x00
+				pos++
+				i += 2
+			} else if i+1 < len(data) && data[i+1] == 0x00 {
+				break
+			} else {
+				i++
+			}
+		} else {
+			result[pos] = data[i]
+			pos++
 			i++
 		}
 	}
 
 	// Convert bytes to UUID
-	if len(result.Bytes()) != 16 {
-		return nil, fmt.Errorf("invalid UUID byte length: %d", len(result.Bytes()))
-	}
-
 	var u uuid.UUID
-	copy(u[:], result.Bytes())
+	copy(u[:], result)
 	return u, nil
 }
 
