@@ -23,6 +23,12 @@ func BenchmarkPebbleCompaction_PostgreSQLConfig(b *testing.B) {
 	})
 }
 
+func BenchmarkPebbleCompaction_SpaceOptimizedConfig(b *testing.B) {
+	benchmarkPebbleCompaction(b, func(path string) *PebbleConfig {
+		return SpaceOptimizedPebbleConfig(path)
+	})
+}
+
 func benchmarkPebbleCompaction(b *testing.B, configFactory func(string) *PebbleConfig) {
 	tmpDir, err := os.MkdirTemp("", "pebble-bench-*")
 	if err != nil {

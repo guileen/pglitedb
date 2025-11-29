@@ -97,6 +97,30 @@ func TestOptimizedPebbleConfig(path string) *PebbleConfig {
 	}
 }
 
+// SpaceOptimizedPebbleConfig creates a configuration optimized for space efficiency
+// Balances read/write performance with minimal space amplification
+func SpaceOptimizedPebbleConfig(path string) *PebbleConfig {
+	return &PebbleConfig{
+		Path:                  path,
+		CacheSize:             256 * 1024 * 1024,         // 256MB cache for lower memory usage
+		MemTableSize:          16 * 1024 * 1024,          // 16MB memtable for more frequent flushes
+		MaxOpenFiles:          10000,                     // Reduced file descriptor usage
+		CompactionConcurrency: 2,                         // Lower concurrency for better space efficiency
+		FlushInterval:         500 * time.Millisecond,    // More frequent flushing
+		BlockSize:             16 << 10,                  // 16KB block size for better compression
+		L0CompactionThreshold: 2,                         // Lower threshold for more frequent compactions
+		L0StopWritesThreshold: 8,                         // Prevent write stalls
+		LBaseMaxBytes:         256 << 20,                 // 256MB for L1 (increased for better space efficiency)
+		CompressionEnabled:    true,                      // Enable compression for space efficiency
+		EnableRateLimiting:    true,                      // Enable rate limiting for consistent performance
+		RateLimitBytesPerSec:  10 << 20,                  // 10MB/s rate limit for better space efficiency
+		EnableBloomFilter:     true,                      // Enable bloom filters for better read performance
+		BloomFilterBitsPerKey: 12,                        // 12 bits per key for better filtering
+		TargetFileSize:        4 << 20,                   // 4MB target file size (smaller for better space efficiency)
+		MaxManifestFileSize:   16 << 20,                  // 16MB max manifest file size
+	}
+}
+
 // PostgreSQLOptimizedPebbleConfig creates a configuration optimized for PostgreSQL-like workloads
 // Balances read/write performance with space efficiency
 func PostgreSQLOptimizedPebbleConfig(path string) *PebbleConfig {
@@ -110,13 +134,13 @@ func PostgreSQLOptimizedPebbleConfig(path string) *PebbleConfig {
 		BlockSize:             32 << 10,                // 32KB block size for good balance
 		L0CompactionThreshold: 4,                       // Moderate L0 compaction threshold
 		L0StopWritesThreshold: 12,                      // Prevent write stalls
-		LBaseMaxBytes:         64 << 20,                // 64MB for L1
+		LBaseMaxBytes:         128 << 20,               // 128MB for L1 (increased for better space efficiency)
 		CompressionEnabled:    true,                    // Enable compression for space efficiency
 		EnableRateLimiting:    true,                    // Enable rate limiting for consistent performance
 		RateLimitBytesPerSec:  50 << 20,                // 50MB/s rate limit for balanced performance
 		EnableBloomFilter:     true,                    // Enable bloom filters for better read performance
-		BloomFilterBitsPerKey: 8,                       // 8 bits per key for good balance
-		TargetFileSize:        16 << 20,                // 16MB target file size
+		BloomFilterBitsPerKey: 10,                      // 10 bits per key for better filtering
+		TargetFileSize:        16 << 20,                // 16MB target file size (increased ratio with LBaseMaxBytes)
 		MaxManifestFileSize:   64 << 20,                // 64MB max manifest file size
 	}
 }

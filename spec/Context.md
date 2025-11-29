@@ -233,6 +233,7 @@ For detailed technical implementation, see [Transaction Management & MVCC Guide]
 
 ### 1. Maintainability Enhancement (Highest Priority)
 - [x] ✅ ⚠️⚠️⚠️ go test ./... 完全卡住了，严重影响了开发效率，耗时太久，严重阻塞的问题。(RESOLVED - Test reliability significantly improved)
+- [ ] make test-all 没有正确体现测试结果，明明Fail却显示Passed。并且有些test占用了太长上下文，要简化。
 - [ ] 所有脚本中添加go test -timeout 30s 测试
 - [ ] 所有测试通过后 ， bump version to 0.3.0 (git tag)
 - [ ] 优化cli命令行工具，用一个统一命令配合子命令，优化使用体验。
