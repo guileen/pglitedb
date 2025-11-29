@@ -9,6 +9,7 @@ import (
 	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/engine/pebble/indexes"
 	"github.com/guileen/pglitedb/engine/pebble/operations/query"
+	"github.com/guileen/pglitedb/engine/pebble/operations/scan"
 	"github.com/guileen/pglitedb/engine/pebble/resources"
 	"github.com/guileen/pglitedb/engine/pebble/transactions"
 	"github.com/guileen/pglitedb/idgen"
@@ -27,6 +28,7 @@ type pebbleEngine struct {
 	updateOperations    *query.UpdateOperations
 	deleteOperations    *query.DeleteOperations
 	deadlockDetector    *transactions.DeadlockDetector
+	iteratorPool        *scan.IteratorPool
 }
 
 func NewPebbleEngine(kvStore storage.KV, c codec.Codec) engineTypes.StorageEngine {
@@ -57,6 +59,7 @@ func NewPebbleEngine(kvStore storage.KV, c codec.Codec) engineTypes.StorageEngin
 		updateOperations:    updateOps,
 		deleteOperations:    deleteOps,
 		deadlockDetector:    deadlockDetector,
+		iteratorPool:        scan.NewIteratorPool(),
 	}
 }
 
