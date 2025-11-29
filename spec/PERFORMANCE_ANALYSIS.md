@@ -11,9 +11,9 @@ Key areas for continued optimization include resource management efficiencies, P
 ## Current Performance Baseline
 
 ### Benchmark Results
-- **Transactions Per Second (TPS)**: 2,479.91
-- **Average Latency**: 4.032 ms
-- **Initial Connection Time**: 30.281 ms
+- **Transactions Per Second (TPS)**: 2,517.55
+- **Average Latency**: 3.972 ms
+- **Initial Connection Time**: 30.138 ms
 - **Memory Usage**: ~156MB typical workload
 - **Test Coverage**: 100% PostgreSQL regress tests (228/228) passing
 
@@ -157,9 +157,9 @@ Lack of comprehensive object pooling for frequently allocated objects creates GC
 With the recommended optimizations, we expect:
 
 ### Updated Performance Results
-- **TPS**: 2,479.91 (16.3% improvement over previous baseline of 2,130.28)
-- **Latency**: 4.032ms average (14.1% improvement over previous baseline of 4.694ms)
-- **Initial Connection Time**: 30.281ms
+- **TPS**: 2,517.55 (17.8% improvement over previous baseline of 2,130.28)
+- **Latency**: 3.972ms average (15.4% improvement over previous baseline of 4.694ms)
+- **Initial Connection Time**: 30.138ms
 
 ### Short-term (v0.3 Release)
 - **TPS**: 2,769+ (30% improvement over original baseline)
@@ -204,6 +204,6 @@ To ensure the effectiveness of these optimizations:
 
 PGLiteDB has a solid performance foundation and the critical implementation gaps in SnapshotTransaction have been successfully addressed. The completed implementation now provides full functionality for snapshot transactions, enabling efficient bulk row updates and deletions while maintaining consistency with the rest of the codebase.
 
-Moving forward, the focus should shift to systematic improvements in resource management and storage layer optimization to achieve the strategic performance targets. The current performance of 2,479.91 TPS with 4.032ms average latency demonstrates a solid foundation that can be further enhanced through targeted optimizations.
+Moving forward, the focus should shift to systematic improvements in resource management and storage layer optimization to achieve the strategic performance targets. The current performance of 2,517.55 TPS with 3.972ms average latency demonstrates a solid foundation that can be further enhanced through targeted optimizations.
 
-By continuing with the structured approach aligned with the strategic planning in GUIDE.md, PGLiteDB can achieve its target of 3,245+ TPS with sub-3.2ms latency while maintaining full PostgreSQL compatibility and improving long-term maintainability. With the SnapshotTransaction implementation now complete, the next phase of optimizations can focus on resource management and storage layer improvements.
+By continuing with the structured approach aligned with the strategic planning in GUIDE.md, PGLiteDB can achieve its target of 3,245+ TPS with sub-3.2ms latency while maintaining full PostgreSQL compatibility and improving long-term maintainability. With the SnapshotTransaction implementation now complete and all 228 regress tests passing, the next phase of optimizations can focus on resource management and storage layer improvements as outlined in the PERFORMANCE_OPTIMIZATION_PLAN.md.
