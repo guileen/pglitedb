@@ -169,6 +169,12 @@ func startPostgreSQLServer(dbPath string) {
 	startTime := time.Now()
 	logger.Info("Initializing PostgreSQL server", "dbPath", dbPath, "start_time", startTime.Format(time.RFC3339))
 	
+	// Ensure directory exists
+	if err := os.MkdirAll(dbPath, 0755); err != nil {
+		logger.Error("Failed to create database directory", "error", err, "dbPath", dbPath)
+		log.Fatalf("failed to create database directory: %v", err)
+	}
+	
 	// Create database components
 	logger.Info("Creating Pebble KV store", "dbPath", dbPath+"-postgres")
 	kvConfig := storage.HighPerformancePebbleConfig(dbPath + "-postgres")

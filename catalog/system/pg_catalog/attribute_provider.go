@@ -17,6 +17,12 @@ func (p *Provider) QueryPgAttribute(ctx context.Context, filter map[string]inter
 	for _, table := range tables {
 		// Generate a deterministic OID for the table based on its name - consistent with pg_class
 		tableOID := oid.GenerateTableOID(table.Name)
+		
+		// Ensure we have a valid schema definition
+		if table.Schema == "" {
+			table.Schema = "public"
+		}
+		
 		// Check filters
 		if filterRelname, ok := filter["relname"].(string); ok {
 			if table.Name != filterRelname {

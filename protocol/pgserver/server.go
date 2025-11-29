@@ -675,6 +675,7 @@ func (s *PostgreSQLServer) convertParameterByOID(param []byte, oid uint32) (inte
 		OIDOID      = 26
 		FLOAT4OID   = 700
 		FLOAT8OID   = 701
+		NUMERICOID  = 1700
 		VARCHAROID  = 1043
 		DATEOID     = 1082
 		TIMEOID     = 1083
@@ -702,6 +703,13 @@ func (s *PostgreSQLServer) convertParameterByOID(param []byte, oid uint32) (inte
 		}
 		if oid == FLOAT4OID {
 			return float32(val), nil
+		}
+		return val, nil
+	case NUMERICOID:
+		// Numeric type - treat as float64 for simplicity
+		val, err := strconv.ParseFloat(paramStr, 64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse numeric parameter: %w", err)
 		}
 		return val, nil
 	case BOOLOID:
