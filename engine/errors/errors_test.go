@@ -6,8 +6,8 @@ import (
 )
 
 func TestEngineError_Error(t *testing.T) {
-	err := &EngineError{code: "test_code", msg: "test message"}
-	expected := "[test_code] test message"
+	err := &EngineError{Code: "test_code", Message: "test message"}
+	expected := "test message"
 	if err.Error() != expected {
 		t.Errorf("Expected %s, got %s", expected, err.Error())
 	}
@@ -16,7 +16,7 @@ func TestEngineError_Error(t *testing.T) {
 func TestEngineError_Wrap(t *testing.T) {
 	innerErr := errors.New("inner error")
 	err := Wrap(innerErr, "test_code", "test message")
-	expected := "[test_code] test message: inner error"
+	expected := "test message: inner error"
 	if err.Error() != expected {
 		t.Errorf("Expected %s, got %s", expected, err.Error())
 	}

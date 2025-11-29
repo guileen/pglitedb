@@ -268,6 +268,31 @@ func IsConflict(err error) bool {
 	return errors.As(err, &e) && e.Code == ErrCodeConflict
 }
 
+// Predefined error variables
+var (
+	ErrClosed      = &EngineError{Code: "closed", Message: "connection closed"}
+	ErrConflict    = &EngineError{Code: ErrCodeConflict, Message: "conflict"}
+	ErrRowNotFound = &EngineError{Code: ErrCodeNotFound, Message: "row not found"}
+)
+
+// IsClosedError checks if an error indicates a closed connection
+func IsClosedError(err error) bool {
+	var e *EngineError
+	return errors.As(err, &e) && e.Code == "closed"
+}
+
+// IsConflictError checks if an error indicates a conflict
+func IsConflictError(err error) bool {
+	var e *EngineError
+	return errors.As(err, &e) && e.Code == ErrCodeConflict
+}
+
+// IsRowNotFoundError checks if an error indicates a row not found
+func IsRowNotFoundError(err error) bool {
+	var e *EngineError
+	return errors.As(err, &e) && e.Code == ErrCodeNotFound
+}
+
 // LogError logs an error at error level
 func LogError(ctx context.Context, err error) {
 	if e, ok := err.(*EngineError); ok {
