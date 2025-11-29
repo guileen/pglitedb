@@ -9,16 +9,16 @@ KEEP_COUNT=40
 echo "Cleaning up spec/ directory..."
 cd /Users/gl/agentwork/pglitedb
 
-# Count total markdown files in spec directory
-total_files=$(ls -1 spec/*.md 2>/dev/null | wc -l | tr -d ' ')
+# Count total markdown files in spec directory (excluding Context.md and Context_*.md)
+total_files=$(ls -1 spec/*.md 2>/dev/null | grep -v "^spec/Context\.md$" | grep -v "^spec/Context_.*\.md$" | wc -l | tr -d ' ')
 
 if [ "$total_files" -le "$KEEP_COUNT" ]; then
     echo "No files to remove. spec/ directory has $total_files files ($KEEP_COUNT or fewer)."
     exit 0
 fi
 
-# Get list of files to remove (older than the latest KEEP_COUNT)
-files_to_remove=$(ls -1t spec/*.md | tail -n +$((KEEP_COUNT + 1)))
+# Get list of files to remove (older than the latest KEEP_COUNT, excluding Context.md and Context_*.md)
+files_to_remove=$(ls -1t spec/*.md | grep -v "^spec/Context\.md$" | grep -v "^spec/Context_.*\.md$" | tail -n +$((KEEP_COUNT + 1)))
 
 if [ -n "$files_to_remove" ]; then
     echo "Removing $(echo "$files_to_remove" | wc -l | tr -d ' ') old files:"

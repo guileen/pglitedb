@@ -296,6 +296,10 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 // normalizeSQL normalizes a SQL query string for use as a cache key
 // This removes extra whitespace, normalizes case, and standardizes formatting
 func (p *Planner) normalizeSQL(query string) string {
+	// Remove comments
+	query = regexp.MustCompile(`/\*.*?\*/`).ReplaceAllString(query, "")
+	query = regexp.MustCompile(`--.*$`).ReplaceAllString(query, "")
+	
 	// Convert to lowercase for case-insensitive comparison
 	// Remove extra whitespace and standardize spacing
 	result := strings.ToLower(strings.TrimSpace(query))
@@ -305,7 +309,16 @@ func (p *Planner) normalizeSQL(query string) string {
 	result = regexp.MustCompile(`\s*,\s*`).ReplaceAllString(result, ", ")
 	result = regexp.MustCompile(`\s*=\s*`).ReplaceAllString(result, " = ")
 	
-	return result
+	// Replace numeric literals with placeholders
+	result = regexp.MustCompile(`\b\d+(?:\.\d+)?\b`).ReplaceAllString(result, "?")
+	
+	// Replace string literals with placeholders
+	result = regexp.MustCompile(`'(?:''|[^'])*'`).ReplaceAllString(result, "'?'")
+	
+	// Standardize comparison operators
+	result = regexp.MustCompile(`\s*(=|!=|<>|<=|>=|<|>)\s*`).ReplaceAllString(result, " $1 ")
+	
+	return strings.TrimSpace(result)
 }
 
 // copyPlan creates a deep copy of a Plan for thread safety
