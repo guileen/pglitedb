@@ -54,7 +54,7 @@ func (m *dataManager) Insert(ctx context.Context, tenantID int64, tableName stri
 
 	rowID, err := m.rowOps.InsertRow(ctx, tenantID, tableID, record, schema)
 	if err != nil {
-		return nil, fmt.Errorf("insert row: %w", err)
+		return nil, fmt.Errorf("insert row (table: %s, tenant: %d): %w", tableName, tenantID, err)
 	}
 
 	record.ID = strconv.FormatInt(rowID, 10)
@@ -170,7 +170,22 @@ func (m *dataManager) validateAndConvert(data map[string]interface{}, schema *ty
 		Data: make(map[string]*types.Value),
 	}
 
+	// Validate that data keys are not empty strings
+	for key := range data {
+		if key == "" {
+			return nil, fmt.Errorf("empty column name found in data")
+		}
+	}
+
 	for _, col := range schema.Columns {
+		// Validate column name and type
+		if col.Name == "" {
+			return nil, fmt.Errorf("schema contains column with empty name")
+		}
+		if col.Type == "" {
+			return nil, fmt.Errorf("schema column %s has empty type", col.Name)
+		}
+
 		val, exists := data[col.Name]
 
 		if !exists {
@@ -461,7 +476,20 @@ func (m *dataManager) inferSchemaFromData(tableName string, data map[string]inte
 	columns := make([]types.ColumnDefinition, 0, len(data))
 	indexes := []types.IndexDefinition{}
 	
+	// Validate that data keys are not empty strings
+	for key := range data {
+		if key == "" {
+			// Skip empty keys to prevent schema corruption
+			continue
+		}
+	}
+	
 	for key, value := range data {
+		// Skip empty keys
+		if key == "" {
+			continue
+		}
+		
 		colType := m.inferColumnType(value)
 		columns = append(columns, types.ColumnDefinition{
 			Name:     key,

@@ -347,7 +347,7 @@ func (e *Executor) executeInsert(ctx context.Context, plan *Plan) (*types.Result
 	tenantID := e.getTenantIDFromContext(ctx)
 	lastInsertID, err := e.catalog.InsertRow(ctx, tenantID, plan.Table, values)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to insert row into table %s: %w", plan.Table, err)
 	}
 
 	return &types.ResultSet{

@@ -159,10 +159,31 @@ func (c *memcodec) EncodeRow(row *types.Record, schemaDef *types.TableDefinition
 	// Create a map for faster column lookup
 	columnMap := make(map[string]types.ColumnType, len(schemaDef.Columns))
 	for _, col := range schemaDef.Columns {
+		// Validate column name and type in schema
+		if col.Name == "" {
+			ReleaseEncodedRow(encoded) // Return to pool on error
+			return nil, errors.Errorf(errors.ErrCodeCodec, "schema contains column with empty name")
+		}
+		if col.Type == "" {
+			ReleaseEncodedRow(encoded) // Return to pool on error
+			return nil, errors.Errorf(errors.ErrCodeCodec, "schema column '%s' has empty type", col.Name)
+		}
 		columnMap[col.Name] = col.Type
 	}
 
 	for colName, value := range row.Data {
+		// Validate column name
+		if colName == "" {
+			ReleaseEncodedRow(encoded) // Return to pool on error
+			return nil, errors.Errorf(errors.ErrCodeCodec, "empty column name found in row data")
+		}
+		
+		// Validate value is not nil
+		if value == nil {
+			ReleaseEncodedRow(encoded) // Return to pool on error
+			return nil, errors.Errorf(errors.ErrCodeCodec, "nil value found for column '%s'", colName)
+		}
+
 		colType, exists := columnMap[colName]
 		if !exists {
 			ReleaseEncodedRow(encoded) // Return to pool on error
@@ -179,7 +200,7 @@ func (c *memcodec) EncodeRow(row *types.Record, schemaDef *types.TableDefinition
 		valueBytes, err := c.EncodeValue(value.Data, colType)
 		if err != nil {
 			ReleaseEncodedRow(encoded) // Return to pool on error
-			return nil, errors.Wrapf(err, errors.ErrCodeCodec, "EncodeRow", "failed to encode column '%s'", colName)
+			return nil, errors.Wrapf(err, errors.ErrCodeCodec, "EncodeRow", "failed to encode column '%s' (type: %s, value: %+v)", colName, colType, value.Data)
 		}
 		encoded.Columns[colName] = valueBytes
 	}
@@ -190,6 +211,11 @@ func (c *memcodec) EncodeRow(row *types.Record, schemaDef *types.TableDefinition
 func (c *memcodec) EncodeValue(value interface{}, colType types.ColumnType) ([]byte, error) {
 	if value == nil {
 		return []byte{nilFlag}, nil
+	}
+
+	// Validate column type
+	if colType == "" {
+		return nil, errors.Errorf(errors.ErrCodeCodec, "empty column type is not supported")
 	}
 
 	switch colType {
