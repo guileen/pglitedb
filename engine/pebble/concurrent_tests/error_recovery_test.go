@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/guileen/pglitedb/engine/pebble/operations/scan"
 	"github.com/guileen/pglitedb/engine/pebble/resources"
 )
 
@@ -74,12 +73,13 @@ func TestErrorRecovery(t *testing.T) {
 		rm := resources.GetResourceManager()
 
 		// Simulate resource acquisition without proper release (leak)
+		// Note: Iterator pooling has been removed, so we test with other resources
 		const numLeakedResources = 5
-		acquiredIterators := make([]*scan.RowIterator, 0, numLeakedResources)
+		acquiredBuffers := make([][]byte, 0, numLeakedResources)
 		for i := 0; i < numLeakedResources; i++ {
-			iter := rm.AcquireIterator()
-			// Intentionally not releasing the iterator to simulate a leak
-			acquiredIterators = append(acquiredIterators, iter)
+			buf := rm.AcquireBuffer(100)
+			// Intentionally not releasing the buffer to simulate a leak
+			acquiredBuffers = append(acquiredBuffers, buf)
 		}
 
 		// Set a shorter leak threshold for testing
@@ -97,8 +97,8 @@ func TestErrorRecovery(t *testing.T) {
 		t.Logf("Leak detection report: %+v", report)
 
 		// Clean up to prevent actual leaks
-		for _, iter := range acquiredIterators {
-			rm.ReleaseIterator(iter)
+		for _, buf := range acquiredBuffers {
+			rm.ReleaseBuffer(buf)
 		}
 		
 		// Reset threshold
@@ -131,11 +131,6 @@ func TestErrorRecovery(t *testing.T) {
 					// Use goroutineID and j to make operations unique
 					_ = goroutineID
 					_ = j
-
-					// Acquire iterator
-					iter := rm.AcquireIterator()
-					time.Sleep(time.Microsecond) // Simulate some work
-					rm.ReleaseIterator(iter)
 
 					// Acquire buffer
 					buf := rm.AcquireBuffer(100)

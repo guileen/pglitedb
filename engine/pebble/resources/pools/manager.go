@@ -1,7 +1,6 @@
 package pools
 
 import (
-	"github.com/guileen/pglitedb/engine/pebble/operations/scan"
 	"github.com/guileen/pglitedb/engine/pebble/resources/leak"
 	"github.com/guileen/pglitedb/engine/pebble/resources/metrics"
 	"github.com/guileen/pglitedb/types"
@@ -10,16 +9,15 @@ import (
 
 // Manager coordinates all resource pools
 type Manager struct {
-	iteratorPool     *IteratorPool
-	batchPool        *BatchPool
-	txnPool          *TxnPool
-	recordPool       *RecordPool
-	bufferPool       *BufferPool
-	keyEncoderPool   *KeyEncoderPool
-	filterExprPool   *FilterExprPool
-	scanResultPool   *ScanResultPool
-	keyPools         *KeyPools
-	tieredBufferPool *TieredBufferPool
+	batchPool           *BatchPool
+	txnPool             *TxnPool
+	recordPool          *RecordPool
+	bufferPool          *BufferPool
+	keyEncoderPool      *KeyEncoderPool
+	filterExprPool      *FilterExprPool
+	scanResultPool      *ScanResultPool
+	keyPools            *KeyPools
+	tieredBufferPool    *TieredBufferPool
 	
 	// Leak detector
 	leakDetector *leak.Detector
@@ -34,34 +32,18 @@ func NewManager(
 	metrics *metrics.Collector,
 ) *Manager {
 	return &Manager{
-		iteratorPool:     NewIteratorPool(leakDetector),
-		batchPool:        NewBatchPool(),
-		txnPool:          NewTxnPool(),
-		recordPool:       NewRecordPool(),
-		bufferPool:       NewBufferPool(),
-		keyEncoderPool:   NewKeyEncoderPool(),
-		filterExprPool:   NewFilterExprPool(),
-		scanResultPool:   NewScanResultPool(),
-		keyPools:         NewKeyPools(),
-		tieredBufferPool: NewTieredBufferPool(),
-		leakDetector:     leakDetector,
-		metrics:          metrics,
+		batchPool:           NewBatchPool(),
+		txnPool:             NewTxnPool(),
+		recordPool:          NewRecordPool(),
+		bufferPool:          NewBufferPool(),
+		keyEncoderPool:      NewKeyEncoderPool(),
+		filterExprPool:      NewFilterExprPool(),
+		scanResultPool:      NewScanResultPool(),
+		keyPools:            NewKeyPools(),
+		tieredBufferPool:    NewTieredBufferPool(),
+		leakDetector:        leakDetector,
+		metrics:             metrics,
 	}
-}
-
-// AcquireIterator gets an iterator from the pool
-func (pm *Manager) AcquireIterator() *scan.RowIterator {
-	return pm.iteratorPool.Acquire()
-}
-
-// AcquireIteratorWithoutMetrics gets an iterator from the pool without recording metrics
-func (pm *Manager) AcquireIteratorWithoutMetrics() *scan.RowIterator {
-	return pm.iteratorPool.Acquire()
-}
-
-// ReleaseIterator returns an iterator to the pool
-func (pm *Manager) ReleaseIterator(iter *scan.RowIterator) {
-	pm.iteratorPool.Release(iter)
 }
 
 // AcquireBatch gets a batch from the pool

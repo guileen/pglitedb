@@ -35,38 +35,6 @@ type IndexIterator struct {
 	
 	// Object pool for reusable row ID values to reduce allocations
 	rowIDValuePool *dbTypes.Value
-	
-	// Reference to the pool for returning the iterator when closed
-	pool interface {
-		Put(interface{})
-	}
-}
-
-// Reset resets the iterator state for reuse
-func (ii *IndexIterator) Reset() {
-	ii.iter = nil
-	ii.codec = nil
-	ii.schemaDef = nil
-	ii.opts = nil
-	ii.current = nil
-	ii.err = nil
-	ii.count = 0
-	ii.started = false
-	ii.columnTypes = nil
-	ii.engine = nil
-	ii.tenantID = 0
-	ii.tableID = 0
-	ii.batchSize = 0
-	ii.rowIDBuffer = nil
-	// Clear the map without reallocating
-	for k := range ii.rowCache {
-		delete(ii.rowCache, k)
-	}
-	ii.cacheIdx = 0
-	// Reset the pooled value
-	if ii.rowIDValuePool != nil {
-		ii.rowIDValuePool.Data = nil
-	}
 }
 
 // NewIndexIterator creates a new IndexIterator
@@ -82,9 +50,6 @@ func NewIndexIterator(
 		EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool
 		GetRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) (map[int64]*dbTypes.Record, error)
 	},
-	pool interface {
-		Put(interface{})
-	},
 ) *IndexIterator {
 	// Use adaptive batch size based on expected result set size
 	initialBatchSize := 200
@@ -98,7 +63,7 @@ func NewIndexIterator(
 		initialBatchSize = 1000
 	}
 	
-	iterator := &IndexIterator{
+	return &IndexIterator{
 		iter:        iter,
 		codec:       codec,
 		schemaDef:   schemaDef,
@@ -108,18 +73,16 @@ func NewIndexIterator(
 		tableID:     tableID,
 		engine:      engine,
 		count:       0,
+		started:     false,
 		batchSize:   initialBatchSize,
 		rowCache:    make(map[int64]*dbTypes.Record, initialBatchSize),
 		rowIDValuePool: &dbTypes.Value{
 			Type: dbTypes.ColumnTypeNumber,
 		},
-		pool: pool,
 	}
-	return iterator
 }
 
-// Initialize sets up an existing IndexIterator with the provided parameters
-// This is used by the pool to reuse iterators
+// Initialize sets up the IndexIterator with the required parameters
 func (ii *IndexIterator) Initialize(
 	iter storage.Iterator,
 	codec codec.Codec,
@@ -132,23 +95,7 @@ func (ii *IndexIterator) Initialize(
 		EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool
 		GetRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) (map[int64]*dbTypes.Record, error)
 	},
-	pool interface {
-		Put(interface{})
-	},
 ) {
-	ii.iter = iter
-	ii.codec = codec
-	ii.schemaDef = schemaDef
-	ii.opts = opts
-	ii.columnTypes = columnTypes
-	ii.tenantID = tenantID
-	ii.tableID = tableID
-	ii.engine = engine
-	ii.count = 0
-	ii.started = false
-	ii.err = nil
-	ii.current = nil
-	
 	// Use adaptive batch size based on expected result set size
 	initialBatchSize := 200
 	if opts != nil && opts.Limit > 0 {
@@ -160,10 +107,22 @@ func (ii *IndexIterator) Initialize(
 		// For unlimited scans, start with larger batch size to reduce round trips
 		initialBatchSize = 1000
 	}
-	ii.batchSize = initialBatchSize
-	ii.pool = pool
 	
-	// Initialize buffers if needed
+	ii.iter = iter
+	ii.codec = codec
+	ii.schemaDef = schemaDef
+	ii.opts = opts
+	ii.columnTypes = columnTypes
+	ii.tenantID = tenantID
+	ii.tableID = tableID
+	ii.engine = engine
+	ii.count = 0
+	ii.started = false
+	ii.batchSize = initialBatchSize
+	ii.current = nil
+	ii.err = nil
+	
+	// Initialize or reuse rowCache
 	if ii.rowCache == nil {
 		ii.rowCache = make(map[int64]*dbTypes.Record, initialBatchSize)
 	} else {
@@ -173,6 +132,7 @@ func (ii *IndexIterator) Initialize(
 		}
 	}
 	
+	// Reuse or create rowIDBuffer
 	if ii.rowIDBuffer == nil {
 		ii.rowIDBuffer = make([]int64, 0, initialBatchSize)
 	} else {
@@ -181,13 +141,12 @@ func (ii *IndexIterator) Initialize(
 	
 	ii.cacheIdx = 0
 	
-	// Initialize the pooled value if needed
+	// Keep or create rowIDValuePool
 	if ii.rowIDValuePool == nil {
 		ii.rowIDValuePool = &dbTypes.Value{
 			Type: dbTypes.ColumnTypeNumber,
 		}
 	}
-	ii.rowIDValuePool.Data = nil
 }
 
 func (ii *IndexIterator) Next() bool {
@@ -325,9 +284,33 @@ func (ii *IndexIterator) Error() error {
 }
 
 func (ii *IndexIterator) Close() error {
-	err := ii.iter.Close()
-	if ii.pool != nil {
-		ii.pool.Put(ii)
+	if ii.iter != nil {
+		return ii.iter.Close()
 	}
-	return err
+	return nil
+}
+
+// ResetForReuse resets the iterator for reuse in a pool
+func (ii *IndexIterator) ResetForReuse() {
+	ii.iter = nil
+	ii.codec = nil
+	ii.schemaDef = nil
+	ii.opts = nil
+	ii.current = nil
+	ii.err = nil
+	ii.count = 0
+	ii.started = false
+	ii.columnTypes = nil
+	ii.engine = nil
+	ii.tenantID = 0
+	ii.tableID = 0
+	ii.batchSize = 0
+	ii.rowIDBuffer = ii.rowIDBuffer[:0]
+	if ii.rowCache != nil {
+		for k := range ii.rowCache {
+			delete(ii.rowCache, k)
+		}
+	}
+	ii.cacheIdx = 0
+	// Keep the rowIDValuePool as it's a value object
 }

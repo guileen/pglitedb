@@ -20,62 +20,23 @@ type RowIterator struct {
 	count     int
 	started   bool
 	engine    interface{ EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool }
-	
-	// Reference to the pool for returning the iterator when closed
-	pool interface {
-		Put(interface{})
-	}
-	
-	// Leak detection tracking
-	trackedResource interface {
-		MarkReleased()
-		Close() error
-	}
-}
-
-// SetTrackedResource sets the tracked resource for leak detection
-func (ri *RowIterator) SetTrackedResource(tr interface {
-	MarkReleased()
-	Close() error
-}) {
-	ri.trackedResource = tr
-}
-
-// Reset resets the iterator state for reuse
-func (ri *RowIterator) Reset() {
-	ri.iter = nil
-	ri.codec = nil
-	ri.schemaDef = nil
-	ri.opts = nil
-	ri.current = nil
-	ri.err = nil
-	ri.count = 0
-	ri.started = false
-	ri.engine = nil
-	// Don't reset trackedResource here as it's managed by the ResourceManager
 }
 
 // NewRowIterator creates a new RowIterator
-func NewRowIterator(iter storage.Iterator, codec codec.Codec, schemaDef *dbTypes.TableDefinition, opts *engineTypes.ScanOptions, engine interface{ EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool }, pool interface {
-	Put(interface{})
-}) *RowIterator {
-	iterator := &RowIterator{
+func NewRowIterator(iter storage.Iterator, codec codec.Codec, schemaDef *dbTypes.TableDefinition, opts *engineTypes.ScanOptions, engine interface{ EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool }) *RowIterator {
+	return &RowIterator{
 		iter:      iter,
 		codec:     codec,
 		schemaDef: schemaDef,
 		opts:      opts,
 		engine:    engine,
 		count:     0,
-		pool:      pool,
+		started:   false,
 	}
-	return iterator
 }
 
-// Initialize sets up an existing RowIterator with the provided parameters
-// This is used by the pool to reuse iterators
-func (ri *RowIterator) Initialize(iter storage.Iterator, codec codec.Codec, schemaDef *dbTypes.TableDefinition, opts *engineTypes.ScanOptions, engine interface{ EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool }, pool interface {
-	Put(interface{})
-}) {
+// Initialize sets up the RowIterator with the required parameters
+func (ri *RowIterator) Initialize(iter storage.Iterator, codec codec.Codec, schemaDef *dbTypes.TableDefinition, opts *engineTypes.ScanOptions, engine interface{ EvaluateFilter(filter *engineTypes.FilterExpression, record *dbTypes.Record) bool }) {
 	ri.iter = iter
 	ri.codec = codec
 	ri.schemaDef = schemaDef
@@ -83,9 +44,8 @@ func (ri *RowIterator) Initialize(iter storage.Iterator, codec codec.Codec, sche
 	ri.engine = engine
 	ri.count = 0
 	ri.started = false
-	ri.err = nil
 	ri.current = nil
-	ri.pool = pool
+	ri.err = nil
 }
 
 func (ri *RowIterator) Next() bool {
@@ -153,17 +113,21 @@ func (ri *RowIterator) Error() error {
 }
 
 func (ri *RowIterator) Close() error {
-	err := ri.iter.Close()
-	
-	// Mark the tracked resource as released for leak detection
-	if ri.trackedResource != nil {
-		ri.trackedResource.MarkReleased()
-		ri.trackedResource.Close()
-		ri.trackedResource = nil
+	if ri.iter != nil {
+		return ri.iter.Close()
 	}
-	
-	if ri.pool != nil {
-		ri.pool.Put(ri)
-	}
-	return err
+	return nil
+}
+
+// ResetForReuse resets the iterator for reuse in a pool
+func (ri *RowIterator) ResetForReuse() {
+	ri.iter = nil
+	ri.codec = nil
+	ri.schemaDef = nil
+	ri.opts = nil
+	ri.current = nil
+	ri.err = nil
+	ri.count = 0
+	ri.started = false
+	ri.engine = nil
 }
