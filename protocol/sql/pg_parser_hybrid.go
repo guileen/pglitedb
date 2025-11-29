@@ -39,13 +39,14 @@ type cachedParseResult struct {
 }
 
 // NewHybridPGParser creates a new hybrid PostgreSQL parser instance
+// Increased cache size to reduce CGO call overhead based on profiling analysis
 func NewHybridPGParser() *HybridPGParser {
 	return &HybridPGParser{
 		simpleParser:  NewSimplePGParser(),
 		fullParser:    NewFullPGParser(), // The full CGO parser
 		cache:         make(map[string]*cachedParseResult),
 		cacheSize:     0,
-		maxCacheSize:  1000, // Limit cache to 1000 entries
+		maxCacheSize:  5000, // Increased cache size to 5000 entries to reduce CGO overhead
 	}
 }
 

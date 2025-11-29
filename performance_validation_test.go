@@ -78,6 +78,11 @@ func TestConfigurationComparison(t *testing.T) {
 
 // runPerformanceTest runs a simple performance test
 func runPerformanceTest(t *testing.T, db *client.Client, testName string) int {
+	// intPtr returns a pointer to an int
+	intPtr := func(i int) *int {
+		return &i
+	}
+
 	ctx := context.Background()
 	tenantID := int64(1)
 	tableName := fmt.Sprintf("test_table_%s", testName)
