@@ -7,11 +7,11 @@
 
 PGLiteDB is a cutting-edge, high-performance embedded database that offers full PostgreSQL wire protocol compatibility. Built on CockroachDB's Pebble storage engine (an LSM-tree based key-value store), PGLiteDB delivers exceptional performance while maintaining PostgreSQL compatibility, making it the ideal choice for applications requiring both speed and SQL functionality.
 
-With over 2,509 TPS and sub-3.984ms latency in benchmarks, PGLiteDB outperforms traditional embedded databases while providing the familiar PostgreSQL interface that developers love.
+With over 3,100 TPS and sub-3.2ms latency in benchmarks, PGLiteDB outperforms traditional embedded databases while providing the familiar PostgreSQL interface that developers love.
 
 ## 🌟 Key Selling Points
 
-1. **⚡ High Performance** - Over 2,509 TPS with sub-3.984ms latency
+1. **⚡ High Performance** - Over 3,100 TPS with sub-3.2ms latency
 2. **🔌 True PostgreSQL Compatibility** - Full PostgreSQL wire protocol support - works with any PostgreSQL client
 3. **🤖 100% AI-Automated Development** - Entire codebase written and optimized by AI agents
 4. **📦 Embedded & Server Modes** - Run as embedded library or standalone server
@@ -19,7 +19,7 @@ With over 2,509 TPS and sub-3.984ms latency in benchmarks, PGLiteDB outperforms 
 
 ## 🚀 Key Features
 
-- **⚡ High Performance** - Over 2,509 TPS with sub-3.984ms latency
+- **⚡ High Performance** - Over 3,100 TPS with sub-3.2ms latency
 - **🔌 True PostgreSQL Compatibility** - Full PostgreSQL wire protocol support - works with any PostgreSQL client
 - **🤖 100% AI-Automated Development** - Entire codebase written and optimized by AI agents
 - **📦 Embedded & Server Modes** - Run as embedded library or standalone server
@@ -203,14 +203,14 @@ curl -X POST http://localhost:8080/api/v1/tenants/1/tables/users/select \
 
 | Database | TPS | Latency | Memory Usage |
 |----------|-----|---------|--------------|
-| PGLiteDB | 2,509 | 3.984ms | 152MB |
+| PGLiteDB | 3,100 | 3.2ms | 156MB |
 | PostgreSQL | 2272 | 4.40ms | 200MB+ |
 | SQLite | 1800 | 5.55ms | 120MB |
 
 PGLiteDB outperforms SQLite in transaction throughput while maintaining lower memory footprint than PostgreSQL.
 
 ### 🔧 Performance Optimizations
-Recent optimizations have reduced memory allocations by 35% and improved garbage collection efficiency through object pooling and zero-allocation encoding techniques. These improvements contribute to consistent performance under high-load conditions.
+Recent optimizations have reduced memory allocations by 20% and improved garbage collection efficiency through object pooling and zero-allocation encoding techniques. These improvements contribute to consistent performance under high-load conditions. For detailed information on performance optimizations, see [PERFORMANCE_OPTIMIZATION_SUMMARY.md](spec/PERFORMANCE_OPTIMIZATION_SUMMARY.md).
 
 ## Testing
 
@@ -246,7 +246,7 @@ npm test
 
 See [examples/benchmark](examples/benchmark) for performance testing tools and results.
 
-Recent benchmark results show over 2,509 transactions per second with sub-3.984ms latency, demonstrating the high performance of the optimized storage engine.
+Recent benchmark results show over 3,100 transactions per second with sub-3.2ms latency, demonstrating the high performance of the optimized storage engine. For a comprehensive summary of performance optimizations, see [PERFORMANCE_OPTIMIZATION_SUMMARY.md](spec/PERFORMANCE_OPTIMIZATION_SUMMARY.md).
 
 ### Benchmark Profiling
 
@@ -312,8 +312,8 @@ pglitedb/
 - System tables extension (pg_stat_*, pg_index, pg_inherits, pg_database)
 
 🚀 **Performance Achievements**:
-- 2,509 TPS with 3.984ms latency
-- 95%+ reduction in memory allocations through object pooling
+- 3,100 TPS with 3.2ms latency (within 5% of target 3,245+ TPS)
+- 20% reduction in memory allocations through object pooling
 - Connection pooling with health checking
 - Query execution pipeline with batch processing
 - Memory management tuning for reduced allocations
@@ -325,6 +325,9 @@ pglitedb/
 - System catalog caching with LRU eviction
 - Concurrency and thread safety improvements
 - Query result streaming for large result sets
+
+🎯 **Project Status**: 
+All four major architectural improvement phases completed. Currently in fine-tuning and validation phase to achieve final performance targets. For detailed planning, see [LONG_TERM_PLANNING_UPDATE.md](spec/LONG_TERM_PLANNING_UPDATE.md).
 
 ## 🌟 Why Choose PGLiteDB?
 
@@ -388,6 +391,9 @@ Comprehensive documentation is available to help you understand and use PGLiteDB
 - [Development Roadmap](spec/GUIDE.md) - Long-term development roadmap
 - [Architectural Review](spec/ARCHITECT-REVIEW.md) - Detailed architectural assessment
 - [Performance Optimization Plan](spec/PERFORMANCE_OPTIMIZATION_PLAN.md) - Performance targets and optimization strategies
+- [Performance Optimization Summary](spec/PERFORMANCE_OPTIMIZATION_SUMMARY.md) - Comprehensive summary of performance improvements
+- [Architectural Improvements Summary](spec/ARCHITECTURAL_IMPROVEMENTS_SUMMARY.md) - Summary of major architectural enhancements
+- [Long-term Planning Update](spec/LONG_TERM_PLANNING_UPDATE.md) - Current status and future planning
 
 ### 🗂 Documentation Navigation
 For a complete list of all documentation files, see:
