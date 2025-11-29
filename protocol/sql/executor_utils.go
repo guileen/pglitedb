@@ -56,6 +56,8 @@ func mapPostgreSQLTypeToInternal(pgType string) string {
 		return "char"
 	case "timestamp", "timestamp without time zone":
 		return "timestamp"
+	case "decimal", "numeric":
+		return "numeric"
 	case "serial":
 		return "serial"
 	case "bigserial":

@@ -146,6 +146,30 @@ func PostgreSQLOptimizedPebbleConfig(path string) *PebbleConfig {
 	}
 }
 
+// HighPerformancePebbleConfig creates a configuration optimized for maximum performance
+// Prioritizes throughput and low latency over space efficiency
+func HighPerformancePebbleConfig(path string) *PebbleConfig {
+	return &PebbleConfig{
+		Path:                  path,
+		CacheSize:             4 * 1024 * 1024 * 1024, // 4GB cache for maximum read performance
+		MemTableSize:          512 * 1024 * 1024,       // 512MB memtable for write-heavy workloads
+		MaxOpenFiles:          200000,                  // Increased file handle limit
+		CompactionConcurrency: 64,                      // Maximum parallelism
+		FlushInterval:         500 * time.Millisecond,  // Aggressive flushing for lowest latency
+		BlockSize:             128 << 10,               // 128KB block size for better performance
+		L0CompactionThreshold: 16,                      // Reduced write amplification
+		L0StopWritesThreshold: 64,                      // Prevent write stalls under heavy load
+		LBaseMaxBytes:         2048 << 20,              // 2GB for L1, better space efficiency
+		CompressionEnabled:    true,
+		EnableRateLimiting:    false,                   // Disable rate limiting for maximum performance
+		RateLimitBytesPerSec:  500 << 20,               // 500MB/s rate limit if enabled
+		EnableBloomFilter:     true,                    // Enable bloom filters for better read performance
+		BloomFilterBitsPerKey: 15,                      // 15 bits per key for better filtering
+		TargetFileSize:        128 << 20,               // 128MB target file size for better sequential reads
+		MaxManifestFileSize:   512 << 20,               // 512MB max manifest file size
+	}
+}
+
 func NewPebbleKV(config *PebbleConfig) (*PebbleKV, error) {
 	cache := pebble.NewCache(config.CacheSize)
 	defer cache.Unref()

@@ -8,8 +8,24 @@ set -e
 # Configuration
 DB_NAME="pgbench_test"
 DB_HOST="localhost"
-DB_PORT="5432"
+DB_PORT="5666"
 DB_USER="postgres"
+
+# Wait for server to be ready
+echo "Waiting for PostgreSQL server to be ready..."
+for i in {1..30}; do
+    if pg_isready -h $DB_HOST -p $DB_PORT -U $DB_USER > /dev/null 2>&1; then
+        echo "PostgreSQL server is ready"
+        break
+    fi
+    echo "Waiting for server... ($i/30)"
+    sleep 2
+done
+
+if ! pg_isready -h $DB_HOST -p $DB_PORT -U $DB_USER > /dev/null 2>&1; then
+    echo "ERROR: PostgreSQL server is not responding"
+    exit 1
+fi
 
 # Create database if it doesn't exist
 echo "Creating database $DB_NAME if it doesn't exist..."

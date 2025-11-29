@@ -81,7 +81,7 @@ func TestOptimizedPebbleConfig(path string) *PebbleConfig {
 	return kv.TestOptimizedPebbleConfig(path)
 }
 
-// PostgreSQLOptimizedPebbleConfig creates a configuration optimized for PostgreSQL-like workloads
-func PostgreSQLOptimizedPebbleConfig(path string) *PebbleConfig {
-	return kv.PostgreSQLOptimizedPebbleConfig(path)
+// HighPerformancePebbleConfig creates a configuration optimized for maximum performance
+func HighPerformancePebbleConfig(path string) *PebbleConfig {
+	return kv.HighPerformancePebbleConfig(path)
 }

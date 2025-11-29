@@ -43,6 +43,9 @@ type PostgreSQLServer struct {
 	// Extended query protocol state
 	preparedStatements map[string]*PreparedStatement
 	portals           map[string]*Portal
+	
+	// Mutex for protecting preparedStatements and portals maps
+	psMutex sync.RWMutex
 }
 
 // PreparedStatement represents a parsed SQL statement
@@ -525,7 +528,8 @@ func (s *PostgreSQLServer) handleParse(backend *pgproto3.Backend, msg *pgproto3.
 		logger.Warn("Failed to parse query for prepared statement", "error", err, "parse_duration", parseDuration.String())
 	}
 	
-	// Store the prepared statement
+	// Store the prepared statement with mutex protection
+	s.psMutex.Lock()
 	if msg.Name == "" {
 		// unnamed statement
 		s.preparedStatements[""] = stmt
@@ -534,6 +538,7 @@ func (s *PostgreSQLServer) handleParse(backend *pgproto3.Backend, msg *pgproto3.
 		s.preparedStatements[msg.Name] = stmt
 		logger.Debug("Stored named prepared statement", "name", msg.Name)
 	}
+	s.psMutex.Unlock()
 	
 	backend.Send(&pgproto3.ParseComplete{})
 	if err := backend.Flush(); err != nil {
@@ -548,8 +553,10 @@ func (s *PostgreSQLServer) handleParse(backend *pgproto3.Backend, msg *pgproto3.
 func (s *PostgreSQLServer) handleBind(backend *pgproto3.Backend, msg *pgproto3.Bind) bool {
 	logger.Debug("Binding portal", "destination_portal", msg.DestinationPortal, "prepared_statement", msg.PreparedStatement, "parameter_count", len(msg.Parameters))
 	
-	// Look up the prepared statement
+	// Look up the prepared statement with mutex protection
+	s.psMutex.RLock()
 	stmt, exists := s.preparedStatements[msg.PreparedStatement]
+	s.psMutex.RUnlock()
 	if !exists {
 		logger.Warn("Prepared statement not found", "prepared_statement", msg.PreparedStatement)
 		s.sendErrorAndReady(backend, "26000", "prepared statement does not exist")
@@ -587,7 +594,8 @@ func (s *PostgreSQLServer) handleBind(backend *pgproto3.Backend, msg *pgproto3.B
 		}
 	}
 	
-	// Store the portal
+	// Store the portal with mutex protection
+	s.psMutex.Lock()
 	if msg.DestinationPortal == "" {
 		// unnamed portal
 		s.portals[""] = portal
@@ -596,6 +604,7 @@ func (s *PostgreSQLServer) handleBind(backend *pgproto3.Backend, msg *pgproto3.B
 		s.portals[msg.DestinationPortal] = portal
 		logger.Debug("Stored named portal", "name", msg.DestinationPortal)
 	}
+	s.psMutex.Unlock()
 	
 	backend.Send(&pgproto3.BindComplete{})
 	if err := backend.Flush(); err != nil {
@@ -690,8 +699,10 @@ func (s *PostgreSQLServer) handleDescribe(backend *pgproto3.Backend, msg *pgprot
 func (s *PostgreSQLServer) handleExecute(backend *pgproto3.Backend, msg *pgproto3.Execute) bool {
 	logger.Debug("Executing portal", "portal", msg.Portal, "max_rows", msg.MaxRows)
 	
-	// Look up the portal
+	// Look up the portal with mutex protection
+	s.psMutex.RLock()
 	portal, exists := s.portals[msg.Portal]
+	s.psMutex.RUnlock()
 	if !exists {
 		logger.Warn("Portal not found", "portal", msg.Portal)
 		s.sendErrorAndReady(backend, "26000", "portal does not exist")

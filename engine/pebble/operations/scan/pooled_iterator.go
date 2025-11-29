@@ -1,6 +1,8 @@
 package scan
 
 import (
+	"sync"
+
 	dbTypes "github.com/guileen/pglitedb/types"
 )
 
@@ -111,82 +113,76 @@ func (pioi *PooledIndexOnlyIterator) Close() error {
 
 // IteratorPool manages iterator resources with minimal overhead
 type IteratorPool struct {
-	indexIteratorPool    chan *IndexIterator
-	rowIteratorPool      chan *RowIterator
-	indexOnlyIteratorPool chan *IndexOnlyIterator
+	indexIteratorPool    sync.Pool
+	rowIteratorPool      sync.Pool
+	indexOnlyIteratorPool sync.Pool
 }
 
 // NewIteratorPool creates a new iterator pool
 func NewIteratorPool() *IteratorPool {
 	return &IteratorPool{
-		indexIteratorPool:    make(chan *IndexIterator, 100),
-		rowIteratorPool:      make(chan *RowIterator, 100),
-		indexOnlyIteratorPool: make(chan *IndexOnlyIterator, 100),
+		indexIteratorPool: sync.Pool{
+			New: func() interface{} { return &IndexIterator{} },
+		},
+		rowIteratorPool: sync.Pool{
+			New: func() interface{} { return &RowIterator{} },
+		},
+		indexOnlyIteratorPool: sync.Pool{
+			New: func() interface{} { return &IndexOnlyIterator{} },
+		},
 	}
 }
 
 // AcquireIndexIterator gets an IndexIterator from the pool
 func (ip *IteratorPool) AcquireIndexIterator() *IndexIterator {
-	select {
-	case iter := <-ip.indexIteratorPool:
-		return iter
-	default:
+	iter := ip.indexIteratorPool.Get()
+	if iter == nil {
 		return &IndexIterator{}
 	}
+	return iter.(*IndexIterator)
 }
 
 // ReleaseIndexIterator returns an IndexIterator to the pool
 func (ip *IteratorPool) ReleaseIndexIterator(iter *IndexIterator) {
-	// Reset the iterator state to avoid retaining references
-	iter.ResetForReuse()
-	
-	select {
-	case ip.indexIteratorPool <- iter:
-	default:
-		// Pool is full, discard the iterator
+	if iter != nil {
+		// Reset the iterator state to avoid retaining references
+		iter.ResetForReuse()
+		ip.indexIteratorPool.Put(iter)
 	}
 }
 
 // AcquireRowIterator gets a RowIterator from the pool
 func (ip *IteratorPool) AcquireRowIterator() *RowIterator {
-	select {
-	case iter := <-ip.rowIteratorPool:
-		return iter
-	default:
+	iter := ip.rowIteratorPool.Get()
+	if iter == nil {
 		return &RowIterator{}
 	}
+	return iter.(*RowIterator)
 }
 
 // ReleaseRowIterator returns a RowIterator to the pool
 func (ip *IteratorPool) ReleaseRowIterator(iter *RowIterator) {
-	// Reset the iterator state to avoid retaining references
-	iter.ResetForReuse()
-	
-	select {
-	case ip.rowIteratorPool <- iter:
-	default:
-		// Pool is full, discard the iterator
+	if iter != nil {
+		// Reset the iterator state to avoid retaining references
+		iter.ResetForReuse()
+		ip.rowIteratorPool.Put(iter)
 	}
 }
 
 // AcquireIndexOnlyIterator gets an IndexOnlyIterator from the pool
 func (ip *IteratorPool) AcquireIndexOnlyIterator() *IndexOnlyIterator {
-	select {
-	case iter := <-ip.indexOnlyIteratorPool:
-		return iter
-	default:
+	iter := ip.indexOnlyIteratorPool.Get()
+	if iter == nil {
 		return &IndexOnlyIterator{}
 	}
+	return iter.(*IndexOnlyIterator)
 }
 
 // ReleaseIndexOnlyIterator returns an IndexOnlyIterator to the pool
 func (ip *IteratorPool) ReleaseIndexOnlyIterator(iter *IndexOnlyIterator) {
-	// Reset the iterator state to avoid retaining references
-	iter.ResetForReuse()
-	
-	select {
-	case ip.indexOnlyIteratorPool <- iter:
-	default:
-		// Pool is full, discard the iterator
+	if iter != nil {
+		// Reset the iterator state to avoid retaining references
+		iter.ResetForReuse()
+		ip.indexOnlyIteratorPool.Put(iter)
 	}
 }

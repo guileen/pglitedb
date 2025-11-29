@@ -24,8 +24,42 @@ type Client struct {
 
 // NewClient creates a new embedded client
 func NewClient(dbPath string) *Client {
-	// Create a pebble KV store
-	config := storage.DefaultPebbleConfig(dbPath)
+	// Create a pebble KV store with high-performance configuration
+	config := storage.HighPerformancePebbleConfig(dbPath)
+	kvStore, err := storage.NewPebbleKV(config)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create pebble kv: %v", err))
+	}
+	
+	// Create codec
+	c := codec.NewMemComparableCodec()
+	
+	// Create engine and manager
+	eng := pebble.NewPebbleEngine(kvStore, c)
+	mgr := catalog.NewTableManagerWithKV(eng, kvStore)
+	
+	// Load existing schemas
+	if err := mgr.LoadSchemas(context.Background()); err != nil {
+		log.Printf("Warning: failed to load schemas: %v", err)
+	}
+	
+	// Create SQL parser and planner with catalog
+	// Use hybrid parser for better performance with caching
+	parser := sql.NewHybridPGParser()
+	planner := sql.NewPlannerWithCatalog(parser, mgr)
+	
+	// Get executor from planner
+	exec := planner.Executor()
+	
+	return &Client{
+		executor: exec,
+		planner:  planner,
+	}
+}
+
+// NewClientWithConfig creates a new embedded client with a specific configuration
+func NewClientWithConfig(dbPath string, config *storage.PebbleConfig) *Client {
+	// Create a pebble KV store with the provided configuration
 	kvStore, err := storage.NewPebbleKV(config)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create pebble kv: %v", err))

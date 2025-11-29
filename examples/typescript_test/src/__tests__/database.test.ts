@@ -6,10 +6,23 @@ describe('PostgreSQL Compatible Database Tests', () => {
   beforeAll(async () => {
     dbClient = new DatabaseClient();
     await dbClient.connect();
+    
+    // Clean up any existing tables first
+    try {
+      await dbClient.query('DROP TABLE IF EXISTS users');
+    } catch (error) {
+      console.log('Table users does not exist, continuing...');
+    }
   });
 
   afterAll(async () => {
     if (dbClient) {
+      // Clean up tables after tests
+      try {
+        await dbClient.query('DROP TABLE IF EXISTS users');
+      } catch (error) {
+        console.log('Failed to drop table users:', error);
+      }
       await dbClient.disconnect();
     }
   });
@@ -20,6 +33,13 @@ describe('PostgreSQL Compatible Database Tests', () => {
   });
 
   test('should create table', async () => {
+    // Clean up any existing data first
+    try {
+      await dbClient.query('DELETE FROM users');
+    } catch (error) {
+      console.log('No existing data to clean up');
+    }
+    
     const createTableQuery = `
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
