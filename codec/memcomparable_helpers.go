@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -72,6 +73,15 @@ func encodeString(value interface{}) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// Global pool for byte slices used in decoding
+var decodeBufferPool = &sync.Pool{
+	New: func() interface{} {
+		// Start with a reasonable default size
+		buf := make([]byte, 0, 128)
+		return &buf
+	},
+}
+
 func decodeString(data []byte) (interface{}, error) {
 	if len(data) < 1 || data[0] != bytesFlag {
 		return nil, fmt.Errorf("invalid string encoding")
@@ -96,8 +106,28 @@ func decodeString(data []byte) (interface{}, error) {
 		}
 	}
 	
-	// Pre-allocate result slice
-	result := make([]byte, resultLen)
+	// Use pooled buffer to reduce allocations
+	var result []byte
+	if resultLen <= 128 {
+		// For small strings, use pooled buffer
+		bufPtr := decodeBufferPool.Get().(*[]byte)
+		buf := *bufPtr
+		if cap(buf) < resultLen {
+			buf = make([]byte, resultLen)
+		} else {
+			buf = buf[:resultLen]
+		}
+		result = buf
+		defer func() {
+			// Reset and return to pool
+			*bufPtr = buf[:0]
+			decodeBufferPool.Put(bufPtr)
+		}()
+	} else {
+		// For large strings, allocate directly to avoid holding large buffers in pool
+		result = make([]byte, resultLen)
+	}
+	
 	pos := 0
 	i = 1
 	for i < len(data) {
@@ -244,8 +274,28 @@ func decodeJSON(data []byte) (interface{}, error) {
 		}
 	}
 
-	// Pre-allocate result slice
-	result := make([]byte, resultLen)
+	// Use pooled buffer to reduce allocations
+	var result []byte
+	if resultLen <= 128 {
+		// For small JSON, use pooled buffer
+		bufPtr := decodeBufferPool.Get().(*[]byte)
+		buf := *bufPtr
+		if cap(buf) < resultLen {
+			buf = make([]byte, resultLen)
+		} else {
+			buf = buf[:resultLen]
+		}
+		result = buf
+		defer func() {
+			// Reset and return to pool
+			*bufPtr = buf[:0]
+			decodeBufferPool.Put(bufPtr)
+		}()
+	} else {
+		// For large JSON, allocate directly to avoid holding large buffers in pool
+		result = make([]byte, resultLen)
+	}
+
 	pos := 0
 	i = 1
 	for i < len(data) {
@@ -310,8 +360,28 @@ func decodeBytes(data []byte) (interface{}, error) {
 		}
 	}
 	
-	// Pre-allocate result slice
-	result := make([]byte, resultLen)
+	// Use pooled buffer to reduce allocations
+	var result []byte
+	if resultLen <= 128 {
+		// For small byte arrays, use pooled buffer
+		bufPtr := decodeBufferPool.Get().(*[]byte)
+		buf := *bufPtr
+		if cap(buf) < resultLen {
+			buf = make([]byte, resultLen)
+		} else {
+			buf = buf[:resultLen]
+		}
+		result = buf
+		defer func() {
+			// Reset and return to pool
+			*bufPtr = buf[:0]
+			decodeBufferPool.Put(bufPtr)
+		}()
+	} else {
+		// For large byte arrays, allocate directly to avoid holding large buffers in pool
+		result = make([]byte, resultLen)
+	}
+	
 	pos := 0
 	i = 1
 	for i < len(data) {
