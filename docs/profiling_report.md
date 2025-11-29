@@ -28,15 +28,15 @@ This report documents the results of a 5-minute profiling benchmark run with 10 
 ## CPU Profiling Analysis
 
 ### Top CPU Consumers
-1. Storage Engine Operations (~28% of CPU time)
-2. Synchronization Overhead (~36% of CPU time in pthread operations)
-3. SQL Planner CGO calls (~50% of CPU time)
-4. Protobuf Processing
-5. Row Decoding
+1. Reflection-heavy operations (41% of CPU time) - `reflect.New` and protobuf unmarshaling
+2. SQL Parsing and Execution (33% of CPU time) - PG Query parser and execution pipeline
+3. Row Decoding Operations (31.5% of CPU time) - Codec decoding operations
+4. Storage Engine Operations (~28% of CPU time)
+5. Synchronization Overhead (~36% of CPU time in pthread operations)
 
 ### CPU Flame Graph Observations
-- Primary hotspots: Storage engine operations and synchronization primitives
-- Potential optimization targets: CGO call reduction and pthread overhead
+- Primary hotspots: Reflection operations, storage engine operations, and synchronization primitives
+- Potential optimization targets: Reduce reflection usage and pthread overhead
 
 ## Memory Profiling Analysis
 
@@ -46,11 +46,11 @@ This report documents the results of a 5-minute profiling benchmark run with 10 
 - System Memory Usage: ~33 MB
 
 ### Top Memory Allocators
-1. Row Decoding (28.62% of allocations)
-2. Reflection in SQL Planner (52.91% of allocations)
-3. Batch Operations (12.18% of allocations)
-4. Protobuf Processing
-5. Iterator Objects
+1. String Operations (50.71% of allocations) - `strings.Builder.Grow` and `strings.Join`
+2. Row Decoding (32.97% of allocations) - `memcodec.DecodeRow` operations
+3. Protobuf Unmarshaling (25.42% of allocations) - Google protobuf library
+4. Reflection in SQL Planner (21.17% of allocations) - `reflect.New` operations
+5. Batch Operations (12.18% of allocations)
 
 ### Memory Leak Analysis
 - Memory growth trends: Steady increase in allocations over time
@@ -76,32 +76,37 @@ This report documents the results of a 5-minute profiling benchmark run with 10 
 
 ### Blocking Operations
 - Top Blocking Functions:
-1. Storage Engine Locks
+1. Storage Engine Locks - High mutex contention during flush operations
 2. Iterator Operations
 3. Transaction Management
+4. Channel Operations - `runtime.selectgo` dominates blocking time
 
 ### Mutex Contention
 - High Contention Areas:
-1. Storage Engine Synchronization
-2. Iterator Pool Access
-3. Transaction State Management
+1. KV Store Flush Operations - `sync.(*RWMutex).Unlock` accounts for 70.54% of delays
+2. Storage Engine Synchronization
+3. Iterator Pool Access
+4. Transaction State Management
 
 ## Optimization Recommendations
 
 ### High Priority Optimizations
-1. Optimize row decoding in the codec package (28% of memory allocations)
-2. Reduce CGO calls in the SQL planner (50% of CPU time)
-3. Minimize reflection usage in protobuf processing (53% of memory allocations)
+1. Reduce Reflection Usage - Replace reflection-heavy protobuf operations with code generation
+2. Address Mutex Contention - Redesign KV store flushing mechanism to reduce lock contention
+3. Optimize row decoding in the codec package (32.97% of allocations)
+4. Minimize reflection usage in protobuf processing (21.17% of allocations)
 
 ### Medium Priority Optimizations
-1. Investigate synchronization primitives to reduce pthread overhead (36% of CPU time)
-2. Optimize batch operation handling in the storage engine (12% of memory allocations)
-3. Improve iterator pooling mechanisms
+1. Improve String Operations - Optimize stack trace generation and string concatenation
+2. Investigate synchronization primitives to reduce pthread overhead (36% of CPU time)
+3. Optimize batch operation handling in the storage engine (12% of memory allocations)
+4. Enhance query parsing - Cache parsed query structures
 
 ### Low Priority Optimizations
 1. Fine-tune memory allocation patterns in transaction management
 2. Optimize query result streaming
 3. Enhance connection pooling efficiency
+4. Fine-tune compaction operations
 
 ## Detailed Profile Analysis Commands
 
@@ -129,9 +134,10 @@ go tool pprof ./profiles/goroutine.prof
 
 ## Next Steps
 
-1. Implement high-priority optimizations targeting row decoding and CGO call reduction
+1. Implement high-priority optimizations targeting reflection reduction and mutex contention
 2. Run follow-up benchmarks to measure improvement from optimizations
 3. Continue monitoring GC behavior and memory allocation patterns
+4. Focus on KV store synchronization improvements for immediate performance gains
 
 ---
 Report generated on: 2025-11-29
