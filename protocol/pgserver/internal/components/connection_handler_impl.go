@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/guileen/pglitedb/logger"
 	customctx "github.com/guileen/pglitedb/context"
@@ -40,6 +41,11 @@ type ConnectionHandler struct {
 	statementManager interfaces.PreparedStatementManagerInterface
 	parser           sql.Parser
 	
+	// Timeout configuration
+	connectionTimeout time.Duration
+	idleTimeout       time.Duration
+	maxLifetime       time.Duration
+	
 	// Extended query protocol state
 	preparedStatements map[string]*PreparedStatement
 	portals           map[string]*Portal
@@ -49,18 +55,43 @@ type ConnectionHandler struct {
 // NewConnectionHandler creates a new connection handler
 func NewConnectionHandler(queryProcessor interfaces.QueryProcessorInterface, statementManager interfaces.PreparedStatementManagerInterface, parser sql.Parser) *ConnectionHandler {
 	return &ConnectionHandler{
-		queryProcessor:    queryProcessor,
-		statementManager:  statementManager,
-		parser:            parser,
+		queryProcessor:     queryProcessor,
+		statementManager:   statementManager,
+		parser:             parser,
+		connectionTimeout:  30 * time.Second, // Default timeout
+		idleTimeout:        5 * time.Minute,  // Default idle timeout
+		maxLifetime:        1 * time.Hour,    // Default max lifetime
 		preparedStatements: make(map[string]*PreparedStatement),
-		portals:           make(map[string]*Portal),
-		psMutex:           &sync.RWMutex{},
+		portals:            make(map[string]*Portal),
+		psMutex:            &sync.RWMutex{},
+	}
+}
+
+// NewConnectionHandlerWithTimeout creates a new connection handler with timeout configuration
+func NewConnectionHandlerWithTimeout(queryProcessor interfaces.QueryProcessorInterface, statementManager interfaces.PreparedStatementManagerInterface, parser sql.Parser, connectionTimeout, idleTimeout, maxLifetime time.Duration) *ConnectionHandler {
+	return &ConnectionHandler{
+		queryProcessor:     queryProcessor,
+		statementManager:   statementManager,
+		parser:             parser,
+		connectionTimeout:  connectionTimeout,
+		idleTimeout:        idleTimeout,
+		maxLifetime:        maxLifetime,
+		preparedStatements: make(map[string]*PreparedStatement),
+		portals:            make(map[string]*Portal),
+		psMutex:            &sync.RWMutex{},
 	}
 }
 
 // HandleConnection handles a new client connection
 func (ch *ConnectionHandler) HandleConnection(conn net.Conn) error {
 	logger.Info("Handling new client connection", "remote_addr", conn.RemoteAddr().String(), "local_addr", conn.LocalAddr().String())
+	
+	// Set connection timeout
+	if ch.connectionTimeout > 0 {
+		if deadlineErr := conn.SetDeadline(time.Now().Add(ch.connectionTimeout)); deadlineErr != nil {
+			logger.Error("Failed to set connection deadline", "error", deadlineErr, "remote_addr", conn.RemoteAddr().String())
+		}
+	}
 	
 	// Get a RequestContext from the pool
 	reqCtx := customctx.GetRequestContext()
@@ -76,6 +107,12 @@ func (ch *ConnectionHandler) HandleConnection(conn net.Conn) error {
 	// Handle startup message
 	startupMessage, err := backend.ReceiveStartupMessage()
 	if err != nil {
+		// Check if this is a timeout error
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			logger.Warn("Connection timeout during startup", "remote_addr", conn.RemoteAddr().String())
+			return fmt.Errorf("connection timeout during startup: %w", err)
+		}
+		
 		logger.Error("Failed to receive startup message", "error", err, "remote_addr", conn.RemoteAddr().String())
 		log.Printf("Failed to receive startup message: %v", err)
 		return err
@@ -119,8 +156,28 @@ func (ch *ConnectionHandler) HandleConnection(conn net.Conn) error {
 	logger.Debug("Entering main message loop", "remote_addr", conn.RemoteAddr().String())
 	messageCount := 0
 	for {
+		// Reset idle timeout for each message
+		if ch.idleTimeout > 0 {
+			if deadlineErr := conn.SetDeadline(time.Now().Add(ch.idleTimeout)); deadlineErr != nil {
+				logger.Error("Failed to set idle timeout", "error", deadlineErr, "remote_addr", conn.RemoteAddr().String())
+			}
+		}
+		
 		msg, err := backend.Receive()
 		if err != nil {
+			// Check if this is a timeout error
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				logger.Warn("Connection timeout during message receive", "remote_addr", conn.RemoteAddr().String(), "message_count", messageCount)
+				// Send error response to client
+				backend.Send(&pgproto3.ErrorResponse{
+					Severity: "ERROR",
+					Code:     "08006", // connection failure
+					Message:  "connection timeout",
+				})
+				backend.Flush()
+				return fmt.Errorf("connection timeout: %w", err)
+			}
+			
 			logger.Error("Failed to receive message", "error", err, "remote_addr", conn.RemoteAddr().String())
 			log.Printf("Failed to receive message: %v", err)
 			return err
