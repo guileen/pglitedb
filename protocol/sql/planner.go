@@ -315,10 +315,7 @@ func (p *Planner) normalizeSQL(query string) string {
 	result = regexp.MustCompile(`\s*,\s*`).ReplaceAllString(result, ", ")
 	result = regexp.MustCompile(`\s*=\s*`).ReplaceAllString(result, " = ")
 	
-	// Replace numeric literals with placeholders
-	result = regexp.MustCompile(`\b\d+(?:\.\d+)?\b`).ReplaceAllString(result, "?")
-	
-	// Replace string literals with placeholders
+	// Replace string literals with placeholders (more important for caching)
 	result = regexp.MustCompile(`'(?:''|[^'])*'`).ReplaceAllString(result, "'?'")
 	
 	// Standardize comparison operators
