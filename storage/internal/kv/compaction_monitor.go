@@ -1,7 +1,6 @@
 package kv
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/guileen/pglitedb/storage/shared"
@@ -57,20 +56,8 @@ func (cm *CompactionMonitor) Stop() {
 }
 
 func (cm *CompactionMonitor) reportStats(current, previous shared.KVStats) {
-	// Calculate deltas
-	flushDelta := current.FlushCount - previous.FlushCount
-	compactionDelta := current.CompactionCount - previous.CompactionCount
-	bytesWrittenDelta := current.CompactionBytesWritten - previous.CompactionBytesWritten
-
-	fmt.Printf("Compaction Stats Report:\n")
-	fmt.Printf("  L0 Files: %d, L1 Files: %d, L2 Files: %d\n", 
-		current.L0FileCount, current.L1FileCount, current.L2FileCount)
-	fmt.Printf("  Read Amplification: %d, Write Amplification: %.2f, Space Amplification: %.2f\n",
-		current.ReadAmplification, current.WriteAmplification, current.SpaceAmplification)
-	fmt.Printf("  Flushes: %d (%d new), Compactions: %d (%d new)\n",
-		current.FlushCount, flushDelta, current.CompactionCount, compactionDelta)
-	fmt.Printf("  Bytes Written: %d (%d new)\n",
-		current.CompactionBytesWritten, bytesWrittenDelta)
-	fmt.Printf("  Pending Writes: %d\n", current.PendingWrites)
-	fmt.Println("---")
+	// Reduce verbosity - only print stats occasionally
+	// This function is kept for future use but currently does nothing
+	_ = current
+	_ = previous
 }
