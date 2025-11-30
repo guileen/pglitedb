@@ -537,11 +537,13 @@ func TestStorageEngine_PerformanceOptimizations(t *testing.T) {
 
 	// Test batch insert performance
 	start := time.Now()
-	_, err := engine.InsertRowBatch(ctx, 1, 1, records, schema)
+	rowIDs, err := engine.InsertRowBatch(ctx, 1, 1, records, schema)
 	if err != nil {
 		t.Fatalf("insert row batch: %v", err)
 	}
 	batchInsertDuration := time.Since(start)
+	
+	t.Logf("Inserted %d records with row IDs: %v", len(rowIDs), rowIDs)
 
 	// Verify all records were inserted
 	iter, err := engine.ScanRows(ctx, 1, 1, schema, nil)
@@ -552,6 +554,10 @@ func TestStorageEngine_PerformanceOptimizations(t *testing.T) {
 	count := 0
 	for iter.Next() {
 		count++
+		record := iter.Row()
+		if count <= 5 { // Only log first 5 records to avoid spam
+			t.Logf("Record %d: %+v", count, record.Data)
+		}
 	}
 	iter.Close()
 

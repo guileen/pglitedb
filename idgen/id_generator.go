@@ -130,6 +130,7 @@ func (g *snowflakeIDGenerator) Next() (int64, error) {
 	if now == g.lastTime {
 		g.sequence = (g.sequence + 1) & 4095
 		if g.sequence == 0 {
+			// Wait until next millisecond
 			for now <= g.lastTime {
 				now = time.Now().UnixMilli()
 			}
