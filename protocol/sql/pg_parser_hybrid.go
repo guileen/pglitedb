@@ -19,10 +19,8 @@ type HybridPGParser struct {
 	fullParser   *FullPGParser
 	
 	// Query cache with LRU eviction
-	cache      map[string]*cachedParseResult
+	cache      *LRUCache
 	cacheMutex sync.RWMutex
-	cacheSize  int
-	maxCacheSize int
 	
 	// Metrics
 	statsMutex        sync.RWMutex
@@ -52,9 +50,7 @@ func NewHybridPGParser() *HybridPGParser {
 	return &HybridPGParser{
 		simpleParser:  NewSimplePGParser(),
 		fullParser:    NewFullPGParser(), // The full CGO parser
-		cache:         make(map[string]*cachedParseResult),
-		cacheSize:     0,
-		maxCacheSize:  5000, // Increased cache size to 5000 entries to reduce CGO overhead
+		cache:         NewLRUCache(10000), // Increased cache size to 10000 entries to reduce CGO overhead
 	}
 }
 
@@ -140,9 +136,12 @@ func (p *HybridPGParser) getCachedResult(query string) *ParsedQuery {
 	p.cacheMutex.RLock()
 	defer p.cacheMutex.RUnlock()
 	
-	if cached, exists := p.cache[normalizedQuery]; exists {
-		cached.lastAccess = time.Now()
-		return cached.parsed
+	if cached, ok := p.cache.Get(normalizedQuery); ok {
+		if result, ok := cached.(*cachedParseResult); ok {
+			// Update last access time
+			result.lastAccess = time.Now()
+			return result.parsed
+		}
 	}
 	return nil
 }
@@ -155,57 +154,18 @@ func (p *HybridPGParser) cacheResult(query string, parsed *ParsedQuery) {
 	p.cacheMutex.Lock()
 	defer p.cacheMutex.Unlock()
 	
-	// Evict oldest entries if cache is full
-	if p.cacheSize >= p.maxCacheSize {
-		p.evictOldestEntries()
-	}
-	
 	// Add new entry
 	now := time.Now()
-	p.cache[normalizedQuery] = &cachedParseResult{
+	result := &cachedParseResult{
 		parsed:     parsed,
 		timestamp:  now,
 		lastAccess: now,
 	}
-	p.cacheSize++
+	
+	p.cache.Put(normalizedQuery, result)
 }
 
-// evictOldestEntries removes the least recently accessed entries from cache
-func (p *HybridPGParser) evictOldestEntries() {
-	// Find and remove the oldest entries
-	// For simplicity, we'll remove 10% of the cache
-	toRemove := p.maxCacheSize / 10
-	if toRemove < 1 {
-		toRemove = 1
-	}
-	
-	// Simple LRU eviction - remove oldest by last access time
-	type cacheEntry struct {
-		key       string
-		lastAccess time.Time
-	}
-	
-	entries := make([]cacheEntry, 0, len(p.cache))
-	for key, entry := range p.cache {
-		entries = append(entries, cacheEntry{key: key, lastAccess: entry.lastAccess})
-	}
-	
-	// Sort by last access time (oldest first)
-	// Simple bubble sort for small numbers
-	for i := 0; i < len(entries)-1; i++ {
-		for j := 0; j < len(entries)-i-1; j++ {
-			if entries[j].lastAccess.After(entries[j+1].lastAccess) {
-				entries[j], entries[j+1] = entries[j+1], entries[j]
-			}
-		}
-	}
-	
-	// Remove the oldest entries
-	for i := 0; i < toRemove && i < len(entries); i++ {
-		delete(p.cache, entries[i].key)
-		p.cacheSize--
-	}
-}
+
 
 // isSimpleParseValid checks if the result from simple parser is valid enough
 // This is a heuristic to determine when we can trust the simple parser
