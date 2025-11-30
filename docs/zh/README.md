@@ -14,10 +14,11 @@ PGLiteDB 是一款尖端的嵌入式数据库，提供完全的 PostgreSQL 线�
 - [安装指南](../../README.md#installation) - 如何安装和设置 PGLiteDB
 - [API 参考](./api/reference.md) - 所有公共 API 的详细文档
 - [示例](./guides/interactive_examples.md) - 展示关键功能的可运行示例
+- [性能优化](./performance_optimizations.md) - 最新性能优化详情
 
 ## 语言版本
 
-- [English](../en/README.md) - English documentation
+- [English](../README.md) - English documentation
 - [中文](./README.md) - 中文文档
 - [Español](../es/README.md) - Documentación en español
 - [日本語](../ja/README.md) - 日本語ドキュメント

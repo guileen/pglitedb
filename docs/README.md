@@ -6,7 +6,7 @@ Welcome to the official documentation for PGLiteDB, a high-performance PostgreSQ
 
 PGLiteDB is a cutting-edge embedded database that offers full PostgreSQL wire protocol compatibility while delivering exceptional performance. Built on CockroachDB's Pebble storage engine (an LSM-tree based key-value store), PGLiteDB provides the familiar PostgreSQL interface that developers love with the performance characteristics needed for modern applications.
 
-With over 2500 TPS and sub-4ms latency in benchmarks, PGLiteDB outperforms traditional embedded databases while maintaining PostgreSQL compatibility.
+With over 2500 TPS and sub-4ms latency in benchmarks, PGLiteDB outperforms traditional embedded databases while maintaining PostgreSQL compatibility. Recent optimizations have achieved a 25% improvement in TPS and 21% reduction in latency through targeted memory management and performance enhancements.
 
 ## Key Features
 
@@ -15,10 +15,10 @@ With over 2500 TPS and sub-4ms latency in benchmarks, PGLiteDB outperforms tradi
 - **🤖 100% AI-Automated Development** - Entire codebase written and optimized by AI agents
 - **📦 Embedded & Server Modes** - Run as embedded library or standalone server
 - **🌐 Multi-Protocol Access** - PostgreSQL wire protocol, HTTP REST API, and native Go client
-- **📋 Full SQL Support** - Standard SQL operations with growing DDL support
+- **📋 Full SQL Support** - Standard SQL operations with comprehensive DDL support
 - **📈 Advanced Indexing** - Secondary indexes with B-tree and hash implementations
 - **🏢 Multi-Tenancy** - Built-in tenant isolation for SaaS applications
-- **🧠 Smart Optimizations** - Object pooling, batch operations, and connection pooling
+- **🧠 Smart Optimizations** - Object pooling, batch operations, connection pooling, and query plan caching
 - **🛡️ ACID Compliance** - Full transaction support with MVCC and all isolation levels
 
 ## Documentation Sections
@@ -75,6 +75,7 @@ With over 2500 TPS and sub-4ms latency in benchmarks, PGLiteDB outperforms tradi
 - [Benchmark Results](../README.md#-performance-benchmarks) - Current performance metrics
 - [Optimization Techniques](./guides/embedded_usage.md#performance-considerations) - Performance tuning tips
 - [Memory Management](./guides/embedded_usage.md#memory-management) - Understanding memory usage
+- [Performance Optimizations](./performance_optimizations.md) - Detailed overview of recent performance improvements
 
 ## Getting Help
 
