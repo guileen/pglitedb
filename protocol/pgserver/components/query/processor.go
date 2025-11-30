@@ -10,7 +10,11 @@ import (
 	"github.com/guileen/pglitedb/types"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/guileen/pglitedb/protocol/sql"
+	"github.com/guileen/pglitedb/protocol/pgserver/interfaces"
 )
+
+// Ensure Processor implements QueryProcessorInterface
+var _ interfaces.QueryProcessorInterface = &Processor{}
 
 // Processor handles query parsing and execution
 type Processor struct {

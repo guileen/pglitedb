@@ -1,6 +1,7 @@
 package components
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -9,11 +10,16 @@ import (
 
 	"github.com/guileen/pglitedb/logger"
 	"github.com/jackc/pgx/v5/pgproto3"
+	"github.com/guileen/pglitedb/protocol/sql"
+	"github.com/guileen/pglitedb/protocol/pgserver/interfaces"
 )
+
+// Ensure PreparedStatementManager implements PreparedStatementManagerInterface
+var _ interfaces.PreparedStatementManagerInterface = &PreparedStatementManager{}
 
 // PreparedStatementManager manages prepared statements and portals
 type PreparedStatementManager struct {
-	parser interface{} // Will be sql.Parser
+	parser sql.Parser
 	
 	// Extended query protocol state
 	preparedStatements map[string]*PreparedStatement
@@ -22,7 +28,7 @@ type PreparedStatementManager struct {
 }
 
 // NewPreparedStatementManager creates a new prepared statement manager
-func NewPreparedStatementManager(parser interface{}) *PreparedStatementManager {
+func NewPreparedStatementManager(parser sql.Parser) *PreparedStatementManager {
 	return &PreparedStatementManager{
 		parser:            parser,
 		preparedStatements: make(map[string]*PreparedStatement),
@@ -32,7 +38,7 @@ func NewPreparedStatementManager(parser interface{}) *PreparedStatementManager {
 }
 
 // Parse handles the Parse message
-func (psm *PreparedStatementManager) Parse(backend *pgproto3.Backend, msg *pgproto3.Parse) bool {
+func (psm *PreparedStatementManager) Parse(ctx context.Context, backend *pgproto3.Backend, msg *pgproto3.Parse) (bool, error) {
 	logger.Debug("Parsing prepared statement", "name", msg.Name, "query", msg.Query, "parameter_count", len(msg.ParameterOIDs))
 	
 	// Create a prepared statement
@@ -44,12 +50,11 @@ func (psm *PreparedStatementManager) Parse(backend *pgproto3.Backend, msg *pgpro
 	
 	// Parse the query to extract RETURNING columns if present
 	startTime := time.Now()
-	parsed, err := psm.parser.(interface{Parse(string) (interface{}, error)}).Parse(msg.Query)
+	parsed, err := psm.parser.Parse(msg.Query)
 	parseDuration := time.Since(startTime)
 	if err == nil {
-		parsedQuery := parsed.(interface{ReturningColumns() []string})
-		stmt.ReturningColumns = parsedQuery.ReturningColumns()
-		logger.Debug("Query parsed for prepared statement", "parse_duration", parseDuration.String(), "returning_columns", parsedQuery.ReturningColumns())
+		stmt.ReturningColumns = parsed.ReturningColumns
+		logger.Debug("Query parsed for prepared statement", "parse_duration", parseDuration.String(), "returning_columns", parsed.ReturningColumns)
 	} else {
 		logger.Warn("Failed to parse query for prepared statement", "error", err, "parse_duration", parseDuration.String())
 	}
@@ -69,15 +74,15 @@ func (psm *PreparedStatementManager) Parse(backend *pgproto3.Backend, msg *pgpro
 	backend.Send(&pgproto3.ParseComplete{})
 	if err := backend.Flush(); err != nil {
 		logger.Error("Failed to flush ParseComplete", "error", err)
-		return true
+		return true, err
 	}
 	
 	logger.Debug("Parse completed successfully")
-	return false
+	return false, nil
 }
 
 // Bind handles the Bind message
-func (psm *PreparedStatementManager) Bind(backend *pgproto3.Backend, msg *pgproto3.Bind) bool {
+func (psm *PreparedStatementManager) Bind(ctx context.Context, backend *pgproto3.Backend, msg *pgproto3.Bind) (bool, error) {
 	logger.Debug("Binding portal", "destination_portal", msg.DestinationPortal, "prepared_statement", msg.PreparedStatement, "parameter_count", len(msg.Parameters))
 	
 	// Retrieve the prepared statement with mutex protection
@@ -88,7 +93,7 @@ func (psm *PreparedStatementManager) Bind(backend *pgproto3.Backend, msg *pgprot
 	if !exists {
 		logger.Warn("Prepared statement not found", "statement_name", msg.PreparedStatement)
 		psm.sendErrorAndReady(backend, "26000", fmt.Sprintf("prepared statement \"%s\" does not exist", msg.PreparedStatement))
-		return false
+		return false, nil
 	}
 	
 	// Convert parameters to appropriate types
@@ -163,15 +168,15 @@ func (psm *PreparedStatementManager) Bind(backend *pgproto3.Backend, msg *pgprot
 	backend.Send(&pgproto3.BindComplete{})
 	if err := backend.Flush(); err != nil {
 		logger.Error("Failed to flush BindComplete", "error", err)
-		return true
+		return true, err
 	}
 	
 	logger.Debug("Bind completed successfully")
-	return false
+	return false, nil
 }
 
 // Describe handles the Describe message
-func (psm *PreparedStatementManager) Describe(backend *pgproto3.Backend, msg *pgproto3.Describe) bool {
+func (psm *PreparedStatementManager) Describe(ctx context.Context, backend *pgproto3.Backend, msg *pgproto3.Describe) (bool, error) {
 	logger.Debug("Describing object", "object_type", string(msg.ObjectType), "name", msg.Name)
 	
 	psm.mutex.RLock()
@@ -183,7 +188,7 @@ func (psm *PreparedStatementManager) Describe(backend *pgproto3.Backend, msg *pg
 		if !exists {
 			logger.Warn("Prepared statement not found for describe", "statement_name", msg.Name)
 			psm.sendErrorAndReady(backend, "26000", fmt.Sprintf("prepared statement \"%s\" does not exist", msg.Name))
-			return false
+			return false, nil
 		}
 		
 		// Send parameter description
@@ -215,7 +220,7 @@ func (psm *PreparedStatementManager) Describe(backend *pgproto3.Backend, msg *pg
 		if !exists {
 			logger.Warn("Portal not found for describe", "portal_name", msg.Name)
 			psm.sendErrorAndReady(backend, "26000", fmt.Sprintf("portal \"%s\" does not exist", msg.Name))
-			return false
+			return false, nil
 		}
 		
 		// If we have returning columns, send row description
@@ -241,20 +246,20 @@ func (psm *PreparedStatementManager) Describe(backend *pgproto3.Backend, msg *pg
 	} else {
 		logger.Warn("Unknown describe object type", "object_type", string(msg.ObjectType))
 		psm.sendErrorAndReady(backend, "0A000", "unknown describe object type")
-		return false
+		return false, nil
 	}
 	
 	if err := backend.Flush(); err != nil {
 		logger.Error("Failed to flush Describe response", "error", err)
-		return true
+		return true, err
 	}
 	
 	logger.Debug("Describe completed successfully")
-	return false
+	return false, nil
 }
 
 // Execute handles the Execute message
-func (psm *PreparedStatementManager) Execute(backend *pgproto3.Backend, msg *pgproto3.Execute) bool {
+func (psm *PreparedStatementManager) Execute(ctx context.Context, backend *pgproto3.Backend, msg *pgproto3.Execute) (bool, error) {
 	logger.Debug("Executing portal", "portal", msg.Portal, "max_rows", msg.MaxRows)
 	
 	// Retrieve the portal with mutex protection
@@ -265,7 +270,7 @@ func (psm *PreparedStatementManager) Execute(backend *pgproto3.Backend, msg *pgp
 	if !exists {
 		logger.Warn("Portal not found", "portal_name", msg.Portal)
 		psm.sendErrorAndReady(backend, "26000", fmt.Sprintf("portal \"%s\" does not exist", msg.Portal))
-		return false
+		return false, nil
 	}
 	
 	// Bind parameters to the query
@@ -273,7 +278,7 @@ func (psm *PreparedStatementManager) Execute(backend *pgproto3.Backend, msg *pgp
 	if err != nil {
 		logger.Warn("Failed to bind parameters", "error", err)
 		psm.sendErrorAndReady(backend, "08006", fmt.Sprintf("failed to bind parameters: %v", err))
-		return false
+		return false, nil
 	}
 	
 	// For now, we'll just send back a completion message
@@ -282,22 +287,11 @@ func (psm *PreparedStatementManager) Execute(backend *pgproto3.Backend, msg *pgp
 	
 	if err := backend.Flush(); err != nil {
 		logger.Error("Failed to flush Execute response", "error", err)
-		return true
+		return true, err
 	}
 	
 	logger.Debug("Execute completed successfully")
-	return false
-}
-
-// Helper method to send error and ready response
-func (psm *PreparedStatementManager) sendErrorAndReady(backend *pgproto3.Backend, code, message string) {
-	backend.Send(&pgproto3.ErrorResponse{
-		Severity: "ERROR",
-		Code:     code,
-		Message:  message,
-	})
-	backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
-	backend.Flush()
+	return false, nil
 }
 
 // BindParametersInQuery binds parameters to a query string
@@ -326,4 +320,21 @@ func BindParametersInQuery(query string, params []interface{}) (string, error) {
 	}
 	
 	return result, nil
+}
+
+// sendErrorAndReady sends an error response followed by a ReadyForQuery message
+func (psm *PreparedStatementManager) sendErrorAndReady(backend *pgproto3.Backend, code, message string) {
+	backend.Send(&pgproto3.ErrorResponse{
+		Severity: "ERROR",
+		Code:     code,
+		Message:  message,
+	})
+	backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+	backend.Flush()
+}
+
+// HealthCheck performs a health check on the prepared statement manager
+func (psm *PreparedStatementManager) HealthCheck() error {
+	// Perform any necessary health checks
+	return nil
 }
