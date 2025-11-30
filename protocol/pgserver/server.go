@@ -1,47 +1,45 @@
 package pgserver
 
 import (
-	"net"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/guileen/pglitedb/network"
-	"github.com/guileen/pglitedb/pool"
 	"github.com/guileen/pglitedb/protocol/sql"
 	"github.com/guileen/pglitedb/logger"
 	"github.com/guileen/pglitedb/protocol/pgserver/components/server"
 	"github.com/guileen/pglitedb/protocol/pgserver/components/connection"
 	"github.com/guileen/pglitedb/protocol/pgserver/components/buffer"
+	"github.com/guileen/pglitedb/protocol/pgserver/components/config"
+	"github.com/guileen/pglitedb/protocol/pgserver/components/listener"
+	"github.com/guileen/pglitedb/protocol/pgserver/internal/components"
 )
 
 // PostgreSQLServer represents the main PostgreSQL server
 type PostgreSQLServer struct {
-	listener net.Listener
 	executor *sql.Executor
 	parser   sql.Parser
 	planner  *sql.Planner
 	mu       sync.Mutex
 	closed   bool
-	connectionPool *network.ConnectionPool
 	
 	// HTTP server for profiling endpoints
 	httpServer *http.Server
 	httpPort   string
 	
-	// Buffer pools for network I/O
-	bufferPool *pool.MultiBufferPool
-	
 	// Component managers
-	serverManager      *server.ServerManager
-	connectionManager  *connection.ConnectionManager
-	bufferPoolManager  *buffer.BufferPoolManager
+	serverManager         *server.ServerManager
+	listenerManager       *listener.ListenerManager
+	configManager         *config.ConfigManager
+	connectionPoolManager *connection.ConnectionPoolManager
+	bufferPoolManager     *buffer.BufferPoolManager
 	
 	// Component references
-	connectionHandler ConnectionHandlerInterface
-	queryProcessor    QueryProcessorInterface
-	statementManager  PreparedStatementManagerInterface
-	profilingService  ProfilingServiceInterface
+	connectionHandler interface{} // ConnectionHandlerInterface
+	queryProcessor    interface{} // QueryProcessorInterface
+	statementManager  interface{} // PreparedStatementManagerInterface
+	profilingService  interface{} // ProfilingServiceInterface
 }
 
 // NewPostgreSQLServer creates a new PostgreSQL server instance
@@ -80,33 +78,37 @@ func NewPostgreSQLServer(executor *sql.Executor, planner *sql.Planner) *PostgreS
 	// In a real implementation, this would create actual database connections
 	factory := network.NewMockConnectionFactory(false, 0)
 	
-	// Create the adaptive connection pool
-	adaptivePool := network.NewAdaptiveConnectionPool(poolConfig, factory)
-	
 	// Create components
-	bufferPool := pool.NewMultiBufferPool("pgserver", bufferSizes)
-	queryProcessor := NewQueryProcessor(executor, parser, planner)
-	statementManager := NewPreparedStatementManager(parser)
-	connectionHandler := NewConnectionHandler(queryProcessor, statementManager, parser)
+	queryProcessor := components.NewQueryProcessor(executor, parser, planner)
+	statementManager := components.NewPreparedStatementManager(parser)
+	connectionHandler := components.NewConnectionHandler(queryProcessor, statementManager, parser)
 	
 	// Create component managers
 	serverManager := server.NewServerManager()
-	connectionManager := connection.NewConnectionManager(adaptivePool.ConnectionPool)
-	bufferPoolManager := buffer.NewBufferPoolManager(bufferPool)
+	listenerManager := listener.NewListenerManager()
+	configManager := config.NewConfigManager()
+	connectionPoolManager := connection.NewConnectionPoolManager()
+	bufferPoolManager := buffer.NewBufferPoolManager()
+	
+	// Initialize buffer pool
+	bufferPoolManager.InitializeBufferPool("pgserver", bufferSizes)
+	
+	// Initialize connection pool
+	connectionPoolManager.InitializePool(poolConfig, factory)
 	
 	server := &PostgreSQLServer{
-		executor:          executor,
-		parser:            parser,
-		planner:           planner,
-		bufferPool:        bufferPool,
-		connectionPool:    adaptivePool.ConnectionPool,
-		serverManager:     serverManager,
-		connectionManager: connectionManager,
-		bufferPoolManager: bufferPoolManager,
-		connectionHandler: connectionHandler,
-		queryProcessor:    queryProcessor,
-		statementManager:  statementManager,
-		httpPort:          "", // No profiling by default
+		executor:              executor,
+		parser:                parser,
+		planner:               planner,
+		serverManager:         serverManager,
+		listenerManager:       listenerManager,
+		configManager:         configManager,
+		connectionPoolManager: connectionPoolManager,
+		bufferPoolManager:     bufferPoolManager,
+		connectionHandler:     connectionHandler,
+		queryProcessor:        queryProcessor,
+		statementManager:      statementManager,
+		httpPort:              "", // No profiling by default
 	}
 	
 	logger.Info("PostgreSQL server instance created successfully")
@@ -117,12 +119,10 @@ func NewPostgreSQLServer(executor *sql.Executor, planner *sql.Planner) *PostgreS
 func (s *PostgreSQLServer) WithProfiling(port string) *PostgreSQLServer {
 	s.httpPort = port
 	// Create profiling service
-	s.profilingService = NewProfilingService(port)
+	s.profilingService = components.NewProfilingService(port)
 	
 	// Update the server configuration with the profiling port
-	config := s.serverManager.GetConfig(s)
-	config.ProfilingPort = port
-	// In a real implementation, we would apply the config here
+	s.configManager.UpdateProfilingConfig(port)
 	
 	return s
 }
@@ -133,11 +133,21 @@ func (s *PostgreSQLServer) Start(port string) error {
 	
 	// Start the profiling HTTP server if enabled
 	if s.httpPort != "" && s.profilingService != nil {
-		go func() {
-			if err := s.profilingService.Start(); err != nil {
-				logger.Error("Failed to start profiling service", "error", err)
-			}
-		}()
+		// Type assert to the expected interface and call Start
+		if profiler, ok := s.profilingService.(interface {
+			Start() error
+		}); ok {
+			go func() {
+				if err := profiler.Start(); err != nil {
+					logger.Error("Failed to start profiling service", "error", err)
+				}
+			}()
+		}
+	}
+	
+	// Start TCP listener using listener manager
+	if err := s.listenerManager.StartTCP(port); err != nil {
+		return err
 	}
 	
 	// Use server manager to start the server
@@ -152,21 +162,26 @@ func (s *PostgreSQLServer) Close() error {
 	logger.Info("Closing PostgreSQL server", "was_already_closed", s.closed)
 	s.closed = true
 	
-	// Close the listener using connection manager
-	if err := s.connectionManager.CloseListener(); err != nil {
+	// Close the listener using listener manager
+	if err := s.listenerManager.CloseListener(); err != nil {
 		return err
 	}
 	
-	// Close the connection pool using connection manager
-	if err := s.connectionManager.CloseConnectionPool(); err != nil {
+	// Close the connection pool using connection pool manager
+	if err := s.connectionPoolManager.ClosePool(); err != nil {
 		return err
 	}
 	
 	// Stop the profiling server
 	if s.profilingService != nil {
-		if err := s.profilingService.Stop(); err != nil {
-			logger.Error("Error stopping profiling service", "error", err)
-			return err
+		// Type assert to the expected interface and call Stop
+		if profiler, ok := s.profilingService.(interface {
+			Stop() error
+		}); ok {
+			if err := profiler.Stop(); err != nil {
+				logger.Error("Error stopping profiling service", "error", err)
+				return err
+			}
 		}
 	}
 	
@@ -176,4 +191,20 @@ func (s *PostgreSQLServer) Close() error {
 	
 	logger.Info("PostgreSQL server closed successfully")
 	return nil
+}
+
+// GetProfilingPort returns the profiling port
+func (s *PostgreSQLServer) GetProfilingPort() string {
+	return s.httpPort
+}
+
+// SetProfilingPort sets the profiling port
+func (s *PostgreSQLServer) SetProfilingPort(port string) error {
+	s.httpPort = port
+	return nil
+}
+
+// StartTCP starts the server on the specified TCP port
+func (s *PostgreSQLServer) StartTCP(port string) error {
+	return s.listenerManager.StartTCP(port)
 }

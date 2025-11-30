@@ -4,64 +4,17 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
 	"time"
 
 	"github.com/guileen/pglitedb/logger"
 )
 
-// StartTCP starts the PostgreSQL server on the specified TCP port
-func (s *PostgreSQLServer) StartTCP(port string) error {
-	logger.Info("Starting PostgreSQL server TCP listener", "port", port)
-	
-	var err error
-	listener, err := net.Listen("tcp", ":"+port)
-	if err != nil {
-		logger.Error("Failed to start TCP listener", "error", err, "port", port)
-		return fmt.Errorf("failed to start TCP listener: %w", err)
-	}
-	
-	// Set the listener using connection manager
-	s.connectionManager.SetListener(listener)
-	
-	logger.Info("PostgreSQL server listening on TCP port", "port", port)
-	log.Printf("PostgreSQL server listening on TCP port %s", port)
-	
-	return s.acceptConnections()
-}
-
-// StartUnix starts the PostgreSQL server on the specified Unix socket
-func (s *PostgreSQLServer) StartUnix(socketPath string) error {
-	logger.Info("Starting PostgreSQL server Unix socket listener", "socketPath", socketPath)
-	
-	// Remove existing socket file if it exists
-	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
-		logger.Warn("Failed to remove existing socket file", "error", err, "socketPath", socketPath)
-		log.Printf("Warning: failed to remove existing socket file: %v", err)
-	}
-	
-	var err error
-	listener, err := net.Listen("unix", socketPath)
-	if err != nil {
-		logger.Error("Failed to start Unix socket listener", "error", err, "socketPath", socketPath)
-		return fmt.Errorf("failed to start Unix socket listener: %w", err)
-	}
-	
-	// Set the listener using connection manager
-	s.connectionManager.SetListener(listener)
-	
-	logger.Info("PostgreSQL server listening on Unix socket", "socketPath", socketPath)
-	log.Printf("PostgreSQL server listening on Unix socket %s", socketPath)
-	
-	return s.acceptConnections()
-}
-
 // acceptConnections handles incoming connections
 func (s *PostgreSQLServer) acceptConnections() error {
 	connectionCount := 0
 	for {
-		// Get the listener from the connection manager
-		listener := s.connectionManager.GetListener()
+		// Get the listener from the listener manager
+		listener := s.listenerManager.GetListener()
 		if listener == nil {
 			logger.Error("Listener is nil, cannot accept connections")
 			return fmt.Errorf("listener is nil")
@@ -93,17 +46,21 @@ func (s *PostgreSQLServer) acceptConnections() error {
 			continue
 		}
 		
-		go s.connectionHandler.HandleConnection(conn)
+		// Type assert to the expected interface and call HandleConnection
+		if handler, ok := s.connectionHandler.(interface {
+			HandleConnection(conn net.Conn)
+		}); ok {
+			go handler.HandleConnection(conn)
+		} else {
+			logger.Error("Connection handler does not implement HandleConnection method, closing connection")
+			conn.Close()
+		}
 	}
 }
 
 // GetListenerAddress returns the address the server is listening on
 func (s *PostgreSQLServer) GetListenerAddress() net.Addr {
-	listener := s.connectionManager.GetListener()
-	if listener != nil {
-		return listener.Addr()
-	}
-	return nil
+	return s.listenerManager.GetListenerAddress()
 }
 
 // IsClosed returns whether the server is closed
