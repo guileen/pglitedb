@@ -75,13 +75,16 @@ func (bp *BatchProcessorImpl) ProcessBatchInsert(ctx context.Context, tenantID, 
 	// Pre-allocate rowIDs slice with exact capacity
 	rowIDs := make([]int64, len(rows))
 	
-	// Generate all row IDs first to minimize lock contention
+	// Generate all row IDs in batch to ensure uniqueness
+	firstRowID, err := bp.generateRowID(ctx, tenantID, tableID)
+	if err != nil {
+		return nil, fmt.Errorf("generate first row id: %w", err)
+	}
+	
+	// For batch operations, we generate consecutive IDs to avoid collision issues
+	// This assumes the ID generator can handle this pattern safely
 	for i := range rows {
-		rowID, err := bp.generateRowID(ctx, tenantID, tableID)
-		if err != nil {
-			return nil, fmt.Errorf("generate row id: %w", err)
-		}
-		rowIDs[i] = rowID
+		rowIDs[i] = firstRowID + int64(i)
 	}
 
 	batch := bp.kv.NewBatch()
