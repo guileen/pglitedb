@@ -37,7 +37,7 @@ func TestQueryOptimizer_OptimizePlan(t *testing.T) {
 		Operation: "select",
 		Table:     "users",
 		Fields:    []string{"id", "name"},
-		Conditions: []parser.Condition{
+		Conditions: []Condition{
 			{Field: "id", Operator: "=", Value: "1"},
 		},
 	}
@@ -62,7 +62,7 @@ func TestQueryOptimizer_ApplyRewriteRules(t *testing.T) {
 		Operation: "select",
 		Table:     "users",
 		Fields:    []string{"id", "name"},
-		Conditions: []parser.Condition{
+		Conditions: []Condition{
 			{Field: "id", Operator: "=", Value: "1"},
 		},
 		OrderBy: []parser.OrderBy{
@@ -85,7 +85,7 @@ func TestQueryOptimizer_PredicatePushdown(t *testing.T) {
 	optimizer := NewQueryOptimizer()
 	
 	plan := &Plan{
-		Conditions: []parser.Condition{
+		Conditions: []Condition{
 			{Field: "age", Operator: ">", Value: "18"},
 			{Field: "name", Operator: "=", Value: "John"},
 		},
@@ -126,7 +126,7 @@ func TestQueryOptimizer_ConstantFolding(t *testing.T) {
 	optimizer := NewQueryOptimizer()
 	
 	plan := &Plan{
-		Conditions: []parser.Condition{
+		Conditions: []Condition{
 			{Field: "id", Operator: "=", Value: "1"},
 		},
 	}

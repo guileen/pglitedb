@@ -1,6 +1,8 @@
 package parser
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -10,6 +12,41 @@ type WhereParser struct{}
 // NewWhereParser creates a new WhereParser
 func NewWhereParser() *WhereParser {
 	return &WhereParser{}
+}
+
+// parseLiteralValue parses a literal value string into the appropriate Go type
+func (wp *WhereParser) parseLiteralValue(value string) interface{} {
+	trimmed := strings.TrimSpace(value)
+	
+	// Handle string literals (single or double quotes)
+	if (strings.HasPrefix(trimmed, "'") && strings.HasSuffix(trimmed, "'")) ||
+	   (strings.HasPrefix(trimmed, "\"") && strings.HasSuffix(trimmed, "\"")) {
+		// Remove quotes
+		unquoted := trimmed[1 : len(trimmed)-1]
+		// Handle escaped quotes
+		unquoted = strings.ReplaceAll(unquoted, "''", "'")
+		unquoted = strings.ReplaceAll(unquoted, "\\\"", "\"")
+		return unquoted
+	}
+	
+	// Handle boolean values
+	if strings.ToLower(trimmed) == "true" {
+		return true
+	}
+	if strings.ToLower(trimmed) == "false" {
+		return false
+	}
+	
+	// Handle numeric values
+	if i, err := strconv.ParseInt(trimmed, 10, 32); err == nil {
+		return int32(i)
+	}
+	if f, err := strconv.ParseFloat(trimmed, 64); err == nil {
+		return f
+	}
+	
+	// Return as string if no other type matches
+	return trimmed
 }
 
 // ParseWhereClause parses a WHERE clause into conditions
@@ -48,7 +85,7 @@ func (wp *WhereParser) ParseWhereClause(wherePart string) []Condition {
 						condition := Condition{
 							Field:    field,
 							Operator: strings.TrimSpace(op),
-							Value:    value,
+							Value:    fmt.Sprintf("%v", wp.parseLiteralValue(value)),
 						}
 						conditions = append(conditions, condition)
 						foundOperator = true
@@ -62,7 +99,7 @@ func (wp *WhereParser) ParseWhereClause(wherePart string) []Condition {
 				condition := Condition{
 					Field:    "*", // Simplified
 					Operator: "*", // Simplified
-					Value:    part,
+					Value:    fmt.Sprintf("%v", wp.parseLiteralValue(part)),
 				}
 				conditions = append(conditions, condition)
 			}

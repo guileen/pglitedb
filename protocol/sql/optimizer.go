@@ -94,7 +94,7 @@ func (o *QueryOptimizer) applyRewriteRules(plan *Plan) *Plan {
 		Operation:   plan.Operation,
 		Table:       plan.Table,
 		Fields:      make([]string, len(plan.Fields)),
-		Conditions:  make([]parser.Condition, len(plan.Conditions)),
+		Conditions:  make([]Condition, len(plan.Conditions)),
 		Limit:       plan.Limit,
 		Offset:      plan.Offset,
 		OrderBy:     make([]parser.OrderBy, len(plan.OrderBy)),

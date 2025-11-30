@@ -126,22 +126,7 @@ func (p *Planner) extractSelectInfoFromPGNode(stmt *pg_query.ParseResult, plan *
 	// Extract WHERE conditions with subquery support
 	if whereClause := selectStmt.GetWhereClause(); whereClause != nil {
 		conditions := p.extractConditionsFromExpr(whereClause)
-		// Convert local Condition slice to parser.Condition slice
-		parserConditions := make([]parser.Condition, len(conditions))
-		for i, cond := range conditions {
-			// Type assert cond.Value to string
-			valueStr, ok := cond.Value.(string)
-			if !ok {
-				// Convert to string if it's not already a string
-				valueStr = fmt.Sprintf("%v", cond.Value)
-			}
-			parserConditions[i] = parser.Condition{
-				Field:    cond.Field,
-				Operator: cond.Operator,
-				Value:    valueStr,
-			}
-		}
-		plan.Conditions = parserConditions
+		plan.Conditions = conditions
 	}
 
 	// Extract LIMIT
