@@ -62,6 +62,7 @@ This file provides organized access to all documentation for the PGLiteDB projec
 - [Benchmark Results](../README.md#-performance-benchmarks) - Current performance metrics
 - [Performance Tuning Guide](./guides/embedded_usage.md#performance-considerations) - Performance optimization tips
 - [Memory Management](./guides/embedded_usage.md#memory-management) - Understanding memory usage
+- [Performance Optimizations](./performance_optimizations.md) - Detailed overview of recent performance improvements
 
 ## 🔧 Configuration
 

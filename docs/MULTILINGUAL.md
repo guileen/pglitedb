@@ -39,7 +39,7 @@ docs/
 | Language | Documentation Coverage | Translation Progress |
 |----------|------------------------|----------------------|
 | English  | 100%                   | 100%                 |
-| Chinese  | Introduction Only      | 5%                   |
+| Chinese  | Introduction + Performance Optimizations | 10%              |
 | Spanish  | Introduction Only      | 5%                   |
 | Japanese | Introduction Only      | 5%                   |
 
