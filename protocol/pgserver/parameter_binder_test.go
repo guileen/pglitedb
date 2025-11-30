@@ -188,9 +188,7 @@ func TestParameterBinder_CreateConstantNode(t *testing.T) {
 	}
 }
 
-func TestPostgreSQLServer_ConvertParameterByOID(t *testing.T) {
-	server := &PostgreSQLServer{}
-	
+func TestConvertParameterByOID(t *testing.T) {
 	tests := []struct {
 		name     string
 		param    []byte
@@ -251,7 +249,7 @@ func TestPostgreSQLServer_ConvertParameterByOID(t *testing.T) {
 	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := server.convertParameterByOID(tt.param, tt.oid)
+			result, err := convertParameterByOID(tt.param, tt.oid)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
