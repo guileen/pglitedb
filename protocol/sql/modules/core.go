@@ -46,7 +46,7 @@ func (ce *CoreExecutor) ExecuteParsed(ctx context.Context, parsed *sql.ParsedQue
 	switch plan.Type {
 	case sql.SelectStatement:
 		// Delegate to DML executor
-		return nil, fmt.Errorf("not implemented")
+		return ce.planner.Executor().Execute(ctx, parsed.Query)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %v", plan.Type)
 	}

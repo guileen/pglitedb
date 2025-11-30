@@ -1,12 +1,13 @@
 package batch
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/guileen/pglitedb/codec"
 	"github.com/guileen/pglitedb/storage"
-	dbTypes "github.com/guileen/pglitedb/types"
+	"github.com/guileen/pglitedb/storage/shared"
 )
 
 func TestEnhancedBatchProcessor_Create(t *testing.T) {
@@ -190,23 +191,96 @@ func TestEnhancedBatchProcessor_QueryPatternAnalyzer(t *testing.T) {
 	// which is not exposed for simplicity
 }
 
-// Helper functions for min/max
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
 
 // mockKV is a mock implementation for testing
 type mockKV struct{}
 
+// Implement the required methods for the storage.KV interface
+func (m *mockKV) Get(ctx context.Context, key []byte) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *mockKV) Set(ctx context.Context, key, value []byte) error {
+	return nil
+}
+
+func (m *mockKV) SetWithOptions(ctx context.Context, key, value []byte, opts *shared.WriteOptions) error {
+	return nil
+}
+
+func (m *mockKV) Delete(ctx context.Context, key []byte) error {
+	return nil
+}
+
+func (m *mockKV) DeleteWithOptions(ctx context.Context, key []byte, opts *shared.WriteOptions) error {
+	return nil
+}
+
+func (m *mockKV) NewBatch() storage.Batch {
+	return &mockBatch{}
+}
+
+func (m *mockKV) Commit(ctx context.Context, batch storage.Batch) error {
+	return nil
+}
+
+func (m *mockKV) CommitBatch(ctx context.Context, batch storage.Batch) error {
+	return nil
+}
+
+func (m *mockKV) CommitBatchWithOptions(ctx context.Context, batch storage.Batch, opts *shared.WriteOptions) error {
+	return nil
+}
+
+func (m *mockKV) NewIterator(opts *storage.IteratorOptions) storage.Iterator {
+	return nil
+}
+
+func (m *mockKV) NewSnapshot() (storage.Snapshot, error) {
+	return nil, nil
+}
+
+func (m *mockKV) NewTransaction(ctx context.Context) (storage.Transaction, error) {
+	return nil, nil
+}
+
+func (m *mockKV) Stats() shared.KVStats {
+	return shared.KVStats{}
+}
+
+func (m *mockKV) Flush() error {
+	return nil
+}
+
+func (m *mockKV) Close() error {
+	return nil
+}
+
+func (m *mockKV) CheckForConflicts(txn storage.Transaction, key []byte) error {
+	return nil
+}
+
 // mockBatch is a mock implementation for testing
 type mockBatch struct{}
+
+// Implement the required methods for the storage.Batch interface
+func (m *mockBatch) Set(key, value []byte) error {
+	return nil
+}
+
+func (m *mockBatch) Delete(key []byte) error {
+	return nil
+}
+
+func (m *mockBatch) Count() int {
+	return 0
+}
+
+func (m *mockBatch) Reset() {
+	// Do nothing
+}
+
+func (m *mockBatch) Close() error {
+	return nil
+}
