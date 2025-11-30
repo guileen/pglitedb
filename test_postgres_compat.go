@@ -10,7 +10,7 @@ import (
 
 func TestPostgresCompat(t *testing.T) {
 	// Connect to the PGLiteDB server
-	connStr := "host=localhost port=5432 dbname=pglitedb sslmode=disable"
+	connStr := "host=localhost port=5666 dbname=pglitedb sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		t.Fatal("Failed to connect to database:", err)

@@ -9,16 +9,10 @@ import (
 
 // DeadlockDetector detects and prevents deadlocks in transactions
 type DeadlockDetector struct {
-	// Use sharded locks for better concurrency
-	waitGraphMu   sync.RWMutex
+	// Use a single mutex for the shared data structures
+	mu            sync.RWMutex
 	waitGraph     map[uint64]map[uint64]bool // txnID -> {waitingForTxnID -> true}
-	
-	activeTxnsMu  sync.RWMutex
 	activeTxns    map[uint64]*TransactionInfo
-	
-	// Sharded locks for individual transaction tracking
-	txnLocks      []*sync.RWMutex
-	numShards     int
 	
 	detectionInterval time.Duration
 	stopChan      chan struct{}
@@ -32,22 +26,14 @@ type TransactionInfo struct {
 	startTime   time.Time
 	locksHeld   map[string]bool
 	locksWaiting map[string]bool
+	mu          sync.RWMutex // Mutex to protect the maps
 }
 
 // NewDeadlockDetector creates a new deadlock detector
 func NewDeadlockDetector(detectionInterval time.Duration, abortCallback func(uint64)) *DeadlockDetector {
-	// Create sharded locks for better concurrency
-	numShards := 16 // Use power of 2 for efficient modulo operation
-	txnLocks := make([]*sync.RWMutex, numShards)
-	for i := 0; i < numShards; i++ {
-		txnLocks[i] = &sync.RWMutex{}
-	}
-	
 	dd := &DeadlockDetector{
 		waitGraph:     make(map[uint64]map[uint64]bool),
 		activeTxns:    make(map[uint64]*TransactionInfo),
-		txnLocks:      txnLocks,
-		numShards:     numShards,
 		detectionInterval: detectionInterval,
 		stopChan:      make(chan struct{}),
 		abortCallback: abortCallback,
@@ -59,143 +45,134 @@ func NewDeadlockDetector(detectionInterval time.Duration, abortCallback func(uin
 	return dd
 }
 
-// getShard returns the shard index for a given transaction ID
-func (dd *DeadlockDetector) getShard(txnID uint64) int {
-	return int(txnID % uint64(dd.numShards))
-}
-
 // AddTransaction adds a transaction to the deadlock detector
 func (dd *DeadlockDetector) AddTransaction(txnID uint64) {
-	// Use sharded lock for this transaction
-	shard := dd.getShard(txnID)
-	dd.txnLocks[shard].Lock()
-	defer dd.txnLocks[shard].Unlock()
-	
-	// Use global lock only for shared data structures
-	dd.activeTxnsMu.Lock()
-	dd.activeTxns[txnID] = &TransactionInfo{
+	txnInfo := &TransactionInfo{
 		txnID:        txnID,
 		startTime:    time.Now(),
 		locksHeld:    make(map[string]bool),
 		locksWaiting: make(map[string]bool),
 	}
-	dd.activeTxnsMu.Unlock()
 	
-	dd.waitGraphMu.Lock()
+	dd.mu.Lock()
+	dd.activeTxns[txnID] = txnInfo
 	if _, exists := dd.waitGraph[txnID]; !exists {
 		dd.waitGraph[txnID] = make(map[uint64]bool)
 	}
-	dd.waitGraphMu.Unlock()
+	dd.mu.Unlock()
 }
 
 // RemoveTransaction removes a transaction from the deadlock detector
 func (dd *DeadlockDetector) RemoveTransaction(txnID uint64) {
-	// Use sharded lock for this transaction
-	shard := dd.getShard(txnID)
-	dd.txnLocks[shard].Lock()
-	defer dd.txnLocks[shard].Unlock()
-	
-	// Use global locks for shared data structures
-	dd.activeTxnsMu.Lock()
+	dd.mu.Lock()
 	delete(dd.activeTxns, txnID)
-	dd.activeTxnsMu.Unlock()
-	
-	dd.waitGraphMu.Lock()
 	delete(dd.waitGraph, txnID)
 	
 	// Remove this transaction from all other transactions' wait lists
 	for _, waits := range dd.waitGraph {
 		delete(waits, txnID)
 	}
-	dd.waitGraphMu.Unlock()
+	dd.mu.Unlock()
 }
 
 // AddLock adds a lock held by a transaction
 func (dd *DeadlockDetector) AddLock(txnID uint64, key string) {
-	// Use sharded lock for this transaction
-	shard := dd.getShard(txnID)
-	dd.txnLocks[shard].RLock()
-	defer dd.txnLocks[shard].RUnlock()
+	dd.mu.RLock()
+	txnInfo, exists := dd.activeTxns[txnID]
+	dd.mu.RUnlock()
 	
-	dd.activeTxnsMu.RLock()
-	if txnInfo, exists := dd.activeTxns[txnID]; exists {
+	if exists {
+		txnInfo.mu.Lock()
 		txnInfo.locksHeld[key] = true
 		delete(txnInfo.locksWaiting, key)
+		txnInfo.mu.Unlock()
 	}
-	dd.activeTxnsMu.RUnlock()
 }
 
 // AddWaitingLock adds a lock that a transaction is waiting for
 func (dd *DeadlockDetector) AddWaitingLock(txnID uint64, key string) {
-	// Use sharded lock for this transaction
-	shard := dd.getShard(txnID)
-	dd.txnLocks[shard].RLock()
-	defer dd.txnLocks[shard].RUnlock()
+	dd.mu.RLock()
+	txnInfo, exists := dd.activeTxns[txnID]
+	dd.mu.RUnlock()
 	
-	dd.activeTxnsMu.RLock()
-	if txnInfo, exists := dd.activeTxns[txnID]; exists {
+	if exists {
+		txnInfo.mu.Lock()
 		txnInfo.locksWaiting[key] = true
+		txnInfo.mu.Unlock()
 	}
-	dd.activeTxnsMu.RUnlock()
 }
 
 // RemoveWaitingLock removes a waiting lock from a transaction
 func (dd *DeadlockDetector) RemoveWaitingLock(txnID uint64, key string) {
-	// Use sharded lock for this transaction
-	shard := dd.getShard(txnID)
-	dd.txnLocks[shard].RLock()
-	defer dd.txnLocks[shard].RUnlock()
+	dd.mu.RLock()
+	txnInfo, exists := dd.activeTxns[txnID]
+	dd.mu.RUnlock()
 	
-	dd.activeTxnsMu.RLock()
-	if txnInfo, exists := dd.activeTxns[txnID]; exists {
+	if exists {
+		txnInfo.mu.Lock()
 		delete(txnInfo.locksWaiting, key)
+		txnInfo.mu.Unlock()
 	}
-	dd.activeTxnsMu.RUnlock()
 }
 
 // CheckForConflicts checks for conflicts with the given key and updates wait graph
 func (dd *DeadlockDetector) CheckForConflicts(currentTxnID uint64, key string) error {
-	// Use read lock for active transactions to reduce contention
-	dd.activeTxnsMu.RLock()
+	// Get a copy of active transaction IDs to minimize lock time
+	dd.mu.RLock()
+	txnIDs := make([]uint64, 0, len(dd.activeTxns))
+	for txnID := range dd.activeTxns {
+		txnIDs = append(txnIDs, txnID)
+	}
+	dd.mu.RUnlock()
 	
-	// Check if any other active transaction has written to this key
+	// Check for conflicts with each active transaction
 	conflictFound := false
 	var conflictingTxnID uint64
 	
-	for txnID, txnInfo := range dd.activeTxns {
+	for _, txnID := range txnIDs {
 		// Skip the current transaction
 		if txnID == currentTxnID {
 			continue
 		}
 		
-		// Check if the other transaction has written to this key
-		if _, written := txnInfo.locksHeld[key]; written {
-			conflictFound = true
-			conflictingTxnID = txnID
-			break
+		// Check if this transaction has written to the key
+		dd.mu.RLock()
+		txnInfo, exists := dd.activeTxns[txnID]
+		dd.mu.RUnlock()
+		
+		if exists {
+			txnInfo.mu.RLock()
+			_, written := txnInfo.locksHeld[key]
+			txnInfo.mu.RUnlock()
+			
+			if written {
+				conflictFound = true
+				conflictingTxnID = txnID
+				break
+			}
 		}
 	}
 	
-	dd.activeTxnsMu.RUnlock()
-	
 	if conflictFound {
-		// Use write lock only when we need to modify the wait graph
-		dd.waitGraphMu.Lock()
 		// Add to wait graph - currentTxnID is waiting for conflictingTxnID
+		dd.mu.Lock()
 		if waits, exists := dd.waitGraph[currentTxnID]; exists {
 			waits[conflictingTxnID] = true
 		} else {
 			dd.waitGraph[currentTxnID] = map[uint64]bool{conflictingTxnID: true}
 		}
-		dd.waitGraphMu.Unlock()
+		dd.mu.Unlock()
 		
 		// Mark that current transaction is waiting for this key
-		shard := dd.getShard(currentTxnID)
-		dd.txnLocks[shard].Lock()
-		if txnInfo, exists := dd.activeTxns[currentTxnID]; exists {
-			txnInfo.locksWaiting[key] = true
+		dd.mu.RLock()
+		currentTxnInfo, exists := dd.activeTxns[currentTxnID]
+		dd.mu.RUnlock()
+		
+		if exists {
+			currentTxnInfo.mu.Lock()
+			currentTxnInfo.locksWaiting[key] = true
+			currentTxnInfo.mu.Unlock()
 		}
-		dd.txnLocks[shard].Unlock()
 		
 		// Check for deadlock
 		if dd.hasCycle(currentTxnID) {
@@ -208,21 +185,24 @@ func (dd *DeadlockDetector) CheckForConflicts(currentTxnID uint64, key string) e
 	}
 	
 	// No conflict, mark that this transaction now holds this lock
-	shard := dd.getShard(currentTxnID)
-	dd.txnLocks[shard].Lock()
-	if txnInfo, exists := dd.activeTxns[currentTxnID]; exists {
-		txnInfo.locksHeld[key] = true
-		delete(txnInfo.locksWaiting, key) // Remove from waiting if it was waiting
+	dd.mu.RLock()
+	currentTxnInfo, exists := dd.activeTxns[currentTxnID]
+	dd.mu.RUnlock()
+	
+	if exists {
+		currentTxnInfo.mu.Lock()
+		currentTxnInfo.locksHeld[key] = true
+		delete(currentTxnInfo.locksWaiting, key) // Remove from waiting if it was waiting
+		currentTxnInfo.mu.Unlock()
 	}
-	dd.txnLocks[shard].Unlock()
 	
 	return nil
 }
 
 // hasCycle detects cycles in the wait graph using DFS
 func (dd *DeadlockDetector) hasCycle(startTxnID uint64) bool {
-	dd.waitGraphMu.RLock()
-	defer dd.waitGraphMu.RUnlock()
+	dd.mu.RLock()
+	defer dd.mu.RUnlock()
 	
 	visited := make(map[uint64]bool)
 	recStack := make(map[uint64]bool)
@@ -237,7 +217,7 @@ func (dd *DeadlockDetector) hasCycleUtil(txnID uint64, visited, recStack map[uin
 		recStack[txnID] = true
 		
 		// Recur for all transactions that this transaction is waiting for
-		// Note: waitGraphMu is already locked by hasCycle
+		// Note: mu is already locked by hasCycle
 		if waits, exists := dd.waitGraph[txnID]; exists {
 			for waitingTxnID := range waits {
 				if !visited[waitingTxnID] && dd.hasCycleUtil(waitingTxnID, visited, recStack) {
@@ -272,22 +252,23 @@ func (dd *DeadlockDetector) runDetection() {
 
 // detectAndResolveDeadlocks detects and resolves deadlocks
 func (dd *DeadlockDetector) detectAndResolveDeadlocks() {
-	// Use read locks to reduce contention during periodic detection
-	dd.activeTxnsMu.RLock()
-	dd.waitGraphMu.RLock()
+	// Get a copy of active transaction IDs to minimize lock time
+	dd.mu.RLock()
+	txnIDs := make([]uint64, 0, len(dd.activeTxns))
+	for txnID := range dd.activeTxns {
+		txnIDs = append(txnIDs, txnID)
+	}
+	dd.mu.RUnlock()
 	
 	// Simple deadlock resolution: abort the youngest transaction in each cycle
 	visited := make(map[uint64]bool)
 	recStack := make(map[uint64]bool)
 	
-	for txnID := range dd.activeTxns {
+	for _, txnID := range txnIDs {
 		if !visited[txnID] {
 			dd.detectCycleAndAbort(txnID, visited, recStack)
 		}
 	}
-	
-	dd.waitGraphMu.RUnlock()
-	dd.activeTxnsMu.RUnlock()
 }
 
 // detectCycleAndAbort detects cycles and aborts transactions to resolve deadlocks
@@ -296,8 +277,11 @@ func (dd *DeadlockDetector) detectCycleAndAbort(txnID uint64, visited, recStack 
 	recStack[txnID] = true
 	
 	// Check transactions that this transaction is waiting for
-	// Note: locks are already acquired by detectAndResolveDeadlocks
-	if waits, exists := dd.waitGraph[txnID]; exists {
+	dd.mu.RLock()
+	waits, exists := dd.waitGraph[txnID]
+	dd.mu.RUnlock()
+	
+	if exists {
 		for waitingTxnID := range waits {
 			if !visited[waitingTxnID] {
 				dd.detectCycleAndAbort(waitingTxnID, visited, recStack)
@@ -313,21 +297,17 @@ func (dd *DeadlockDetector) detectCycleAndAbort(txnID uint64, visited, recStack 
 
 // abortYoungestTransaction aborts the youngest transaction in a deadlock cycle
 func (dd *DeadlockDetector) abortYoungestTransaction(txnID1, txnID2 uint64) {
-	// Upgrade to write locks when we need to modify data
-	dd.activeTxnsMu.Lock()
-	dd.waitGraphMu.Lock()
-	
 	// Get transaction info for both transactions
+	dd.mu.RLock()
 	txnInfo1, exists1 := dd.activeTxns[txnID1]
 	txnInfo2, exists2 := dd.activeTxns[txnID2]
+	dd.mu.RUnlock()
 	
 	if !exists1 || !exists2 {
-		dd.waitGraphMu.Unlock()
-		dd.activeTxnsMu.Unlock()
 		return
 	}
 	
-	// Abort the transaction with the later start time (younger transaction)
+	// Determine which transaction is younger
 	var abortTxnID uint64
 	if txnInfo1.startTime.After(txnInfo2.startTime) {
 		abortTxnID = txnID1
@@ -336,6 +316,7 @@ func (dd *DeadlockDetector) abortYoungestTransaction(txnID1, txnID2 uint64) {
 	}
 	
 	// Remove from our tracking
+	dd.mu.Lock()
 	delete(dd.activeTxns, abortTxnID)
 	delete(dd.waitGraph, abortTxnID)
 	
@@ -343,9 +324,7 @@ func (dd *DeadlockDetector) abortYoungestTransaction(txnID1, txnID2 uint64) {
 	for _, waits := range dd.waitGraph {
 		delete(waits, abortTxnID)
 	}
-	
-	dd.waitGraphMu.Unlock()
-	dd.activeTxnsMu.Unlock()
+	dd.mu.Unlock()
 	
 	// Call the abort callback if provided
 	if dd.abortCallback != nil {
