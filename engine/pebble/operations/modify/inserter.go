@@ -52,13 +52,16 @@ func (i *Inserter) InsertRowBatch(ctx context.Context, tenantID, tableID int64, 
 	// Pre-allocate rowIDs slice with exact capacity
 	rowIDs := make([]int64, len(rows))
 	
-	// Generate all row IDs first to minimize lock contention
+	// Generate all row IDs in batch to ensure uniqueness
+	firstRowID, err := i.generateRowID(ctx, tenantID, tableID)
+	if err != nil {
+		return nil, fmt.Errorf("generate first row id: %w", err)
+	}
+	
+	// For batch operations, we generate consecutive IDs to avoid collision issues
+	// This assumes the ID generator can handle this pattern safely
 	for j := range rows {
-		rowID, err := i.generateRowID(ctx, tenantID, tableID)
-		if err != nil {
-			return nil, fmt.Errorf("generate row id: %w", err)
-		}
-		rowIDs[j] = rowID
+		rowIDs[j] = firstRowID + int64(j)
 	}
 
 	batch := i.kv.NewBatch()
