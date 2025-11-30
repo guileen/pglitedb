@@ -3,8 +3,6 @@ package sql
 import (
 	"context"
 	"fmt"
-	"regexp"
-	"strings"
 	
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 	"github.com/guileen/pglitedb/catalog"
@@ -17,6 +15,7 @@ type Planner struct {
 	executor  *Executor
 	optimizer *QueryOptimizer
 	planCache *LRUCache
+	planPool  *PlanPool
 }
 
 // NewPlanner creates a new query planner
@@ -34,6 +33,7 @@ func NewPlanner(parser Parser) *Planner {
 		parser:    parser,
 		optimizer: NewQueryOptimizer(),
 		planCache: planCache,
+		planPool:  NewPlanPool(),
 	}
 }
 
@@ -47,6 +47,7 @@ func NewPlannerWithCatalog(parser Parser, catalogMgr catalog.Manager) *Planner {
 		parser:    parser,
 		optimizer: NewQueryOptimizerWithDataManager(catalogMgr),
 		planCache: planCache,
+		planPool:  NewPlanPool(),
 	}
 	// Create executor with this planner and catalog
 	planner.executor = NewExecutorWithCatalog(planner, catalogMgr)
@@ -294,83 +295,78 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 // normalizeSQL normalizes a SQL query string for use as a cache key
 // This removes extra whitespace, normalizes case, and standardizes formatting
 func (p *Planner) normalizeSQL(query string) string {
-	// Remove comments
-	query = regexp.MustCompile(`/\*.*?\*/`).ReplaceAllString(query, "")
-	query = regexp.MustCompile(`--.*$`).ReplaceAllString(query, "")
-	
-	// Convert to lowercase for case-insensitive comparison
-	// Remove extra whitespace and standardize spacing
-	result := strings.ToLower(strings.TrimSpace(query))
-	
-	// Standardize whitespace around common SQL keywords
-	result = regexp.MustCompile(`\s+`).ReplaceAllString(result, " ")
-	result = regexp.MustCompile(`\s*,\s*`).ReplaceAllString(result, ", ")
-	result = regexp.MustCompile(`\s*=\s*`).ReplaceAllString(result, " = ")
-	
-	// Replace string literals with placeholders (more important for caching)
-	result = regexp.MustCompile(`'(?:''|[^'])*'`).ReplaceAllString(result, "'?'")
-	
-	// Standardize comparison operators
-	result = regexp.MustCompile(`\s*(=|!=|<>|<=|>=|<|>)\s*`).ReplaceAllString(result, " $1 ")
-	
-	return strings.TrimSpace(result)
+	// Use the enhanced NormalizeQuery function for better cache hit rates
+	return NormalizeQuery(query)
 }
 
-// copyPlan creates a deep copy of a Plan for thread safety
+// copyPlan creates a deep copy of a Plan for thread safety using object pooling
 func (p *Planner) copyPlan(original *Plan) *Plan {
-	// Create copies of slices
-	fields := make([]string, len(original.Fields))
-	copy(fields, original.Fields)
+	// Get a plan from the pool
+	plan := p.planPool.GetPlan()
 	
-	conditions := make([]Condition, len(original.Conditions))
-	copy(conditions, original.Conditions)
+	// Copy scalar fields
+	plan.Type = original.Type
+	plan.Operation = original.Operation
+	plan.Table = original.Table
+	plan.QueryString = original.QueryString
 	
-	orderBy := make([]OrderBy, len(original.OrderBy))
-	copy(orderBy, original.OrderBy)
-	
-	groupBy := make([]string, len(original.GroupBy))
-	copy(groupBy, original.GroupBy)
-	
-	aggregates := make([]Aggregate, len(original.Aggregates))
-	copy(aggregates, original.Aggregates)
-	
-	// Create copies of maps
-	values := make(map[string]interface{})
-	for k, v := range original.Values {
-		values[k] = v
+	// Copy slices using the pool
+	if len(original.Fields) > 0 {
+		fields := p.planPool.GetStringSlice(len(original.Fields))
+		*fields = append(*fields, original.Fields...)
+		plan.Fields = *fields
 	}
 	
-	updates := make(map[string]interface{})
-	for k, v := range original.Updates {
-		updates[k] = v
+	if len(original.Conditions) > 0 {
+		conditions := p.planPool.GetConditionSlice(len(original.Conditions))
+		*conditions = append(*conditions, original.Conditions...)
+		plan.Conditions = *conditions
+	}
+	
+	if len(original.OrderBy) > 0 {
+		orderBy := p.planPool.GetOrderBySlice(len(original.OrderBy))
+		*orderBy = append(*orderBy, original.OrderBy...)
+		plan.OrderBy = *orderBy
+	}
+	
+	if len(original.GroupBy) > 0 {
+		groupBy := p.planPool.GetStringSlice(len(original.GroupBy))
+		*groupBy = append(*groupBy, original.GroupBy...)
+		plan.GroupBy = *groupBy
+	}
+	
+	if len(original.Aggregates) > 0 {
+		// For Aggregates, we'll create a new slice as it's not pooled
+		aggregates := make([]Aggregate, len(original.Aggregates))
+		copy(aggregates, original.Aggregates)
+		plan.Aggregates = aggregates
+	}
+	
+	// Copy maps
+	if len(original.Values) > 0 {
+		plan.Values = make(map[string]interface{}, len(original.Values))
+		for k, v := range original.Values {
+			plan.Values[k] = v
+		}
+	}
+	
+	if len(original.Updates) > 0 {
+		plan.Updates = make(map[string]interface{}, len(original.Updates))
+		for k, v := range original.Updates {
+			plan.Updates[k] = v
+		}
 	}
 	
 	// Handle pointers
-	var limitCopy *int64
 	if original.Limit != nil {
-		val := *original.Limit
-		limitCopy = &val
+		limitCopy := *original.Limit
+		plan.Limit = &limitCopy
 	}
 	
-	var offsetCopy *int64
 	if original.Offset != nil {
-		val := *original.Offset
-		offsetCopy = &val
+		offsetCopy := *original.Offset
+		plan.Offset = &offsetCopy
 	}
 	
-	return &Plan{
-		Type:        original.Type,
-		Operation:   original.Operation,
-		Table:       original.Table,
-		Fields:      fields,
-		Conditions:  conditions,
-		Limit:       limitCopy,
-		Offset:      offsetCopy,
-		OrderBy:     orderBy,
-		GroupBy:     groupBy,
-		Aggregates:  aggregates,
-		QueryString: original.QueryString,
-		Values:      values,
-		Updates:     updates,
-	}
+	return plan
 }

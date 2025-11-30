@@ -25,9 +25,11 @@ func TestClientCreation(t *testing.T) {
 
 	dbPath := tmpDir + "/test-db"
 	client := NewClient(dbPath)
+	defer client.Close()
 	if client == nil {
 		t.Error("NewClient returned nil")
 	}
+	defer client.Close()
 }
 
 func TestConvertFunctions(t *testing.T) {
@@ -102,6 +104,7 @@ func TestQuery(t *testing.T) {
 
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
+		defer client.Close()
 
 		ctx := context.Background()
 		result, err := client.Query(ctx, "SELECT 1")
@@ -119,6 +122,7 @@ func TestQuery(t *testing.T) {
 
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
+		defer client.Close()
 
 		ctx := context.Background()
 		_, err = client.Query(ctx, 123)
@@ -134,6 +138,7 @@ func TestQuery(t *testing.T) {
 
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
+		defer client.Close()
 
 		ctx := context.Background()
 		_, err = client.Query(ctx, nil)
@@ -151,6 +156,7 @@ func TestExplain(t *testing.T) {
 
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
+		defer client.Close()
 
 		ctx := context.Background()
 		result, err := client.Explain(ctx, "SELECT 1")
@@ -168,6 +174,7 @@ func TestExplain(t *testing.T) {
 
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
+		defer client.Close()
 
 		ctx := context.Background()
 		_, err = client.Explain(ctx, 123)
@@ -183,6 +190,7 @@ func TestExplain(t *testing.T) {
 
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
+		defer client.Close()
 
 		ctx := context.Background()
 		_, err = client.Explain(ctx, nil)
@@ -200,6 +208,7 @@ func TestInsert(t *testing.T) {
 
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
+		defer client.Close()
 
 		ctx := context.Background()
 		data := map[string]interface{}{
@@ -224,6 +233,7 @@ func TestInsert(t *testing.T) {
 
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
+		defer client.Close()
 
 		ctx := context.Background()
 		data := map[string]interface{}{}
@@ -244,6 +254,8 @@ func TestSelect(t *testing.T) {
 
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
+
+		defer client.Close()
 
 		ctx := context.Background()
 		options := &types.QueryOptions{
@@ -272,6 +284,8 @@ func TestSelect(t *testing.T) {
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
 
+		defer client.Close()
+
 		ctx := context.Background()
 		_, err = client.Select(ctx, 1, "users", nil)
 		// This will likely fail because the table doesn't exist, but we're testing the method structure
@@ -286,6 +300,8 @@ func TestSelect(t *testing.T) {
 
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
+
+		defer client.Close()
 
 		ctx := context.Background()
 		options := &types.QueryOptions{}
@@ -305,6 +321,8 @@ func TestUpdate(t *testing.T) {
 
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
+
+		defer client.Close()
 
 		ctx := context.Background()
 		data := map[string]interface{}{
@@ -333,6 +351,8 @@ func TestUpdate(t *testing.T) {
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
 
+		defer client.Close()
+
 		ctx := context.Background()
 		data := map[string]interface{}{}
 		where := map[string]interface{}{
@@ -352,6 +372,8 @@ func TestUpdate(t *testing.T) {
 
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
+
+		defer client.Close()
 
 		ctx := context.Background()
 		data := map[string]interface{}{
@@ -375,6 +397,8 @@ func TestDelete(t *testing.T) {
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
 
+		defer client.Close()
+
 		ctx := context.Background()
 		where := map[string]interface{}{
 			"id": 1,
@@ -396,6 +420,8 @@ func TestDelete(t *testing.T) {
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
 
+		defer client.Close()
+
 		ctx := context.Background()
 		var where map[string]interface{}
 
@@ -414,6 +440,8 @@ func TestBatchInsert(t *testing.T) {
 
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
+
+		defer client.Close()
 
 		ctx := context.Background()
 		dataList := []map[string]interface{}{
@@ -446,6 +474,8 @@ func TestBatchInsert(t *testing.T) {
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
 
+		defer client.Close()
+
 		ctx := context.Background()
 		var dataList []map[string]interface{}
 
@@ -463,6 +493,8 @@ func TestBatchInsert(t *testing.T) {
 
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
+
+		defer client.Close()
 
 		ctx := context.Background()
 		dataList := []map[string]interface{}{
@@ -503,6 +535,8 @@ func TestConcurrentAccess(t *testing.T) {
 
 		dbPath := tmpDir + "/test-db"
 		client := NewClient(dbPath)
+
+		defer client.Close()
 
 		ctx := context.Background()
 		done := make(chan bool, 3)

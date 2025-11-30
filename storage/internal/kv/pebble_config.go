@@ -124,21 +124,21 @@ func PostgreSQLOptimizedPebbleConfig(path string) *PebbleConfig {
 func HighPerformancePebbleConfig(path string) *PebbleConfig {
 	return &PebbleConfig{
 		Path:                  path,
-		CacheSize:             1 * 1024 * 1024 * 1024, // Reduced to 1GB cache for better resource usage
-		MemTableSize:          64 * 1024 * 1024,        // Reduced to 64MB memtable for balanced performance
-		MaxOpenFiles:          10000,                   // Reduced file handle limit to prevent resource exhaustion
-		CompactionConcurrency: 16,                      // Balanced parallelism for throughput
-		FlushInterval:         100 * time.Millisecond,  // More aggressive flushing for lowest latency
-		BlockSize:             32 << 10,                // 32KB block size for balanced performance
-		L0CompactionThreshold: 4,                       // Balanced threshold for compaction triggering
-		L0StopWritesThreshold: 12,                      // Reasonable threshold to prevent write stalls
-		LBaseMaxBytes:         64 << 20,                // 64MB for L1, balanced space efficiency
+		CacheSize:             2 * 1024 * 1024 * 1024, // Increased to 2GB cache for better read performance
+		MemTableSize:          128 * 1024 * 1024,       // Increased to 128MB memtable for better batching
+		MaxOpenFiles:          10000,                   // Keep file handle limit
+		CompactionConcurrency: 16,                      // Maintain high parallelism for throughput
+		FlushInterval:         50 * time.Millisecond,   // Even more aggressive flushing for lowest latency
+		BlockSize:             64 << 10,                // 64KB block size for better sequential performance
+		L0CompactionThreshold: 2,                       // Lower threshold for more frequent compactions
+		L0StopWritesThreshold: 20,                      // Higher threshold to prevent write stalls under load
+		LBaseMaxBytes:         128 << 20,               // 128MB for L1, better space efficiency
 		CompressionEnabled:    true,
 		EnableRateLimiting:    false,                   // Disable rate limiting for maximum performance
-		RateLimitBytesPerSec:  50 << 20,                // 50MB/s rate limit if enabled
+		RateLimitBytesPerSec:  100 << 20,               // 100MB/s rate limit if enabled
 		EnableBloomFilter:     true,                    // Enable bloom filters for better read performance
-		BloomFilterBitsPerKey: 10,                      // 10 bits per key for good filtering
-		TargetFileSize:        16 << 20,                // 16MB target file size for balanced sequential reads
-		MaxManifestFileSize:   128 << 20,               // 128MB max manifest file size
+		BloomFilterBitsPerKey: 12,                      // 12 bits per key for better filtering
+		TargetFileSize:        32 << 20,                // 32MB target file size for better sequential reads
+		MaxManifestFileSize:   256 << 20,               // 256MB max manifest file size
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
 	"github.com/guileen/pglitedb/codec"
@@ -20,6 +21,8 @@ import (
 type Client struct {
 	executor *sql.Executor
 	planner  *sql.Planner
+	engine   interface{ Close() error } // Store reference to engine for cleanup
+	manager  catalog.Manager            // Store reference to catalog manager for direct operations
 }
 
 // NewClient creates a new embedded client
@@ -54,6 +57,8 @@ func NewClient(dbPath string) *Client {
 	return &Client{
 		executor: exec,
 		planner:  planner,
+		engine:   eng,
+		manager:  mgr,
 	}
 }
 
@@ -88,6 +93,8 @@ func NewClientWithConfig(dbPath string, config *storage.PebbleConfig) *Client {
 	return &Client{
 		executor: exec,
 		planner:  planner,
+		engine:   eng,
+		manager:  mgr,
 	}
 }
 
@@ -97,6 +104,18 @@ func NewClientWithExecutor(exec *sql.Executor, planner *sql.Planner) *Client {
 		executor: exec,
 		planner:  planner,
 	}
+}
+
+// Close closes the client and releases all resources
+func (c *Client) Close() error {
+	// Close the engine if it has a Close method
+	if c.engine != nil {
+		if err := c.engine.Close(); err != nil {
+			return fmt.Errorf("failed to close engine: %w", err)
+		}
+	}
+	
+	return nil
 }
 
 // convertExternalToInternalOptions converts external client.QueryOptions to internal types.QueryOptions
@@ -141,20 +160,13 @@ func (c *Client) Query(ctx context.Context, query interface{}) (*types.QueryResu
 	}, nil
 }
 
-// Explain generates an execution plan for a query without executing it
-func (c *Client) Explain(ctx context.Context, query interface{}) (interface{}, error) {
-	// Convert query interface to string
-	sqlQuery, ok := query.(string)
-	if !ok {
-		return nil, fmt.Errorf("invalid query type: expected string")
+// DirectInsert inserts a new record directly through the engine, bypassing SQL parsing
+func (c *Client) DirectInsert(ctx context.Context, tenantID int64, tableName string, data map[string]interface{}) (int64, error) {
+	if c.manager == nil {
+		return 0, fmt.Errorf("direct operations not available")
 	}
 	
-	plan, err := c.planner.CreatePlan(sqlQuery)
-	if err != nil {
-		return nil, err
-	}
-	
-	return plan, nil
+	return c.manager.InsertRow(ctx, tenantID, tableName, data)
 }
 
 // Insert inserts a new record into the specified table
@@ -213,6 +225,26 @@ func (c *Client) Insert(ctx context.Context, tenantID int64, tableName string, d
 		Count:        int64(resultSet.Count),
 		LastInsertID: resultSet.LastInsertID,
 	}, nil
+}
+
+// DirectBatchInsert inserts multiple records directly through the engine, bypassing SQL parsing
+func (c *Client) DirectBatchInsert(ctx context.Context, tenantID int64, tableName string, dataList []map[string]interface{}) (int64, error) {
+	if c.manager == nil {
+		return 0, fmt.Errorf("direct operations not available")
+	}
+	
+	// For now, insert records one by one
+	// In the future, we could optimize this to use the engine's batch operations directly
+	var count int64
+	for _, data := range dataList {
+		_, err := c.manager.InsertRow(ctx, tenantID, tableName, data)
+		if err != nil {
+			return count, err
+		}
+		count++
+	}
+	
+	return count, nil
 }
 
 // Select retrieves records from the specified table
@@ -434,9 +466,14 @@ func (c *Client) BatchInsert(ctx context.Context, tenantID int64, tableName stri
 		}, nil
 	}
 
-	// Convert data maps to SQL INSERT statement with multiple VALUES
+	// Pre-allocate string builder with estimated capacity to reduce reallocations
+	estimatedCapacity := 100 + len(tableName) + len(dataList)*50 // Rough estimate
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("INSERT INTO %s (", tableName))
+	sb.Grow(estimatedCapacity)
+	
+	sb.WriteString("INSERT INTO ")
+	sb.WriteString(tableName)
+	sb.WriteString(" (")
 	
 	// Get columns from the first record
 	firstRecord := dataList[0]
@@ -445,45 +482,58 @@ func (c *Client) BatchInsert(ctx context.Context, tenantID int64, tableName stri
 		columns = append(columns, column)
 	}
 	
+	// Use strings.Join for columns to reduce allocations
 	sb.WriteString(strings.Join(columns, ", "))
 	sb.WriteString(") VALUES ")
 	
-	// Add values for each record
-	valuesList := make([]string, 0, len(dataList))
-	for _, data := range dataList {
-		var valuesBuilder strings.Builder
-		valuesBuilder.WriteString("(")
-		values := make([]string, 0, len(columns))
-		for _, column := range columns {
+	// Add values for each record with minimal allocations
+	for i, data := range dataList {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		
+		sb.WriteString("(")
+		for j, column := range columns {
+			if j > 0 {
+				sb.WriteString(", ")
+			}
+			
 			value, exists := data[column]
 			if !exists {
-				values = append(values, "NULL")
+				sb.WriteString("NULL")
 				continue
 			}
 			
+			// Use type switches with direct string building to avoid fmt.Sprintf overhead
 			switch v := value.(type) {
 			case string:
-				values = append(values, fmt.Sprintf("'%s'", v))
-			case int, int32, int64:
-				values = append(values, fmt.Sprintf("%v", v))
-			case float32, float64:
-				values = append(values, fmt.Sprintf("%v", v))
+				sb.WriteString("'")
+				sb.WriteString(v)
+				sb.WriteString("'")
+			case int:
+				sb.WriteString(strconv.FormatInt(int64(v), 10))
+			case int32:
+				sb.WriteString(strconv.FormatInt(int64(v), 10))
+			case int64:
+				sb.WriteString(strconv.FormatInt(v, 10))
+			case float32:
+				sb.WriteString(strconv.FormatFloat(float64(v), 'g', -1, 32))
+			case float64:
+				sb.WriteString(strconv.FormatFloat(v, 'g', -1, 64))
 			case bool:
 				if v {
-					values = append(values, "true")
+					sb.WriteString("true")
 				} else {
-					values = append(values, "false")
+					sb.WriteString("false")
 				}
 			default:
-				values = append(values, fmt.Sprintf("'%v'", v))
+				sb.WriteString("'")
+				sb.WriteString(fmt.Sprintf("%v", v))
+				sb.WriteString("'")
 			}
 		}
-		valuesBuilder.WriteString(strings.Join(values, ", "))
-		valuesBuilder.WriteString(")")
-		valuesList = append(valuesList, valuesBuilder.String())
+		sb.WriteString(")")
 	}
-	
-	sb.WriteString(strings.Join(valuesList, ", "))
 	
 	sqlQuery := sb.String()
 	

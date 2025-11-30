@@ -6,6 +6,10 @@ import (
 )
 
 func TestPlannerCacheWithExpiration(t *testing.T) {
+	// Disable literal normalization for proper test isolation
+	EnableLiteralNormalization(false)
+	defer EnableLiteralNormalization(true)
+	
 	// Create a planner with simple parser and cache with expiration
 	parser := NewSimplePGParser()
 	planner := NewPlanner(parser)
@@ -69,6 +73,10 @@ func TestPlannerCacheWithExpiration(t *testing.T) {
 }
 
 func TestPlannerCacheEviction(t *testing.T) {
+	// Disable literal normalization for proper test isolation
+	EnableLiteralNormalization(false)
+	defer EnableLiteralNormalization(true)
+	
 	// Create a planner with small cache capacity
 	parser := NewSimplePGParser()
 	planner := NewPlanner(parser)

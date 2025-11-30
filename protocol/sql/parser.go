@@ -630,17 +630,35 @@ func (p *SimplePGParser) parseOrderByClause(orderByPart string) []OrderBy {
 
 // parseInt64 converts a string to int64, returning error if conversion fails
 func parseInt64(s string) (int64, error) {
-	// Remove any non-numeric characters except digits
-	cleaned := ""
-	for _, r := range s {
-		if r >= '0' && r <= '9' {
-			cleaned += string(r)
-		}
-	}
+	// Trim whitespace and try to parse directly
+	s = strings.TrimSpace(s)
 	
-	if cleaned == "" {
+	// Check if string contains only digits (and optional leading +/- sign)
+	if s == "" {
 		return 0, fmt.Errorf("invalid integer: %s", s)
 	}
 	
-	return strconv.ParseInt(cleaned, 10, 64)
+	// Check for valid integer format
+	valid := true
+	start := 0
+	if s[0] == '+' || s[0] == '-' {
+		start = 1
+	}
+	
+	if start >= len(s) {
+		valid = false
+	} else {
+		for i := start; i < len(s); i++ {
+			if s[i] < '0' || s[i] > '9' {
+				valid = false
+				break
+			}
+		}
+	}
+	
+	if !valid {
+		return 0, fmt.Errorf("invalid integer: %s", s)
+	}
+	
+	return strconv.ParseInt(s, 10, 64)
 }

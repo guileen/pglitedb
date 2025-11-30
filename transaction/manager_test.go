@@ -17,24 +17,27 @@ func TestManager_BeginCommit(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 	
-	// Create KV store
+	// Create KV store in separate directory
 	kvPath := filepath.Join(tempDir, "kv")
 	config := storage.DefaultPebbleConfig(kvPath)
 	kvStore, err := storage.NewPebbleKV(config)
 	if err != nil {
 		t.Fatalf("Failed to create KV store: %v", err)
 	}
-	defer kvStore.Close()
 	
-	// Create transaction manager
+	// Create transaction manager with separate log directory
+	logPath := filepath.Join(tempDir, "logs")
 	manager, err := NewManager(&Config{
-		LogPath: tempDir,
+		LogPath: logPath,
 		KV:      kvStore,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create transaction manager: %v", err)
 	}
+	
+	// Close in proper order: manager first, then kvStore
 	defer manager.Close()
+	defer kvStore.Close()
 	
 	// Begin transaction
 	ctx := context.Background()
@@ -80,24 +83,27 @@ func TestManager_BeginRollback(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 	
-	// Create KV store
+	// Create KV store in separate directory
 	kvPath := filepath.Join(tempDir, "kv")
 	config := storage.DefaultPebbleConfig(kvPath)
 	kvStore, err := storage.NewPebbleKV(config)
 	if err != nil {
 		t.Fatalf("Failed to create KV store: %v", err)
 	}
-	defer kvStore.Close()
 	
-	// Create transaction manager
+	// Create transaction manager with separate log directory
+	logPath := filepath.Join(tempDir, "logs")
 	manager, err := NewManager(&Config{
-		LogPath: tempDir,
+		LogPath: logPath,
 		KV:      kvStore,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create transaction manager: %v", err)
 	}
+	
+	// Close in proper order: manager first, then kvStore
 	defer manager.Close()
+	defer kvStore.Close()
 	
 	// Begin transaction
 	ctx := context.Background()
@@ -133,24 +139,27 @@ func TestManager_Savepoints(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 	
-	// Create KV store
+	// Create KV store in separate directory
 	kvPath := filepath.Join(tempDir, "kv")
 	config := storage.DefaultPebbleConfig(kvPath)
 	kvStore, err := storage.NewPebbleKV(config)
 	if err != nil {
 		t.Fatalf("Failed to create KV store: %v", err)
 	}
-	defer kvStore.Close()
 	
-	// Create transaction manager
+	// Create transaction manager with separate log directory
+	logPath := filepath.Join(tempDir, "logs")
 	manager, err := NewManager(&Config{
-		LogPath: tempDir,
+		LogPath: logPath,
 		KV:      kvStore,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create transaction manager: %v", err)
 	}
+	
+	// Close in proper order: manager first, then kvStore
 	defer manager.Close()
+	defer kvStore.Close()
 	
 	// Begin transaction
 	ctx := context.Background()

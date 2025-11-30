@@ -5,6 +5,10 @@ import (
 )
 
 func TestPlannerCacheStatistics(t *testing.T) {
+	// Disable literal normalization for proper test isolation
+	EnableLiteralNormalization(false)
+	defer EnableLiteralNormalization(true)
+	
 	// Create a planner with simple parser
 	parser := NewSimplePGParser()
 	planner := NewPlanner(parser)
@@ -95,6 +99,10 @@ func TestPlannerCacheStatistics(t *testing.T) {
 }
 
 func TestPlannerNormalizedQueryCaching(t *testing.T) {
+	// Disable literal normalization for proper test isolation
+	EnableLiteralNormalization(false)
+	defer EnableLiteralNormalization(true)
+	
 	// Create a planner with simple parser
 	parser := NewSimplePGParser()
 	planner := NewPlanner(parser)

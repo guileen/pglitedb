@@ -13,3 +13,9 @@ type BatchProcessor interface {
 	ProcessBatchUpdate(ctx context.Context, tenantID, tableID int64, updates []engineTypes.RowUpdate, schemaDef *dbTypes.TableDefinition) error
 	ProcessBatchDelete(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) error
 }
+
+// ParallelBatchProcessor extends BatchProcessor with parallel processing capabilities
+type ParallelBatchProcessor interface {
+	BatchProcessor
+	Close() error
+}
