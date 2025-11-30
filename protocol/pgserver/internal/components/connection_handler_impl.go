@@ -11,7 +11,11 @@ import (
 	customctx "github.com/guileen/pglitedb/context"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/guileen/pglitedb/protocol/sql"
+	"github.com/guileen/pglitedb/protocol/pgserver/interfaces"
 )
+
+// Ensure ConnectionHandler implements ConnectionHandlerInterface
+var _ interfaces.ConnectionHandlerInterface = &ConnectionHandler{}
 
 // PreparedStatement represents a parsed SQL statement
 type PreparedStatement struct {
@@ -32,8 +36,8 @@ type Portal struct {
 
 // ConnectionHandler handles PostgreSQL client connections
 type ConnectionHandler struct {
-	queryProcessor   interface{} // Will be QueryProcessorInterface
-	statementManager interface{} // Will be PreparedStatementManagerInterface
+	queryProcessor   interfaces.QueryProcessorInterface
+	statementManager interfaces.PreparedStatementManagerInterface
 	parser           sql.Parser
 	
 	// Extended query protocol state
@@ -43,7 +47,7 @@ type ConnectionHandler struct {
 }
 
 // NewConnectionHandler creates a new connection handler
-func NewConnectionHandler(queryProcessor interface{}, statementManager interface{}, parser sql.Parser) *ConnectionHandler {
+func NewConnectionHandler(queryProcessor interfaces.QueryProcessorInterface, statementManager interfaces.PreparedStatementManagerInterface, parser sql.Parser) *ConnectionHandler {
 	return &ConnectionHandler{
 		queryProcessor:    queryProcessor,
 		statementManager:  statementManager,
@@ -55,7 +59,7 @@ func NewConnectionHandler(queryProcessor interface{}, statementManager interface
 }
 
 // HandleConnection handles a new client connection
-func (ch *ConnectionHandler) HandleConnection(conn net.Conn) {
+func (ch *ConnectionHandler) HandleConnection(conn net.Conn) error {
 	logger.Info("Handling new client connection", "remote_addr", conn.RemoteAddr().String(), "local_addr", conn.LocalAddr().String())
 	
 	// Get a RequestContext from the pool
@@ -74,7 +78,7 @@ func (ch *ConnectionHandler) HandleConnection(conn net.Conn) {
 	if err != nil {
 		logger.Error("Failed to receive startup message", "error", err, "remote_addr", conn.RemoteAddr().String())
 		log.Printf("Failed to receive startup message: %v", err)
-		return
+		return err
 	}
 	
 	switch startupMessage.(type) {
@@ -85,7 +89,7 @@ func (ch *ConnectionHandler) HandleConnection(conn net.Conn) {
 		if err := backend.Flush(); err != nil {
 			logger.Error("Failed to send AuthenticationOk", "error", err, "remote_addr", conn.RemoteAddr().String())
 			log.Printf("Failed to send AuthenticationOk: %v", err)
-			return
+			return err
 		}
 		
 		// Send ParameterStatus messages
@@ -102,12 +106,13 @@ func (ch *ConnectionHandler) HandleConnection(conn net.Conn) {
 		if err := backend.Flush(); err != nil {
 			logger.Error("Failed to send ReadyForQuery", "error", err, "remote_addr", conn.RemoteAddr().String())
 			log.Printf("Failed to send ReadyForQuery: %v", err)
-			return
+			return err
 		}
 	default:
+		err := fmt.Errorf("unsupported startup message type: %T", startupMessage)
 		logger.Warn("Unsupported startup message type", "type", fmt.Sprintf("%T", startupMessage), "remote_addr", conn.RemoteAddr().String())
 		log.Printf("Unsupported startup message type: %T", startupMessage)
-		return
+		return err
 	}
 	
 	// Main message loop
@@ -118,7 +123,7 @@ func (ch *ConnectionHandler) HandleConnection(conn net.Conn) {
 		if err != nil {
 			logger.Error("Failed to receive message", "error", err, "remote_addr", conn.RemoteAddr().String())
 			log.Printf("Failed to receive message: %v", err)
-			return
+			return err
 		}
 		
 		messageCount++
@@ -129,24 +134,43 @@ func (ch *ConnectionHandler) HandleConnection(conn net.Conn) {
 		case *pgproto3.Query:
 			logger.Debug("Handling Query message", "query", msg.String, "message_count", messageCount, "remote_addr", conn.RemoteAddr().String())
 			// Delegate to query processor
-			// For now, we'll keep the original logic but this should be refactored
-			shouldClose = ch.handleQuery(backend, msg.String)
+			shouldClose, err = ch.handleQuery(backend, msg.String)
+			if err != nil {
+				logger.Error("Failed to handle Query message", "error", err, "remote_addr", conn.RemoteAddr().String())
+				return err
+			}
 		case *pgproto3.Parse:
 			logger.Debug("Handling Parse message", "name", msg.Name, "query", msg.Query, "message_count", messageCount, "remote_addr", conn.RemoteAddr().String())
 			// Delegate to statement manager
-			shouldClose = ch.handleParse(backend, msg)
+			shouldClose, err = ch.handleParse(backend, msg)
+			if err != nil {
+				logger.Error("Failed to handle Parse message", "error", err, "remote_addr", conn.RemoteAddr().String())
+				return err
+			}
 		case *pgproto3.Bind:
 			logger.Debug("Handling Bind message", "destinationPortal", msg.DestinationPortal, "preparedStatement", msg.PreparedStatement, "message_count", messageCount, "remote_addr", conn.RemoteAddr().String())
 			// Delegate to statement manager
-			shouldClose = ch.handleBind(backend, msg)
+			shouldClose, err = ch.handleBind(backend, msg)
+			if err != nil {
+				logger.Error("Failed to handle Bind message", "error", err, "remote_addr", conn.RemoteAddr().String())
+				return err
+			}
 		case *pgproto3.Describe:
 			logger.Debug("Handling Describe message", "objectType", string(msg.ObjectType), "name", msg.Name, "message_count", messageCount, "remote_addr", conn.RemoteAddr().String())
 			// Delegate to statement manager
-			shouldClose = ch.handleDescribe(backend, msg)
+			shouldClose, err = ch.handleDescribe(backend, msg)
+			if err != nil {
+				logger.Error("Failed to handle Describe message", "error", err, "remote_addr", conn.RemoteAddr().String())
+				return err
+			}
 		case *pgproto3.Execute:
 			logger.Debug("Handling Execute message", "portal", msg.Portal, "maxRows", msg.MaxRows, "message_count", messageCount, "remote_addr", conn.RemoteAddr().String())
 			// Delegate to statement manager
-			shouldClose = ch.handleExecute(backend, msg)
+			shouldClose, err = ch.handleExecute(backend, msg)
+			if err != nil {
+				logger.Error("Failed to handle Execute message", "error", err, "remote_addr", conn.RemoteAddr().String())
+				return err
+			}
 		case *pgproto3.Sync:
 			logger.Debug("Handling Sync message", "message_count", messageCount, "remote_addr", conn.RemoteAddr().String())
 			backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
@@ -156,35 +180,26 @@ func (ch *ConnectionHandler) HandleConnection(conn net.Conn) {
 			}
 		case *pgproto3.Terminate:
 			logger.Debug("Handling Terminate message", "message_count", messageCount, "remote_addr", conn.RemoteAddr().String())
-			return
+			return nil
 		default:
+			err := fmt.Errorf("unsupported message type: %T", msg)
 			logger.Warn("Unsupported message type", "type", fmt.Sprintf("%T", msg), "message_count", messageCount, "remote_addr", conn.RemoteAddr().String())
 			log.Printf("Unsupported message type: %T", msg)
-			shouldClose = true
+			return err
 		}
 		
 		if shouldClose {
 			logger.Debug("Closing connection due to error", "remote_addr", conn.RemoteAddr().String())
-			return
+			return fmt.Errorf("connection should be closed")
 		}
 	}
 }
 
 // Extended Query Protocol handlers
-func (ch *ConnectionHandler) handleQuery(backend *pgproto3.Backend, query string) bool {
+func (ch *ConnectionHandler) handleQuery(backend *pgproto3.Backend, query string) (bool, error) {
 	// Delegate to query processor if available
 	if ch.queryProcessor != nil {
-		// Type assert to the expected interface and call ProcessQuery
-		if processor, ok := ch.queryProcessor.(interface {
-			ProcessQuery(ctx context.Context, backend *pgproto3.Backend, query string) (bool, error)
-		}); ok {
-			shouldClose, err := processor.ProcessQuery(context.Background(), backend, query)
-			if err != nil {
-				logger.Error("Query processing failed", "error", err)
-				return true
-			}
-			return shouldClose
-		}
+		return ch.queryProcessor.ProcessQuery(context.Background(), backend, query)
 	}
 	
 	// Fallback implementation - send a simple response
@@ -192,87 +207,110 @@ func (ch *ConnectionHandler) handleQuery(backend *pgproto3.Backend, query string
 	backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
 	if err := backend.Flush(); err != nil {
 		logger.Error("Failed to flush query response", "error", err)
-		return true
+		return true, err
 	}
-	return false
+	return false, nil
 }
 
-func (ch *ConnectionHandler) handleParse(backend *pgproto3.Backend, msg *pgproto3.Parse) bool {
+func (ch *ConnectionHandler) handleParse(backend *pgproto3.Backend, msg *pgproto3.Parse) (bool, error) {
 	// Delegate to statement manager if available
 	if ch.statementManager != nil {
-		// Type assert to the expected interface and call Parse
-		if manager, ok := ch.statementManager.(interface {
-			Parse(backend *pgproto3.Backend, msg *pgproto3.Parse) bool
-		}); ok {
-			return manager.Parse(backend, msg)
-		}
+		shouldClose, err := ch.statementManager.Parse(context.Background(), backend, msg)
+		return shouldClose, err
 	}
 	
 	// Fallback implementation - send a simple response
 	backend.Send(&pgproto3.ParseComplete{})
 	if err := backend.Flush(); err != nil {
 		logger.Error("Failed to flush Parse response", "error", err)
-		return true
+		return true, err
 	}
-	return false
+	return false, nil
 }
 
-func (ch *ConnectionHandler) handleBind(backend *pgproto3.Backend, msg *pgproto3.Bind) bool {
+func (ch *ConnectionHandler) handleBind(backend *pgproto3.Backend, msg *pgproto3.Bind) (bool, error) {
 	// Delegate to statement manager if available
 	if ch.statementManager != nil {
-		// Type assert to the expected interface and call Bind
-		if manager, ok := ch.statementManager.(interface {
-			Bind(backend *pgproto3.Backend, msg *pgproto3.Bind) bool
-		}); ok {
-			return manager.Bind(backend, msg)
-		}
+		shouldClose, err := ch.statementManager.Bind(context.Background(), backend, msg)
+		return shouldClose, err
 	}
 	
 	// Fallback implementation - send a simple response
 	backend.Send(&pgproto3.BindComplete{})
 	if err := backend.Flush(); err != nil {
 		logger.Error("Failed to flush Bind response", "error", err)
-		return true
+		return true, err
 	}
-	return false
+	return false, nil
 }
 
-func (ch *ConnectionHandler) handleDescribe(backend *pgproto3.Backend, msg *pgproto3.Describe) bool {
+func (ch *ConnectionHandler) handleDescribe(backend *pgproto3.Backend, msg *pgproto3.Describe) (bool, error) {
 	// Delegate to statement manager if available
 	if ch.statementManager != nil {
-		// Type assert to the expected interface and call Describe
-		if manager, ok := ch.statementManager.(interface {
-			Describe(backend *pgproto3.Backend, msg *pgproto3.Describe) bool
-		}); ok {
-			return manager.Describe(backend, msg)
-		}
+		shouldClose, err := ch.statementManager.Describe(context.Background(), backend, msg)
+		return shouldClose, err
 	}
 	
 	// Fallback implementation - send a simple response
 	backend.Send(&pgproto3.NoData{})
 	if err := backend.Flush(); err != nil {
 		logger.Error("Failed to flush Describe response", "error", err)
-		return true
+		return true, err
 	}
-	return false
+	return false, nil
 }
 
-func (ch *ConnectionHandler) handleExecute(backend *pgproto3.Backend, msg *pgproto3.Execute) bool {
+func (ch *ConnectionHandler) handleExecute(backend *pgproto3.Backend, msg *pgproto3.Execute) (bool, error) {
 	// Delegate to statement manager if available
 	if ch.statementManager != nil {
-		// Type assert to the expected interface and call Execute
-		if manager, ok := ch.statementManager.(interface {
-			Execute(backend *pgproto3.Backend, msg *pgproto3.Execute) bool
-		}); ok {
-			return manager.Execute(backend, msg)
-		}
+		shouldClose, err := ch.statementManager.Execute(context.Background(), backend, msg)
+		return shouldClose, err
 	}
 	
 	// Fallback implementation - send a simple response
 	backend.Send(&pgproto3.CommandComplete{CommandTag: []byte("EXECUTE")})
 	if err := backend.Flush(); err != nil {
 		logger.Error("Failed to flush Execute response", "error", err)
-		return true
+		return true, err
 	}
-	return false
+	return false, nil
+}
+
+// Close closes the connection handler
+func (ch *ConnectionHandler) Close() error {
+	// Currently no resources to close, but this satisfies the interface
+	// In a more complex implementation, this might close connections or clean up resources
+	return nil
+}
+
+// HealthCheck performs a health check on the connection handler
+func (ch *ConnectionHandler) HealthCheck() error {
+	// Perform any necessary health checks
+	return nil
+}
+
+// HandleMessage handles a single message
+func (ch *ConnectionHandler) HandleMessage(ctx context.Context, backend *pgproto3.Backend, msg interface{}) (bool, error) {
+	switch msg := msg.(type) {
+	case *pgproto3.Query:
+		return ch.handleQuery(backend, msg.String)
+	case *pgproto3.Parse:
+		return ch.handleParse(backend, msg)
+	case *pgproto3.Bind:
+		return ch.handleBind(backend, msg)
+	case *pgproto3.Describe:
+		return ch.handleDescribe(backend, msg)
+	case *pgproto3.Execute:
+		return ch.handleExecute(backend, msg)
+	case *pgproto3.Sync:
+		backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+		if err := backend.Flush(); err != nil {
+			return true, err
+		}
+		return false, nil
+	case *pgproto3.Terminate:
+		return true, nil
+	default:
+		return false, fmt.Errorf("unsupported message type: %T", msg)
+	}
 }
