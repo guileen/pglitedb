@@ -171,3 +171,7 @@ pglitedb-benchmarks
 concurrent_access_validation
 benchmark_profiling
 benchmark_extended
+
+# Binary build targets
+benchmark_*
+pglitedb-benchmarks
