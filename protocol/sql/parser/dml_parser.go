@@ -1,19 +1,23 @@
 package parser
 
 import (
+	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
 // DMLParser handles DML (INSERT, UPDATE, DELETE) statement parsing
 type DMLParser struct {
 	helperParser *HelperParser
+	whereParser  *WhereParser
 }
 
 // NewDMLParser creates a new DMLParser
 func NewDMLParser() *DMLParser {
 	return &DMLParser{
 		helperParser: NewHelperParser(),
+		whereParser:  NewWhereParser(),
 	}
 }
 
@@ -75,6 +79,18 @@ func (dp *DMLParser) ExtractUpdateInfo(parsed *ParsedQuery, query, lowerQuery st
 
 		setPart := query[setIndex+5 : setEnd]
 		parsed.SetClauses = dp.parseSetClause(setPart)
+		
+		// Also populate Updates field for compatibility with planner
+		parsed.Updates = make(map[string]interface{})
+		for field, value := range parsed.SetClauses {
+			// Try to parse the value as a literal
+			if parsedValue, err := dp.parseLiteralValue(value); err == nil {
+				parsed.Updates[field] = parsedValue
+			} else {
+				// Keep as string if parsing fails
+				parsed.Updates[field] = value
+			}
+		}
 	}
 
 	// Extract WHERE clause
@@ -82,6 +98,8 @@ func (dp *DMLParser) ExtractUpdateInfo(parsed *ParsedQuery, query, lowerQuery st
 	if whereIndex != -1 {
 		wherePart := query[whereIndex+7:]
 		parsed.WhereClause = strings.TrimSpace(wherePart)
+		// Parse WHERE clause into conditions
+		parsed.Conditions = dp.whereParser.ParseWhereClause(wherePart)
 	}
 }
 
@@ -103,6 +121,8 @@ func (dp *DMLParser) ExtractDeleteInfo(parsed *ParsedQuery, query, lowerQuery st
 	if whereIndex != -1 {
 		wherePart := query[whereIndex+7:]
 		parsed.WhereClause = strings.TrimSpace(wherePart)
+		// Parse WHERE clause into conditions
+		parsed.Conditions = dp.whereParser.ParseWhereClause(wherePart)
 	}
 }
 
@@ -161,6 +181,46 @@ func (dp *DMLParser) parseSetClause(setPart string) map[string]string {
 	return setClauses
 }
 
+// parseLiteralValue parses a literal value string into the appropriate Go type
+func (dp *DMLParser) parseLiteralValue(value string) (interface{}, error) {
+	trimmed := strings.TrimSpace(value)
+	
+	// Handle parameter placeholders
+	if strings.HasPrefix(trimmed, "$") {
+		return trimmed, nil
+	}
+	
+	// Handle string literals (single or double quotes)
+	if (strings.HasPrefix(trimmed, "'") && strings.HasSuffix(trimmed, "'")) ||
+	   (strings.HasPrefix(trimmed, "\"") && strings.HasSuffix(trimmed, "\"")) {
+		// Remove quotes
+		unquoted := trimmed[1 : len(trimmed)-1]
+		// Handle escaped quotes
+		unquoted = strings.ReplaceAll(unquoted, "''", "'")
+		unquoted = strings.ReplaceAll(unquoted, "\\\"", "\"")
+		return unquoted, nil
+	}
+	
+	// Handle boolean values
+	if strings.ToLower(trimmed) == "true" {
+		return true, nil
+	}
+	if strings.ToLower(trimmed) == "false" {
+		return false, nil
+	}
+	
+	// Handle numeric values
+	if i, err := strconv.ParseInt(trimmed, 10, 32); err == nil {
+		return int32(i), nil
+	}
+	if f, err := strconv.ParseFloat(trimmed, 64); err == nil {
+		return f, nil
+	}
+	
+	// Return as string if no other type matches
+	return trimmed, fmt.Errorf("could not parse as literal")
+}
+
 // splitRespectingQuotes splits a string by commas while respecting quoted strings
 func (dp *DMLParser) splitRespectingQuotes(s string) []string {
 	var result []string
@@ -214,4 +274,3 @@ func (dp *DMLParser) splitRespectingQuotes(s string) []string {
 	
 	return result
 }
-

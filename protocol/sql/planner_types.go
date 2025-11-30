@@ -8,7 +8,7 @@ type Plan struct {
 	Operation   string
 	Table       string
 	Fields      []string
-	Conditions  []parser.Condition
+	Conditions  []Condition
 	Limit       *int64
 	Offset      *int64
 	OrderBy     []parser.OrderBy

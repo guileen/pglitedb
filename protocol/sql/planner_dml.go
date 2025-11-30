@@ -5,7 +5,6 @@ import (
 	"strconv"
 
 	pg_query "github.com/pganalyze/pg_query_go/v6"
-	"github.com/guileen/pglitedb/protocol/sql/parser"
 )
 
 // extractConditionsFromExpr extracts WHERE clause conditions from an expression
@@ -87,28 +86,31 @@ func (p *Planner) extractUpdateInfoFromPGNode(stmt *pg_query.ParseResult, plan *
 		plan.Table = relation.GetRelname()
 	}
 
-	// Extract SET clauses
-	if targetList := updateStmt.GetTargetList(); len(targetList) > 0 {
+	// Extract SET values
+	if targetList := updateStmt.GetTargetList(); targetList != nil {
 		updates := make(map[string]interface{})
 		for _, target := range targetList {
-			if targetEntry := target.GetResTarget(); targetEntry != nil {
-				fieldName := targetEntry.GetName()
-				if val := targetEntry.GetVal(); val != nil {
-					if aConst := val.GetAConst(); aConst != nil {
-						if i := aConst.GetIval(); i != nil {
-							updates[fieldName] = i.GetIval()
-						} else if f := aConst.GetFval(); f != nil {
-							if val, err := strconv.ParseFloat(f.GetFval(), 64); err == nil {
-								updates[fieldName] = val
-							}
-						} else if s := aConst.GetSval(); s != nil {
-							updates[fieldName] = s.GetSval()
-						} else if b := aConst.GetBoolval(); b != nil {
-							updates[fieldName] = b.GetBoolval()
-						}
-					} else if paramRef := val.GetParamRef(); paramRef != nil {
-						// Handle parameter placeholders like $1, $2, etc.
+			if resTarget := target.GetResTarget(); resTarget != nil {
+				fieldName := resTarget.GetName()
+				if val := resTarget.GetVal(); val != nil {
+					// For parameter references, we'll store them as placeholders
+					// Actual parameter binding happens later in execution
+					if paramRef := val.GetParamRef(); paramRef != nil {
 						updates[fieldName] = fmt.Sprintf("$%d", paramRef.GetNumber())
+					} else if aConst := val.GetAConst(); aConst != nil {
+						// Extract constant values
+						switch {
+						case aConst.GetSval() != nil:
+							updates[fieldName] = aConst.GetSval().GetSval()
+						case aConst.GetIval() != nil:
+							updates[fieldName] = int32(aConst.GetIval().GetIval())
+						case aConst.GetFval() != nil:
+							if f, err := strconv.ParseFloat(aConst.GetFval().GetFval(), 64); err == nil {
+								updates[fieldName] = f
+							}
+						case aConst.GetBoolval() != nil:
+							updates[fieldName] = aConst.GetBoolval().GetBoolval()
+						}
 					}
 				}
 			}
@@ -119,19 +121,13 @@ func (p *Planner) extractUpdateInfoFromPGNode(stmt *pg_query.ParseResult, plan *
 	// Extract WHERE conditions
 	if whereClause := updateStmt.GetWhereClause(); whereClause != nil {
 		conditions := p.extractConditionsFromExpr(whereClause)
-		plan.Conditions = []parser.Condition{}
-		for _, cond := range conditions {
-			// Type assert cond.Value to string
-			valueStr, ok := cond.Value.(string)
-			if !ok {
-				// Convert to string if it's not already a string
-				valueStr = fmt.Sprintf("%v", cond.Value)
-			}
-			plan.Conditions = append(plan.Conditions, parser.Condition{
+		plan.Conditions = make([]Condition, len(conditions))
+		for i, cond := range conditions {
+			plan.Conditions[i] = Condition{
 				Field:    cond.Field,
 				Operator: cond.Operator,
-				Value:    valueStr,
-			})
+				Value:    cond.Value,
+			}
 		}
 	}
 }
@@ -211,19 +207,13 @@ func (p *Planner) extractDeleteInfoFromPGNode(stmt *pg_query.ParseResult, plan *
 	// Extract WHERE conditions
 	if whereClause := deleteStmt.GetWhereClause(); whereClause != nil {
 		conditions := p.extractConditionsFromExpr(whereClause)
-		plan.Conditions = []parser.Condition{}
-		for _, cond := range conditions {
-			// Type assert cond.Value to string
-			valueStr, ok := cond.Value.(string)
-			if !ok {
-				// Convert to string if it's not already a string
-				valueStr = fmt.Sprintf("%v", cond.Value)
-			}
-			plan.Conditions = append(plan.Conditions, parser.Condition{
+		plan.Conditions = make([]Condition, len(conditions))
+		for i, cond := range conditions {
+			plan.Conditions[i] = Condition{
 				Field:    cond.Field,
 				Operator: cond.Operator,
-				Value:    valueStr,
-			})
+				Value:    cond.Value,
+			}
 		}
 	}
 }
