@@ -160,6 +160,12 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 		plan := &Plan{
 			QueryString: query,
 			Type:        parsedQuery.Type,
+			Table:       parsedQuery.Table,
+			Fields:      parsedQuery.Fields,
+			Conditions:  parsedQuery.Conditions,
+			OrderBy:     parsedQuery.OrderBy,
+			Limit:       parsedQuery.Limit,
+			Updates:     parsedQuery.Updates,
 		}
 		
 		// Set operation based on statement type

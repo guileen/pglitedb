@@ -104,9 +104,11 @@ func TestQuery(t *testing.T) {
 		client := NewClient(dbPath)
 
 		ctx := context.Background()
-		_, err = client.Query(ctx, "SELECT 1")
-		// This will likely fail because there's no table, but we're testing the method structure
-		assert.NotNil(t, err) // Expected to fail due to no database schema
+		result, err := client.Query(ctx, "SELECT 1")
+		// This should succeed as it's a valid expression query
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, int64(1), result.Count)
 	})
 
 	t.Run("InvalidQueryType", func(t *testing.T) {
@@ -255,8 +257,10 @@ func TestSelect(t *testing.T) {
 		}
 
 		_, err = client.Select(ctx, 1, "users", options)
-		// This will likely fail because the table doesn't exist, but we're testing the method structure
-		assert.NotNil(t, err) // Expected to fail due to table not existing
+		// This should fail because the table doesn't exist
+		if assert.NotNil(t, err, "Expected error for non-existent table") { // Only check error content if error is not nil
+			assert.Contains(t, err.Error(), "not found")
+		}
 	})
 
 	t.Run("SelectWithNilOptions", func(t *testing.T) {
@@ -314,8 +318,10 @@ func TestUpdate(t *testing.T) {
 		}
 
 		_, err = client.Update(ctx, 1, "users", data, where)
-		// This will likely fail because the table doesn't exist, but we're testing the method structure
-		assert.NotNil(t, err) // Expected to fail due to table not existing
+		// This should fail because the table doesn't exist
+		if assert.NotNil(t, err, "Expected error for non-existent table") { // Only check error content if error is not nil
+			assert.Contains(t, err.Error(), "not found")
+		}
 	})
 
 	t.Run("UpdateWithEmptyData", func(t *testing.T) {
@@ -375,8 +381,10 @@ func TestDelete(t *testing.T) {
 		}
 
 		_, err = client.Delete(ctx, 1, "users", where)
-		// This will likely fail because the table doesn't exist, but we're testing the method structure
-		assert.NotNil(t, err) // Expected to fail due to table not existing
+		// This should fail because the table doesn't exist
+		if assert.NotNil(t, err, "Expected error for non-existent table") { // Only check error content if error is not nil
+			assert.Contains(t, err.Error(), "not found")
+		}
 	})
 
 	t.Run("DeleteWithoutWhereClause", func(t *testing.T) {
