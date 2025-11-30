@@ -166,6 +166,7 @@ func (dd *DeadlockDetector) hasCycle(startTxnID uint64) bool {
 
 // hasCycleUtil is a helper function for cycle detection
 func (dd *DeadlockDetector) hasCycleUtil(txnID uint64, visited, recStack map[uint64]bool) bool {
+	// If not visited, mark as visited and add to recursion stack
 	if !visited[txnID] {
 		visited[txnID] = true
 		recStack[txnID] = true
@@ -173,18 +174,33 @@ func (dd *DeadlockDetector) hasCycleUtil(txnID uint64, visited, recStack map[uin
 		// Recur for all transactions that this transaction is waiting for
 		if waitMapInterface, ok := dd.waitGraph.Load(txnID); ok {
 			waitMap := waitMapInterface.(*sync.Map)
+			var hasCycle bool
 			waitMap.Range(func(key, value interface{}) bool {
 				waitingTxnID := key.(uint64)
-				if !visited[waitingTxnID] && dd.hasCycleUtil(waitingTxnID, visited, recStack) {
-					return false // Stop iteration
+				if !visited[waitingTxnID] {
+					if dd.hasCycleUtil(waitingTxnID, visited, recStack) {
+						hasCycle = true
+						return false // Stop iteration
+					}
 				} else if recStack[waitingTxnID] {
+					hasCycle = true
 					return false // Stop iteration (cycle found)
 				}
 				return true
 			})
+			if hasCycle {
+				recStack[txnID] = false
+				return true
+			}
 		}
+		recStack[txnID] = false
+		return false
+	} else if recStack[txnID] {
+		// If already visited and in recursion stack, we found a cycle
+		return true
 	}
 	
+	// Remove from recursion stack before returning
 	recStack[txnID] = false
 	return false
 }
@@ -228,6 +244,11 @@ func (dd *DeadlockDetector) detectAndResolveDeadlocks() {
 
 // detectCycleAndAbort detects cycles and aborts transactions to resolve deadlocks
 func (dd *DeadlockDetector) detectCycleAndAbort(txnID uint64, visited, recStack map[uint64]bool) {
+	if visited[txnID] {
+		recStack[txnID] = false
+		return
+	}
+	
 	visited[txnID] = true
 	recStack[txnID] = true
 	

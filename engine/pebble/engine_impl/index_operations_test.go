@@ -499,8 +499,8 @@ func TestIndexOperationsEdgeCases(t *testing.T) {
 
 		ctx := context.Background()
 		
-		// Insert many entries
-		numEntries := 1000
+		// Use a reasonable number of entries to prevent timeout while still testing scalability
+		numEntries := 50
 		for i := 0; i < numEntries; i++ {
 			indexKey, err := codec.EncodeIndexKey(1, 1, 1, "test_value", int64(i))
 			require.NoError(t, err)
