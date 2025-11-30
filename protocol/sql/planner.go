@@ -27,7 +27,8 @@ func NewPlanner(parser Parser) *Planner {
 	}
 	
 	// Initialize plan cache with larger capacity to reduce repeated parsing
-	planCache := NewLRUCache(5000)
+	// Increased from 5000 to 10000 to further reduce CGO call overhead
+	planCache := NewLRUCache(10000)
 	
 	return &Planner{
 		parser:    parser,
@@ -41,7 +42,8 @@ func NewPlanner(parser Parser) *Planner {
 // Increased plan cache size to reduce repeated parsing based on profiling analysis
 func NewPlannerWithCatalog(parser Parser, catalogMgr catalog.Manager) *Planner {
 	// Initialize plan cache with larger capacity to reduce repeated parsing
-	planCache := NewLRUCache(5000)
+	// Increased from 5000 to 10000 to further reduce CGO call overhead
+	planCache := NewLRUCache(10000)
 	
 	planner := &Planner{
 		parser:    parser,

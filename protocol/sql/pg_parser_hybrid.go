@@ -50,7 +50,7 @@ func NewHybridPGParser() *HybridPGParser {
 	return &HybridPGParser{
 		simpleParser:  NewSimplePGParser(),
 		fullParser:    NewFullPGParser(), // The full CGO parser
-		cache:         NewLRUCache(10000), // Increased cache size to 10000 entries to reduce CGO overhead
+		cache:         NewLRUCache(20000), // Further increased cache size to 20000 entries to reduce CGO overhead
 	}
 }
 
@@ -371,6 +371,7 @@ func (p *HybridPGParser) GetAverageParseTime() time.Duration {
 
 // shouldUseSimpleParser determines if we should attempt to use the simple parser first
 // Enhanced logic with better heuristics and performance considerations
+// Aggressive optimization to reduce CGO call overhead based on profiling analysis
 func (p *HybridPGParser) shouldUseSimpleParser(query string) bool {
 	// Convert to lowercase for easier matching
 	lowerQuery := strings.ToLower(strings.TrimSpace(query))
@@ -380,71 +381,52 @@ func (p *HybridPGParser) shouldUseSimpleParser(query string) bool {
 		return true
 	}
 	
-	// Check for complex SQL features that require the full parser
-	complexKeywords := []string{
-		" join ", " left join ", " right join ", " full join ", " inner join ",
-		" union ", " intersect ", " except ",
-		" group by ", " having ", 
-		" window ", " over ", " partition by ",
-		" with ", " recursive ",
-		" cast ", " convert ", " extract ",
-		" exists ", " any ", " all ", " some ",
-		" between ", " is null ", " is not null ",
-		" case ", " when ", " then ", " else ", " end ",
-	}
-	
-	// If any complex keywords are found, use the full parser
-	for _, keyword := range complexKeywords {
-		if strings.Contains(lowerQuery, keyword) {
-			return false
-		}
-	}
-	
-	// Check for nested queries - more sophisticated approach
-	// Count parentheses but allow some nesting in simple queries
-	parenCount := 0
-	maxParenDepth := 0
-	for _, char := range lowerQuery {
-		if char == '(' {
-			parenCount++
-			if parenCount > maxParenDepth {
-				maxParenDepth = parenCount
-			}
-		} else if char == ')' {
-			parenCount--
-		}
-	}
-	
-	// If we have deeply nested parentheses or subqueries, use full parser
-	if maxParenDepth > 2 || strings.Count(lowerQuery, " select ") > 1 {
-		return false
-	}
-	
-	// Check for complex functions with better pattern matching
-	complexFunctions := []string{
-		"coalesce(", "nullif(", "substring(", "trim(", "position(", "overlay(",
-		"date_part(", "date_trunc(", "age(", "current_date(", "current_time(",
-		"generate_series(", "unnest(", "array_agg(", "string_agg(",
-	}
-	
-	for _, function := range complexFunctions {
-		if strings.Contains(lowerQuery, function) {
-			return false
-		}
-	}
-	
 	// For basic CRUD operations with simple structure, try the simple parser first
+	// This is more aggressive than before - we'll let the simple parser handle more cases
 	basicOperations := []string{"select ", "insert ", "update ", "delete "}
 	for _, op := range basicOperations {
 		if strings.HasPrefix(lowerQuery, op) {
 			// Additional checks for complex SELECT queries
 			if op == "select " {
-				// Check for complex SELECT features
-				if strings.Contains(lowerQuery, " distinct ") && strings.Contains(lowerQuery, " order by ") {
-					// Complex DISTINCT with ORDER BY might need full parser
-					if strings.Count(lowerQuery, ",") > 3 {
+				// Even for SELECT, we're being more aggressive about what we allow the simple parser to handle
+				// Only fall back to full parser for clearly complex features
+				
+				// Check for clearly complex SQL features that require the full parser
+				complexKeywords := []string{
+					" join ", " left join ", " right join ", " full join ", " inner join ",
+					" union ", " intersect ", " except ",
+					" group by ", " having ", 
+					" window ", " over ", " partition by ",
+					" with ", " recursive ",
+					" exists ", " any ", " all ", " some ",
+					" case ", " when ", " then ", " else ", " end ",
+				}
+				
+				// If any clearly complex keywords are found, use the full parser
+				for _, keyword := range complexKeywords {
+					if strings.Contains(lowerQuery, keyword) {
 						return false
 					}
+				}
+				
+				// Check for nested queries - more sophisticated approach
+				// Count parentheses but allow some nesting in simple queries
+				parenCount := 0
+				maxParenDepth := 0
+				for _, char := range lowerQuery {
+					if char == '(' {
+						parenCount++
+						if parenCount > maxParenDepth {
+							maxParenDepth = parenCount
+						}
+					} else if char == ')' {
+						parenCount--
+					}
+				}
+				
+				// If we have deeply nested parentheses or subqueries, use full parser
+				if maxParenDepth > 3 || strings.Count(lowerQuery, " select ") > 2 {
+					return false
 				}
 			}
 			return true
@@ -459,6 +441,6 @@ func (p *HybridPGParser) shouldUseSimpleParser(query string) bool {
 		}
 	}
 	
-	// Default to simple parser for basic operations
-	return true
+	// For anything else that doesn't clearly fit our simple parser criteria, fall back to full parser
+	return false
 }
