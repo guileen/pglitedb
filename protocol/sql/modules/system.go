@@ -28,8 +28,19 @@ func (ste *SystemTableExecutor) ExecuteSystemTableQuery(ctx context.Context, pla
 		return nil, fmt.Errorf("catalog not initialized")
 	}
 	
+	// Handle empty table names
+	trimmedTable := strings.TrimSpace(plan.Table)
+	if trimmedTable == "" {
+		// This shouldn't happen for system table queries, but return empty result if it does
+		return &types.ResultSet{
+			Columns: []string{},
+			Rows:    [][]interface{}{},
+			Count:   0,
+		}, nil
+	}
+	
 	// Normalize the table name to ensure consistent format
-	fullTableName := strings.TrimSpace(plan.Table)
+	fullTableName := trimmedTable
 	
 	// Ensure the table name has the proper schema prefix
 	if !strings.Contains(fullTableName, ".") {

@@ -109,10 +109,13 @@ func (p *HybridPGParser) Parse(query string) (*ParsedQuery, error) {
 
 // getCachedResult retrieves a parsed result from cache if available
 func (p *HybridPGParser) getCachedResult(query string) *ParsedQuery {
+	// Normalize the query for better cache hit rates
+	normalizedQuery := NormalizeQuery(query)
+	
 	p.cacheMutex.RLock()
 	defer p.cacheMutex.RUnlock()
 	
-	if cached, exists := p.cache[query]; exists {
+	if cached, exists := p.cache[normalizedQuery]; exists {
 		cached.lastAccess = time.Now()
 		return cached.parsed
 	}
@@ -121,6 +124,9 @@ func (p *HybridPGParser) getCachedResult(query string) *ParsedQuery {
 
 // cacheResult stores a parsed result in cache
 func (p *HybridPGParser) cacheResult(query string, parsed *ParsedQuery) {
+	// Normalize the query for better cache hit rates
+	normalizedQuery := NormalizeQuery(query)
+	
 	p.cacheMutex.Lock()
 	defer p.cacheMutex.Unlock()
 	
@@ -131,7 +137,7 @@ func (p *HybridPGParser) cacheResult(query string, parsed *ParsedQuery) {
 	
 	// Add new entry
 	now := time.Now()
-	p.cache[query] = &cachedParseResult{
+	p.cache[normalizedQuery] = &cachedParseResult{
 		parsed:     parsed,
 		timestamp:  now,
 		lastAccess: now,

@@ -28,6 +28,18 @@ func (ae *AggregateExecutor) ExecuteAggregateSelect(ctx context.Context, plan *s
 	if ae.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
+	
+	// Handle queries without tables (expressions, constants, etc.)
+	trimmedTable := strings.TrimSpace(plan.Table)
+	if trimmedTable == "" {
+		// For aggregate queries without tables, return a simple result
+		result := &types.ResultSet{
+			Columns: []string{"result"},
+			Rows:    [][]interface{}{{nil}},
+			Count:   1,
+		}
+		return result, nil
+	}
 
 	// Handle system table queries
 	if isSystemTable(plan.Table) {

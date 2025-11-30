@@ -630,3 +630,52 @@ func BenchmarkEncodeRow(b *testing.B) {
 		codec.EncodeRow(record, schemaDef)
 	}
 }
+
+func TestDecodeRowWithVarchar(t *testing.T) {
+	codec := NewMemComparableCodec()
+	
+	// Create a table definition with varchar columns
+	schema := &types.TableDefinition{
+		Name: "test_table",
+		Columns: []types.ColumnDefinition{
+			{Name: "id", Type: types.ColumnTypeNumber},
+			{Name: "name", Type: types.ColumnTypeVarchar},
+			{Name: "description", Type: types.ColumnTypeVarchar},
+		},
+	}
+	
+	// Create a record with varchar data
+	origRecord := &types.Record{
+		Table: "test_table",
+		Data: map[string]*types.Value{
+			"id":          {Data: int64(1), Type: types.ColumnTypeNumber},
+			"name":        {Data: "John Doe", Type: types.ColumnTypeVarchar},
+			"description": {Data: "A test user", Type: types.ColumnTypeVarchar},
+		},
+	}
+	
+	// Encode the record
+	encoded, err := codec.EncodeRow(origRecord, schema)
+	if err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+	
+	// Decode the record
+	decodedRecord, err := codec.DecodeRow(encoded, schema)
+	if err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	
+	// Verify the decoded data matches the original
+	if decodedRecord.Data["id"].Data.(int64) != origRecord.Data["id"].Data.(int64) {
+		t.Errorf("id mismatch: expected %v, got %v", origRecord.Data["id"].Data, decodedRecord.Data["id"].Data)
+	}
+	
+	if decodedRecord.Data["name"].Data.(string) != origRecord.Data["name"].Data.(string) {
+		t.Errorf("name mismatch: expected %v, got %v", origRecord.Data["name"].Data, decodedRecord.Data["name"].Data)
+	}
+	
+	if decodedRecord.Data["description"].Data.(string) != origRecord.Data["description"].Data.(string) {
+		t.Errorf("description mismatch: expected %v, got %v", origRecord.Data["description"].Data, decodedRecord.Data["description"].Data)
+	}
+}

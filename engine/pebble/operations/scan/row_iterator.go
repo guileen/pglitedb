@@ -100,7 +100,7 @@ func (ri *RowIterator) Next() bool {
 		value := ri.iter.Value()
 		record, err := ri.codec.DecodeRow(value, ri.schemaDef)
 		if err != nil {
-			ri.err = fmt.Errorf("decode row: %w", err)
+			ri.err = fmt.Errorf("decode row for table %s: %w", ri.schemaDef.Name, err)
 			return false
 		}
 

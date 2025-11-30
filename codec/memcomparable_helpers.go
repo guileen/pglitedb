@@ -580,7 +580,21 @@ func decodeEncodedRow(data []byte) (*EncodedRow, error) {
 			ReleaseEncodedRow(row) // Return to pool on error
 			return nil, fmt.Errorf("unexpected end of data")
 		}
-		name := string(data[offset : offset+int(nameLen)])
+		
+		// Validate name length to prevent potential issues
+		if nameLen > 1024 { // Reasonable limit for column names
+			ReleaseEncodedRow(row) // Return to pool on error
+			return nil, fmt.Errorf("column name too long: %d bytes", nameLen)
+		}
+		
+		nameBytes := data[offset : offset+int(nameLen)]
+		// Validate that the name bytes form a valid UTF-8 string
+		if !isValidUTF8(nameBytes) {
+			ReleaseEncodedRow(row) // Return to pool on error
+			return nil, fmt.Errorf("invalid UTF-8 in column name")
+		}
+		
+		name := string(nameBytes)
 		offset += int(nameLen)
 
 		if offset+4 > len(data) {
@@ -693,4 +707,59 @@ func appendMemComparableBytes(buf []byte, b []byte) []byte {
 	}
 	buf = append(buf, 0x00, 0x00)
 	return buf
+}
+
+// isValidUTF8 checks if a byte slice contains valid UTF-8
+func isValidUTF8(b []byte) bool {
+	// Empty byte slice is valid UTF-8
+	if len(b) == 0 {
+		return true
+	}
+	
+	// Simple UTF-8 validation
+	for i := 0; i < len(b); {
+		// ASCII character (0-127)
+		if b[i] < 0x80 {
+			i++
+			continue
+		}
+		
+		// Multi-byte UTF-8 character
+		if b[i] < 0xC0 {
+			// Invalid start byte
+			return false
+		}
+		
+		// 2-byte character
+		if b[i] < 0xE0 {
+			if i+1 >= len(b) || (b[i+1] & 0xC0) != 0x80 {
+				return false
+			}
+			i += 2
+			continue
+		}
+		
+		// 3-byte character
+		if b[i] < 0xF0 {
+			if i+2 >= len(b) || (b[i+1] & 0xC0) != 0x80 || (b[i+2] & 0xC0) != 0x80 {
+				return false
+			}
+			i += 3
+			continue
+		}
+		
+		// 4-byte character
+		if b[i] < 0xF8 {
+			if i+3 >= len(b) || (b[i+1] & 0xC0) != 0x80 || (b[i+2] & 0xC0) != 0x80 || (b[i+3] & 0xC0) != 0x80 {
+				return false
+			}
+			i += 4
+			continue
+		}
+		
+		// Invalid start byte
+		return false
+	}
+	
+	return true
 }
