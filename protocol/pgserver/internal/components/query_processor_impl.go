@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/guileen/pglitedb/logger"
-	ctx "github.com/guileen/pglitedb/context"
+	customctx "github.com/guileen/pglitedb/context"
 	"github.com/guileen/pglitedb/types"
 	"github.com/jackc/pgx/v5/pgproto3"
 )
@@ -31,8 +31,8 @@ func NewQueryProcessor(executor interface{}, parser interface{}, planner interfa
 // ProcessQuery handles a simple query
 func (qp *QueryProcessor) ProcessQuery(backend *pgproto3.Backend, query string) bool {
 	// Get a QueryContext from the pool
-	queryCtx := ctx.GetQueryContext()
-	defer ctx.PutQueryContext(queryCtx)
+	queryCtx := customctx.GetQueryContext()
+	defer customctx.PutQueryContext(queryCtx)
 	
 	// Set query context values
 	queryCtx.QueryID = fmt.Sprintf("query-%d", time.Now().UnixNano())

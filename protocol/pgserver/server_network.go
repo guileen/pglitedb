@@ -15,11 +15,14 @@ func (s *PostgreSQLServer) StartTCP(port string) error {
 	logger.Info("Starting PostgreSQL server TCP listener", "port", port)
 	
 	var err error
-	s.listener, err = net.Listen("tcp", ":"+port)
+	listener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		logger.Error("Failed to start TCP listener", "error", err, "port", port)
 		return fmt.Errorf("failed to start TCP listener: %w", err)
 	}
+	
+	// Set the listener using connection manager
+	s.connectionManager.SetListener(listener)
 	
 	logger.Info("PostgreSQL server listening on TCP port", "port", port)
 	log.Printf("PostgreSQL server listening on TCP port %s", port)
@@ -38,11 +41,14 @@ func (s *PostgreSQLServer) StartUnix(socketPath string) error {
 	}
 	
 	var err error
-	s.listener, err = net.Listen("unix", socketPath)
+	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		logger.Error("Failed to start Unix socket listener", "error", err, "socketPath", socketPath)
 		return fmt.Errorf("failed to start Unix socket listener: %w", err)
 	}
+	
+	// Set the listener using connection manager
+	s.connectionManager.SetListener(listener)
 	
 	logger.Info("PostgreSQL server listening on Unix socket", "socketPath", socketPath)
 	log.Printf("PostgreSQL server listening on Unix socket %s", socketPath)
@@ -54,7 +60,14 @@ func (s *PostgreSQLServer) StartUnix(socketPath string) error {
 func (s *PostgreSQLServer) acceptConnections() error {
 	connectionCount := 0
 	for {
-		conn, err := s.listener.Accept()
+		// Get the listener from the connection manager
+		listener := s.connectionManager.GetListener()
+		if listener == nil {
+			logger.Error("Listener is nil, cannot accept connections")
+			return fmt.Errorf("listener is nil")
+		}
+		
+		conn, err := listener.Accept()
 		if err != nil {
 			s.mu.Lock()
 			closed := s.closed
@@ -86,17 +99,16 @@ func (s *PostgreSQLServer) acceptConnections() error {
 
 // GetListenerAddress returns the address the server is listening on
 func (s *PostgreSQLServer) GetListenerAddress() net.Addr {
-	if s.listener != nil {
-		return s.listener.Addr()
+	listener := s.connectionManager.GetListener()
+	if listener != nil {
+		return listener.Addr()
 	}
 	return nil
 }
 
 // IsClosed returns whether the server is closed
 func (s *PostgreSQLServer) IsClosed() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.closed
+	return s.serverManager.IsClosed()
 }
 
 // GetConnectionCount returns the number of active connections
