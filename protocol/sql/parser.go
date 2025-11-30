@@ -3,6 +3,7 @@ package sql
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	pg_query "github.com/pganalyze/pg_query_go/v6"
@@ -200,7 +201,8 @@ func (p *SimplePGParser) Parse(query string) (*ParsedQuery, error) {
 	// but just extracts basic information
 
 	// Convert to lowercase for easier matching
-	lowerQuery := strings.ToLower(strings.TrimSpace(query))
+	trimmedQuery := strings.TrimSpace(query)
+	lowerQuery := strings.ToLower(trimmedQuery)
 
 	// Determine statement type
 	var stmtType StatementType
@@ -242,12 +244,25 @@ func (p *SimplePGParser) Parse(query string) (*ParsedQuery, error) {
 	// Extract RETURNING columns if present
 	returningColumns := p.extractReturningColumns(query)
 
+	// Create basic parsed query
 	parsed := &ParsedQuery{
 		Statement:        query,
 		Query:            query,
 		Type:             stmtType,
 		ReturningColumns: returningColumns,
 		RawStmt:          nil, // Simple parser doesn't produce a raw statement
+	}
+
+	// Extract additional information based on statement type
+	switch stmtType {
+	case SelectStatement:
+		p.extractSelectInfo(parsed, trimmedQuery, lowerQuery)
+	case InsertStatement:
+		p.extractInsertInfo(parsed, trimmedQuery, lowerQuery)
+	case UpdateStatement:
+		p.extractUpdateInfo(parsed, trimmedQuery, lowerQuery)
+	case DeleteStatement:
+		p.extractDeleteInfo(parsed, trimmedQuery, lowerQuery)
 	}
 
 	return parsed, nil
@@ -382,3 +397,250 @@ func (p *SimplePGParser) SupportsParameterPlaceholders() bool {
 	return true
 }
 
+// extractSelectInfo extracts detailed information from SELECT queries
+func (p *SimplePGParser) extractSelectInfo(parsed *ParsedQuery, query, lowerQuery string) {
+	// Extract table name from FROM clause
+	fromIndex := strings.Index(lowerQuery, " from ")
+	if fromIndex == -1 {
+		return
+	}
+
+	// Find the end of the FROM clause (before WHERE, ORDER BY, LIMIT, etc.)
+	endIndex := len(lowerQuery)
+	for _, keyword := range []string{" where ", " order by ", " group by ", " limit ", " offset "} {
+		if idx := strings.Index(lowerQuery[fromIndex+6:], keyword); idx != -1 {
+			if fromIndex+6+idx < endIndex {
+				endIndex = fromIndex + 6 + idx
+			}
+		}
+	}
+
+	tablePart := strings.TrimSpace(query[fromIndex+6 : endIndex])
+	
+	// Handle simple table names (no joins, no subqueries)
+	if !strings.Contains(tablePart, " join ") && !strings.Contains(tablePart, "(") {
+		// Remove any aliases
+		parts := strings.Fields(tablePart)
+		if len(parts) > 0 {
+			parsed.Table = parts[0]
+		}
+	}
+
+	// Extract fields from SELECT clause
+	selectEnd := fromIndex
+	fieldsPart := strings.TrimSpace(query[6:selectEnd])
+	
+	// Handle simple field extraction
+	if fieldsPart != "*" {
+		fields := strings.Split(fieldsPart, ",")
+		parsed.Fields = make([]string, len(fields))
+		for i, field := range fields {
+			parsed.Fields[i] = strings.TrimSpace(field)
+		}
+	} else {
+		parsed.Fields = []string{"*"}
+	}
+
+	// Extract conditions from WHERE clause
+	whereIndex := strings.Index(lowerQuery, " where ")
+	if whereIndex != -1 {
+		// Find the end of WHERE clause
+		whereEnd := len(lowerQuery)
+		for _, keyword := range []string{" order by ", " group by ", " limit ", " offset "} {
+			if idx := strings.Index(lowerQuery[whereIndex+7:], keyword); idx != -1 {
+				if whereIndex+7+idx < whereEnd {
+					whereEnd = whereIndex + 7 + idx
+				}
+			}
+		}
+		
+		wherePart := strings.TrimSpace(query[whereIndex+7 : whereEnd])
+		parsed.Conditions = p.parseWhereClause(wherePart)
+	}
+
+	// Extract ORDER BY clause
+	orderByIndex := strings.Index(lowerQuery, " order by ")
+	if orderByIndex != -1 {
+		// Find the end of ORDER BY clause
+		orderByEnd := len(lowerQuery)
+		for _, keyword := range []string{" limit ", " offset "} {
+			if idx := strings.Index(lowerQuery[orderByIndex+10:], keyword); idx != -1 {
+				if orderByIndex+10+idx < orderByEnd {
+					orderByEnd = orderByIndex + 10 + idx
+				}
+			}
+		}
+		
+		orderByPart := strings.TrimSpace(query[orderByIndex+10 : orderByEnd])
+		parsed.OrderBy = p.parseOrderByClause(orderByPart)
+	}
+
+	// Extract LIMIT clause
+	limitIndex := strings.Index(lowerQuery, " limit ")
+	if limitIndex != -1 {
+		// Find the end of LIMIT clause
+		limitEnd := len(lowerQuery)
+		if offsetIndex := strings.Index(lowerQuery[limitIndex+7:], " offset "); offsetIndex != -1 {
+			if limitIndex+7+offsetIndex < limitEnd {
+				limitEnd = limitIndex + 7 + offsetIndex
+			}
+		}
+		
+		limitStr := strings.TrimSpace(query[limitIndex+7 : limitEnd])
+		if limitVal, err := parseInt64(limitStr); err == nil {
+			parsed.Limit = &limitVal
+		}
+	}
+}
+
+// extractInsertInfo extracts basic information from INSERT queries
+func (p *SimplePGParser) extractInsertInfo(parsed *ParsedQuery, query, lowerQuery string) {
+	// Extract table name from INSERT INTO clause
+	intoIndex := strings.Index(lowerQuery, " into ")
+	if intoIndex != -1 {
+		// Find the start of the VALUES or SELECT clause
+		tableEnd := len(lowerQuery)
+		for _, keyword := range []string{" values ", " select "} {
+			if idx := strings.Index(lowerQuery[intoIndex+6:], keyword); idx != -1 {
+				if intoIndex+6+idx < tableEnd {
+					tableEnd = intoIndex + 6 + idx
+				}
+			}
+		}
+		
+		tablePart := strings.TrimSpace(query[intoIndex+6 : tableEnd])
+		// Remove any parentheses or column lists
+		if parenIndex := strings.Index(tablePart, "("); parenIndex != -1 {
+			tablePart = tablePart[:parenIndex]
+		}
+		parsed.Table = strings.TrimSpace(tablePart)
+	}
+}
+
+// extractUpdateInfo extracts basic information from UPDATE queries
+func (p *SimplePGParser) extractUpdateInfo(parsed *ParsedQuery, query, lowerQuery string) {
+	// Extract table name from UPDATE clause
+	updateEnd := len(query)
+	if setIndex := strings.Index(lowerQuery, " set "); setIndex != -1 {
+		if updateEnd > setIndex {
+			updateEnd = setIndex
+		}
+	}
+	
+	tablePart := strings.TrimSpace(query[6:updateEnd])
+	// Handle potential aliases
+	parts := strings.Fields(tablePart)
+	if len(parts) > 0 {
+		parsed.Table = parts[0]
+	}
+}
+
+// extractDeleteInfo extracts basic information from DELETE queries
+func (p *SimplePGParser) extractDeleteInfo(parsed *ParsedQuery, query, lowerQuery string) {
+	// Extract table name from DELETE FROM clause
+	fromIndex := strings.Index(lowerQuery, " from ")
+	if fromIndex != -1 {
+		// Find the start of the WHERE clause
+		tableEnd := len(lowerQuery)
+		if whereIndex := strings.Index(lowerQuery[fromIndex+6:], " where "); whereIndex != -1 {
+			if fromIndex+6+whereIndex < tableEnd {
+				tableEnd = fromIndex + 6 + whereIndex
+			}
+		}
+		
+		tablePart := strings.TrimSpace(query[fromIndex+6 : tableEnd])
+		// Handle potential aliases
+		parts := strings.Fields(tablePart)
+		if len(parts) > 0 {
+			parsed.Table = parts[0]
+		}
+	}
+}
+
+// parseWhereClause parses a WHERE clause into conditions
+func (p *SimplePGParser) parseWhereClause(wherePart string) []Condition {
+	// This is a simplified parser for WHERE clauses
+	// It handles basic conditions like "field = value" or "field > value"
+	var conditions []Condition
+	
+	// Handle simple AND conditions
+	andParts := strings.Split(strings.ToLower(wherePart), " and ")
+	for _, part := range andParts {
+		part = strings.TrimSpace(part)
+		
+		// Handle basic operators
+		for _, op := range []string{"=", "!=", "<>", ">=", "<=", ">", "<"} {
+			if strings.Contains(part, " "+op+" ") {
+				parts := strings.Split(part, " "+op+" ")
+				if len(parts) == 2 {
+					field := strings.TrimSpace(parts[0])
+					value := strings.TrimSpace(parts[1])
+					
+					// Try to convert value to appropriate type
+					var typedValue interface{} = value
+					if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
+						typedValue = strings.Trim(value, "'")
+					} else if intValue, err := parseInt64(value); err == nil {
+						typedValue = intValue
+					}
+					
+					conditions = append(conditions, Condition{
+						Field:    field,
+						Operator: op,
+						Value:    typedValue,
+					})
+					break
+				}
+			}
+		}
+	}
+	
+	return conditions
+}
+
+// parseOrderByClause parses an ORDER BY clause
+func (p *SimplePGParser) parseOrderByClause(orderByPart string) []OrderBy {
+	var orderBy []OrderBy
+	
+	// Handle comma-separated fields
+	fields := strings.Split(orderByPart, ",")
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		parts := strings.Fields(field)
+		
+		if len(parts) == 1 {
+			orderBy = append(orderBy, OrderBy{
+				Field: parts[0],
+				Order: "ASC",
+			})
+		} else if len(parts) == 2 {
+			order := strings.ToUpper(parts[1])
+			if order != "ASC" && order != "DESC" {
+				order = "ASC" // Default to ASC
+			}
+			orderBy = append(orderBy, OrderBy{
+				Field: parts[0],
+				Order: order,
+			})
+		}
+	}
+	
+	return orderBy
+}
+
+// parseInt64 converts a string to int64, returning error if conversion fails
+func parseInt64(s string) (int64, error) {
+	// Remove any non-numeric characters except digits
+	cleaned := ""
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			cleaned += string(r)
+		}
+	}
+	
+	if cleaned == "" {
+		return 0, fmt.Errorf("invalid integer: %s", s)
+	}
+	
+	return strconv.ParseInt(cleaned, 10, 64)
+}
