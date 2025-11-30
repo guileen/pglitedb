@@ -175,3 +175,6 @@ benchmark_extended
 # Binary build targets
 benchmark_*
 pglitedb-benchmarks
+coverage
+coverage*
+*.trace
