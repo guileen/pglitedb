@@ -4,6 +4,8 @@
 package sql
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,12 +25,18 @@ type HybridPGParser struct {
 	maxCacheSize int
 	
 	// Metrics
-	statsMutex     sync.RWMutex
-	parseAttempts  int64
-	simpleSuccess  int64
-	cacheHits      int64
-	fallbackCount  int64
-	totalParseTime time.Duration
+	statsMutex        sync.RWMutex
+	parseAttempts     int64
+	simpleSuccess     int64
+	cacheHits         int64
+	fallbackCount     int64
+	totalParseTime    time.Duration
+	
+	// Detailed metrics for performance monitoring
+	simpleParseTime   time.Duration
+	fullParseTime     time.Duration
+	complexQueryCount int64
+	simpleQueryCount  int64
 }
 
 // cachedParseResult stores cached parsing results
@@ -65,24 +73,40 @@ func (p *HybridPGParser) Parse(query string) (*ParsedQuery, error) {
 		return cached, nil
 	}
 
-	// Try simple parser first
-	startTime := time.Now()
-	parsed, err := p.simpleParser.Parse(query)
-	duration := time.Since(startTime)
+	// Analyze query complexity to decide which parser to use
+	useSimpleParser := p.shouldUseSimpleParser(query)
 	
-	p.statsMutex.Lock()
-	p.totalParseTime += duration
-	p.statsMutex.Unlock()
-
-	if err == nil && p.isSimpleParseValid(parsed) {
-		// Simple parser succeeded and result is valid
+	if useSimpleParser {
+		// Track simple query attempts
 		p.statsMutex.Lock()
-		p.simpleSuccess++
+		p.simpleQueryCount++
 		p.statsMutex.Unlock()
 		
-		// Cache the result
-		p.cacheResult(query, parsed)
-		return parsed, nil
+		// Try simple parser first
+		startTime := time.Now()
+		parsed, err := p.simpleParser.Parse(query)
+		duration := time.Since(startTime)
+		
+		p.statsMutex.Lock()
+		p.totalParseTime += duration
+		p.simpleParseTime += duration
+		p.statsMutex.Unlock()
+
+		if err == nil && p.isSimpleParseValid(parsed) {
+			// Simple parser succeeded and result is valid
+			p.statsMutex.Lock()
+			p.simpleSuccess++
+			p.statsMutex.Unlock()
+			
+			// Cache the result
+			p.cacheResult(query, parsed)
+			return parsed, nil
+		}
+	} else {
+		// Track complex query attempts
+		p.statsMutex.Lock()
+		p.complexQueryCount++
+		p.statsMutex.Unlock()
 	}
 
 	// Fall back to full parser
@@ -90,12 +114,13 @@ func (p *HybridPGParser) Parse(query string) (*ParsedQuery, error) {
 	p.fallbackCount++
 	p.statsMutex.Unlock()
 	
-	startTime = time.Now()
-	parsed, err = p.fullParser.Parse(query)
-	duration = time.Since(startTime)
+	startTime := time.Now()
+	parsed, err := p.fullParser.Parse(query)
+	duration := time.Since(startTime)
 	
 	p.statsMutex.Lock()
 	p.totalParseTime += duration
+	p.fullParseTime += duration
 	p.statsMutex.Unlock()
 	
 	if err != nil {
@@ -189,10 +214,98 @@ func (p *HybridPGParser) isSimpleParseValid(parsed *ParsedQuery) bool {
 	// In the future, we might add more sophisticated validation
 	switch parsed.Type {
 	case SelectStatement, InsertStatement, UpdateStatement, DeleteStatement:
+		// For SELECT statements, check if it's a complex query that might need the full parser
+		if parsed.Type == SelectStatement {
+			return p.isSelectQuerySimpleEnough(parsed)
+		}
 		return true
 	default:
 		return false
 	}
+}
+
+// isSelectQuerySimpleEnough determines if a SELECT query is simple enough for the simple parser
+func (p *HybridPGParser) isSelectQuerySimpleEnough(parsed *ParsedQuery) bool {
+	// If we have complex features, fall back to full parser
+	if len(parsed.OrderBy) > 2 {
+		// More than 2 ORDER BY clauses might be complex
+		return false
+	}
+	
+	if parsed.Limit != nil && *parsed.Limit > 10000 {
+		// Large LIMIT values might indicate complex queries
+		return false
+	}
+	
+	// Check for complex conditions
+	if len(parsed.Conditions) > 5 {
+		// Too many conditions might indicate a complex query
+		return false
+	}
+	
+	// Check for complex field selections
+	if len(parsed.Fields) > 10 {
+		// Too many fields selected
+		return false
+	}
+	
+	// Check for special functions or expressions in fields
+	for _, field := range parsed.Fields {
+		if p.isComplexField(field) {
+			return false
+		}
+	}
+	
+	// Check for complex conditions
+	for _, condition := range parsed.Conditions {
+		if p.isComplexCondition(condition) {
+			return false
+		}
+	}
+	
+	return true
+}
+
+// isComplexField checks if a field specification is complex
+func (p *HybridPGParser) isComplexField(field string) bool {
+	// Check for function calls
+	if strings.Contains(field, "(") && strings.Contains(field, ")") {
+		return true
+	}
+	
+	// Check for complex expressions
+	if strings.Contains(field, " AS ") || strings.Contains(strings.ToUpper(field), " CASE ") {
+		return true
+	}
+	
+	// Check for arithmetic operations
+	if strings.ContainsAny(field, "+-*/") {
+		return true
+	}
+	
+	return false
+}
+
+// isComplexCondition checks if a condition is complex
+func (p *HybridPGParser) isComplexCondition(condition Condition) bool {
+	// Check for subqueries (indicated by parentheses)
+	if strings.Contains(fmt.Sprintf("%v", condition.Value), "(") {
+		return true
+	}
+	
+	// Check for complex operators
+	switch condition.Operator {
+	case "IN", "NOT IN", "LIKE", "ILIKE", "SIMILAR TO", "~", "~*", "!~", "!~*":
+		// These operators might indicate complex patterns
+		return true
+	}
+	
+	// Check for functions in values
+	if strings.Contains(fmt.Sprintf("%v", condition.Value), "(") {
+		return true
+	}
+	
+	return false
 }
 
 // Validate checks if a query is syntactically valid
@@ -236,11 +349,53 @@ func (p *HybridPGParser) GetStats() map[string]int64 {
 	defer p.statsMutex.RUnlock()
 	
 	return map[string]int64{
-		"parse_attempts": p.parseAttempts,
-		"simple_success": p.simpleSuccess,
-		"cache_hits":     p.cacheHits,
-		"fallback_count": p.fallbackCount,
+		"parse_attempts":     p.parseAttempts,
+		"simple_success":     p.simpleSuccess,
+		"cache_hits":         p.cacheHits,
+		"fallback_count":     p.fallbackCount,
+		"complex_query_count": p.complexQueryCount,
+		"simple_query_count":  p.simpleQueryCount,
 	}
+}
+
+// GetDetailedStats returns detailed parsing statistics including timing information
+func (p *HybridPGParser) GetDetailedStats() map[string]interface{} {
+	p.statsMutex.RLock()
+	defer p.statsMutex.RUnlock()
+	
+	stats := map[string]interface{}{
+		"parse_attempts":      p.parseAttempts,
+		"simple_success":      p.simpleSuccess,
+		"cache_hits":          p.cacheHits,
+		"fallback_count":      p.fallbackCount,
+		"complex_query_count": p.complexQueryCount,
+		"simple_query_count":  p.simpleQueryCount,
+		"total_parse_time_ns": p.totalParseTime.Nanoseconds(),
+		"simple_parse_time_ns": p.simpleParseTime.Nanoseconds(),
+		"full_parse_time_ns":   p.fullParseTime.Nanoseconds(),
+	}
+	
+	// Calculate averages if we have data
+	if p.parseAttempts > 0 {
+		stats["avg_parse_time_ns"] = p.totalParseTime.Nanoseconds() / p.parseAttempts
+	}
+	
+	if p.simpleSuccess > 0 {
+		stats["avg_simple_parse_time_ns"] = p.simpleParseTime.Nanoseconds() / p.simpleSuccess
+	}
+	
+	if p.fallbackCount > 0 {
+		stats["avg_full_parse_time_ns"] = p.fullParseTime.Nanoseconds() / p.fallbackCount
+	}
+	
+	// Calculate percentages
+	if p.parseAttempts > 0 {
+		stats["simple_success_rate"] = float64(p.simpleSuccess) / float64(p.parseAttempts) * 100
+		stats["cache_hit_rate"] = float64(p.cacheHits) / float64(p.parseAttempts) * 100
+		stats["fallback_rate"] = float64(p.fallbackCount) / float64(p.parseAttempts) * 100
+	}
+	
+	return stats
 }
 
 // GetAverageParseTime returns the average parse time in nanoseconds
@@ -252,4 +407,58 @@ func (p *HybridPGParser) GetAverageParseTime() time.Duration {
 		return p.totalParseTime / time.Duration(p.parseAttempts)
 	}
 	return 0
+}
+
+// shouldUseSimpleParser determines if we should attempt to use the simple parser first
+func (p *HybridPGParser) shouldUseSimpleParser(query string) bool {
+	// Convert to lowercase for easier matching
+	lowerQuery := strings.ToLower(strings.TrimSpace(query))
+	
+	// Check for complex SQL features that require the full parser
+	complexKeywords := []string{
+		"join", "union", "intersect", "except",
+		"group by", "having", 
+		"window", "over", "partition by",
+		"with", "recursive",
+		"cast", "convert", "extract",
+		"exists", "any", "all", "some",
+		"between", "is null", "is not null",
+	}
+	
+	// If any complex keywords are found, use the full parser
+	for _, keyword := range complexKeywords {
+		if strings.Contains(lowerQuery, keyword) {
+			return false
+		}
+	}
+	
+	// Check for nested queries
+	if strings.Count(lowerQuery, "(") > 3 {
+		// Too many parentheses might indicate subqueries
+		return false
+	}
+	
+	// Check for complex functions
+	complexFunctions := []string{
+		"coalesce", "nullif", "case", "when", "then", "else", "end",
+		"substring", "trim", "position", "overlay",
+		"date_part", "date_trunc", "age", "current_date", "current_time",
+	}
+	
+	for _, function := range complexFunctions {
+		if strings.Contains(lowerQuery, function+"(") {
+			return false
+		}
+	}
+	
+	// For basic CRUD operations, try the simple parser first
+	basicOperations := []string{"select", "insert", "update", "delete"}
+	for _, op := range basicOperations {
+		if strings.HasPrefix(lowerQuery, op) {
+			return true
+		}
+	}
+	
+	// For other statements, use the full parser
+	return false
 }

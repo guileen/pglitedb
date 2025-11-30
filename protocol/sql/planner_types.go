@@ -17,19 +17,6 @@ type Plan struct {
 	Updates     map[string]interface{} // For UPDATE operations
 }
 
-// Condition represents a WHERE clause condition
-type Condition struct {
-	Field    string
-	Operator string
-	Value    interface{}
-}
-
-// OrderBy represents an ORDER BY clause
-type OrderBy struct {
-	Field string
-	Order string // ASC or DESC
-}
-
 // Aggregate represents an aggregation function
 type Aggregate struct {
 	Function string // COUNT, SUM, AVG, etc.
