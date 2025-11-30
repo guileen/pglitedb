@@ -32,10 +32,11 @@ type PebbleTransaction struct {
 }
 
 func (t *PebbleTransaction) Get(key []byte) ([]byte, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	// Use read lock for the initial check
+	t.mu.RLock()
 
 	if t.closed {
+		t.mu.RUnlock()
 		return nil, shared.ErrClosed
 	}
 
@@ -46,17 +47,27 @@ func (t *PebbleTransaction) Get(key []byte) ([]byte, error) {
 		defer closer.Close()
 		result := make([]byte, len(value))
 		copy(result, value)
+		t.mu.RUnlock()
 
+		// Upgrade to write lock only when we need to modify readKeys
+		t.mu.Lock()
+		// Check again if transaction is closed after acquiring write lock
+		if t.closed {
+			t.mu.Unlock()
+			return nil, shared.ErrClosed
+		}
 		if t.readKeys == nil {
 			t.readKeys = make(map[string][]byte)
 		}
 		t.readKeys[string(key)] = result
+		t.mu.Unlock()
 
 		return result, nil
 	}
 
 	// For all isolation levels, check the database for committed data
 	// This ensures visibility of data inserted via engine.InsertRow
+	t.mu.RUnlock()
 	value, closer, err = t.db.Get(key)
 	if err != nil {
 		if err == pebble.ErrNotFound {
@@ -69,16 +80,40 @@ func (t *PebbleTransaction) Get(key []byte) ([]byte, error) {
 	result := make([]byte, len(value))
 	copy(result, value)
 
-	if t.readKeys == nil {
-		t.readKeys = make(map[string][]byte)
-	}
-	t.readKeys[string(key)] = result
-
+	// Handle serializable isolation separately
 	if t.isolation == shared.Serializable {
+		timestamp := t.kv.getKeyTimestamp(key)
+		
+		// Upgrade to write lock only when we need to modify readKeys and readSet
+		t.mu.Lock()
+		// Check again if transaction is closed after acquiring write lock
+		if t.closed {
+			t.mu.Unlock()
+			return nil, shared.ErrClosed
+		}
+		if t.readKeys == nil {
+			t.readKeys = make(map[string][]byte)
+		}
+		t.readKeys[string(key)] = result
+		
 		if t.readSet == nil {
 			t.readSet = make(map[string]int64)
 		}
-		t.readSet[string(key)] = t.kv.getKeyTimestamp(key)
+		t.readSet[string(key)] = timestamp
+		t.mu.Unlock()
+	} else {
+		// Upgrade to write lock only when we need to modify readKeys
+		t.mu.Lock()
+		// Check again if transaction is closed after acquiring write lock
+		if t.closed {
+			t.mu.Unlock()
+			return nil, shared.ErrClosed
+		}
+		if t.readKeys == nil {
+			t.readKeys = make(map[string][]byte)
+		}
+		t.readKeys[string(key)] = result
+		t.mu.Unlock()
 	}
 
 	return result, nil

@@ -62,3 +62,132 @@ func (bp *BufferPool) AcquireWithMinSize(minSize int) []byte {
 	// Buffer too small, create a new one
 	return make([]byte, 0, minSize)
 }
+
+// KeyBufferPool manages key buffer resources
+type KeyBufferPool struct {
+	BasePool
+}
+
+// NewKeyBufferPool creates a new key buffer pool
+func NewKeyBufferPool() *KeyBufferPool {
+	return &KeyBufferPool{
+		BasePool: *NewBasePool("keyBuffer", func() interface{} {
+			return make([]byte, 0, 128) // Keys are typically smaller
+		}),
+	}
+}
+
+// AcquireKeyBuffer gets a key buffer from the pool
+func (kbp *KeyBufferPool) AcquireKeyBuffer() []byte {
+	buf := kbp.BasePool.pool.Get()
+	fromPool := buf != nil
+
+	if !fromPool {
+		return make([]byte, 0, 128)
+	}
+
+	b := buf.([]byte)
+	return b[:cap(b)]
+}
+
+// ReleaseKeyBuffer returns a key buffer to the pool
+func (kbp *KeyBufferPool) ReleaseKeyBuffer(buf []byte) {
+	buf = buf[:0]
+	kbp.BasePool.Put(buf)
+}
+
+// ValueBufferPool manages value buffer resources
+type ValueBufferPool struct {
+	BasePool
+}
+
+// NewValueBufferPool creates a new value buffer pool
+func NewValueBufferPool() *ValueBufferPool {
+	return &ValueBufferPool{
+		BasePool: *NewBasePool("valueBuffer", func() interface{} {
+			return make([]byte, 0, 512) // Values are typically larger
+		}),
+	}
+}
+
+// AcquireValueBuffer gets a value buffer from the pool
+func (vbp *ValueBufferPool) AcquireValueBuffer() []byte {
+	buf := vbp.BasePool.pool.Get()
+	fromPool := buf != nil
+
+	if !fromPool {
+		return make([]byte, 0, 512)
+	}
+
+	b := buf.([]byte)
+	return b[:cap(b)]
+}
+
+// ReleaseValueBuffer returns a value buffer to the pool
+func (vbp *ValueBufferPool) ReleaseValueBuffer(buf []byte) {
+	buf = buf[:0]
+	vbp.BasePool.Put(buf)
+}
+
+// RowIDBufferPool manages row ID buffer resources
+type RowIDBufferPool struct {
+	BasePool
+}
+
+// NewRowIDBufferPool creates a new row ID buffer pool
+func NewRowIDBufferPool() *RowIDBufferPool {
+	return &RowIDBufferPool{
+		BasePool: *NewBasePool("rowIDBuffer", func() interface{} {
+			return make([]byte, 0, 64) // Row IDs are small integers
+		}),
+	}
+}
+
+// AcquireRowIDBuffer gets a row ID buffer from the pool
+func (ribp *RowIDBufferPool) AcquireRowIDBuffer() []byte {
+	buf := ribp.BasePool.pool.Get()
+	fromPool := buf != nil
+
+	if !fromPool {
+		return make([]byte, 0, 64)
+	}
+
+	b := buf.([]byte)
+	return b[:cap(b)]
+}
+
+// ReleaseRowIDBuffer returns a row ID buffer to the pool
+func (ribp *RowIDBufferPool) ReleaseRowIDBuffer(buf []byte) {
+	buf = buf[:0]
+	ribp.BasePool.Put(buf)
+}
+
+// AcquireKeyBuffer gets a key buffer from the pool
+func (bp *BufferPool) AcquireKeyBuffer() []byte {
+	return bp.AcquireWithMinSize(128)
+}
+
+// ReleaseKeyBuffer returns a key buffer to the pool
+func (bp *BufferPool) ReleaseKeyBuffer(buf []byte) {
+	bp.Release(buf)
+}
+
+// AcquireValueBuffer gets a value buffer from the pool
+func (bp *BufferPool) AcquireValueBuffer() []byte {
+	return bp.AcquireWithMinSize(256)
+}
+
+// ReleaseValueBuffer returns a value buffer to the pool
+func (bp *BufferPool) ReleaseValueBuffer(buf []byte) {
+	bp.Release(buf)
+}
+
+// AcquireRowIDBuffer gets a row ID buffer from the pool
+func (bp *BufferPool) AcquireRowIDBuffer() []byte {
+	return bp.AcquireWithMinSize(64)
+}
+
+// ReleaseRowIDBuffer returns a row ID buffer to the pool
+func (bp *BufferPool) ReleaseRowIDBuffer(buf []byte) {
+	bp.Release(buf)
+}

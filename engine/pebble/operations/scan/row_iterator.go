@@ -150,6 +150,8 @@ func (ri *RowIterator) ResetForReuse() {
 	ri.count = 0
 	ri.started = false
 	ri.engine = nil
+	ri.tenantID = 0
+	ri.tableID = 0
 	// Keep the rowIDValue object for reuse
 	if ri.rowIDValue != nil {
 		ri.rowIDValue.Data = nil

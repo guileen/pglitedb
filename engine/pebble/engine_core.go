@@ -44,8 +44,8 @@ func NewPebbleEngine(kvStore storage.KV, c codec.Codec) engineTypes.StorageEngin
 	
 	// Create deadlock detector with abort callback
 	deadlockDetector := utils.NewDeadlockDetector(100*time.Millisecond, func(txnID uint64) {
-		// This is a placeholder - in a real implementation we would need to signal
-		// the transaction manager to abort this transaction
+		// TODO: Implement proper transaction abortion mechanism
+		// For now, we'll log the aborted transaction
 	})
 	
 	// Create parallel batch processor

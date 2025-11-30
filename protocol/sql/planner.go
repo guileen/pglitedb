@@ -3,6 +3,7 @@ package sql
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 	"github.com/guileen/pglitedb/catalog"
@@ -332,12 +333,19 @@ func (p *Planner) copyPlan(original *Plan) *Plan {
 		// Convert local Condition slice to parser.Condition slice
 		parserConditions := make([]parser.Condition, len(*conditions))
 		for i, cond := range *conditions {
-			// Type assert cond.Value to string
-			valueStr, ok := cond.Value.(string)
-			if !ok {
-				// Convert to string if it's not already a string
-				valueStr = fmt.Sprintf("%v", cond.Value)
+			// Convert value to string for parser.Condition
+			var valueStr string
+			switch v := cond.Value.(type) {
+			case string:
+				valueStr = v
+			case int, int32, int64, float32, float64:
+				valueStr = fmt.Sprintf("%v", v)
+			case bool:
+				valueStr = strconv.FormatBool(v)
+			default:
+				valueStr = fmt.Sprintf("%v", v)
 			}
+			
 			parserConditions[i] = parser.Condition{
 				Field:    cond.Field,
 				Operator: cond.Operator,

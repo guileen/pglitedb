@@ -52,3 +52,39 @@ func (rp *RecordPool) Release(record *types.Record) {
 
 	rp.BasePool.Put(record)
 }
+
+// RecordSlicePool manages slices of records
+type RecordSlicePool struct {
+	BasePool
+}
+
+// NewRecordSlicePool creates a new record slice pool
+func NewRecordSlicePool() *RecordSlicePool {
+	return &RecordSlicePool{
+		BasePool: *NewBasePool("recordSlice", func() interface{} {
+			return make([]*types.Record, 0, 32) // Start with reasonable capacity
+		}),
+	}
+}
+
+// AcquireRecordSlice gets a record slice from the pool
+func (rsp *RecordSlicePool) AcquireRecordSlice() []*types.Record {
+	slice := rsp.BasePool.pool.Get()
+	fromPool := slice != nil
+
+	if !fromPool {
+		return make([]*types.Record, 0, 32)
+	}
+
+	return slice.([]*types.Record)
+}
+
+// ReleaseRecordSlice returns a record slice to the pool
+func (rsp *RecordSlicePool) ReleaseRecordSlice(slice []*types.Record) {
+	// Clear the slice without reallocating
+	for i := range slice {
+		slice[i] = nil
+	}
+	slice = slice[:0]
+	rsp.BasePool.Put(slice)
+}
