@@ -12,3 +12,9 @@ type OrderBy struct {
 	Field string
 	Order string // ASC or DESC
 }
+
+// SubqueryInfo represents information about a subquery in the FROM clause
+type SubqueryInfo struct {
+	Query    string // The subquery SQL
+	Alias    string // The alias for the subquery (if any)
+}

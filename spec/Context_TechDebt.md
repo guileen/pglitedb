@@ -2,7 +2,7 @@
 
 ★ Core Goal: Document technical debt reduction efforts and maintainability improvements for PGLiteDB based on architectural review findings
 
-This file provides context about the ongoing technical debt reduction initiatives aligned with the comprehensive architecture improvement roadmap, including engine decomposition, code quality improvements, and refactoring efforts.
+This file provides context about the ongoing technical debt reduction initiatives aligned with the comprehensive architecture improvement roadmap, focusing on monolithic server decomposition, interface design enhancement, and large file refactoring as outlined in the Enhanced Architectural Review.
 
 ## Implementation Insights from Reflection
 ✅ **Key Learnings**:
@@ -17,9 +17,39 @@ This file provides context about the ongoing technical debt reduction initiative
 - Concurrent test stability can be enhanced by reducing excessive concurrency and focusing on core functionality
 - Isolation level testing needs to account for normal conflict scenarios rather than expecting zero conflicts
 
-## Current Technical Debt Reduction Focus Based on Architectural Review
+## Current Technical Debt Reduction Focus Based on Enhanced Architectural Review
 
-### Priority 1: Critical Structural Improvements (COMPLETED) ✅
+### Priority 1: Monolithic Server Decomposition (IN PROGRESS) ⏳
+1. **Critical Server Component Decomposition** ⏳
+   - [ ] Split `protocol/pgserver/server.go` (~32KB, 905 lines) into focused components:
+     - Connection handling (`ConnectionHandler`)
+     - Query processing (`QueryProcessor`)
+     - Prepared statement management (`PreparedStatementManager`)
+     - HTTP profiling (`ProfilingService`)
+   - [ ] Create clear interfaces between components
+   - Weight: ★★★★★ (Critical for maintainability)
+
+2. **Interface Design Enhancement** ⏳
+   - [ ] Consolidate related interfaces into cohesive packages
+   - [ ] Document all interface contracts and expected behaviors
+   - [ ] Implement comprehensive interface testing with >95% coverage
+   - Weight: ★★★★★ (Critical for testability and flexibility)
+
+### Priority 2: Large File Refactoring (IN PROGRESS) ⏳
+1. **Large File Decomposition** ⏳
+   - [ ] Decompose oversized files (>500 lines) identified in architectural review
+   - [ ] Apply Single Responsibility Principle to all components
+   - [ ] Ensure all files < 500 lines with clear, focused responsibilities
+   - Weight: ★★★★★ (Critical for code quality and maintenance)
+
+### Priority 3: Reflection Elimination (PLANNED) 📋
+1. **Performance Optimization** 📋
+   - [ ] Remove all reflection usage in critical paths
+   - [ ] Ensure all transaction implementations satisfy `TxnID()` interface
+   - [ ] Implement compile-time interface compliance checks
+   - Weight: ★★★★☆ (Important for performance)
+
+### Priority 4: Completed Engine Decomposition Efforts (COMPLETED) ✅
 1. **Monolithic Engine Component Decomposition** ✅
    - ✅ Complete decomposition of `engine/pebble/engine.go` (10.3KB → < 200 lines)
    - ✅ Further reduce `engine/pebble/transaction_manager.go` (14.6KB → smaller, focused files)
@@ -44,38 +74,32 @@ This file provides context about the ongoing technical debt reduction initiative
    - ✅ Address transaction lifecycle complexity
    - Weight: ★★★★★ (Critical for data integrity and performance)
 
-### Priority 2: Performance and Resource Management (COMPLETED) ✅
-1. **Enhanced Resource Management** ✅
-   - ✅ Expand object pooling to additional allocation hotspots
-   - ✅ Implement resource leak detection mechanisms
-   - ✅ Add dynamic pool sizing based on workload patterns
-   - Weight: ★★★★☆ (Important for performance and reliability)
-
-2. **Memory Management Optimization**
-   - Implement memory pools for frequently allocated objects
-   - Optimize slice growth with known sizes
-   - Reduce string allocations with strings.Builder
-   - ✅ Address potential memory leaks in long-running iterators with comprehensive leak detection
-   - ✅ Implement dynamic pool sizing based on usage patterns
-   - Weight: ★★★★☆ (Important for efficiency)
-
-### Priority 3: Test Coverage Enhancement (COMPLETED) ✅
-1. **Concurrency Testing** ✅
-   - ✅ Add stress tests for concurrent transactions
-   - ✅ Implement race condition detection tests
-   - ✅ Create deadlock scenario tests
-   - ✅ Improve test reliability with proper resource cleanup
-   - Weight: ★★★★☆ (Important for reliability)
-
-2. **Edge Case Testing**
-   - Add boundary condition tests for all data types
-   - Implement error recovery scenario tests
-   - Create timeout and cancellation tests
-   - Weight: ★★★☆☆ (Medium priority for robustness)
-
 ## Key Architectural Components for Refactoring
 
-### 1. Engine Decomposition Structure (Target Architecture)
+### 1. Server Decomposition Structure (Target Architecture)
+```
+protocol/pgserver/
+├── server.go                   # Core server interface and factory (< 100 lines)
+├── connection_handler.go       # Connection handling logic (< 300 lines)
+├── query_processor.go          # Query processing and execution (< 300 lines)
+├── prepared_statement.go       # Prepared statement management (< 200 lines)
+├── profiling_service.go        # HTTP profiling endpoints (< 150 lines)
+├── buffer_pool.go              # Buffer pool management (< 200 lines)
+└── components/                 # Organized by component type
+    ├── connection/
+    ├── query/
+    ├── profiling/
+    └── management/
+```
+
+### 2. Interface Design Enhancement (Target Interfaces)
+- `ConnectionHandler`: Connection lifecycle management
+- `QueryProcessor`: Query parsing, planning, and execution
+- `PreparedStatementManager`: Prepared statement lifecycle
+- `ProfilingService`: HTTP profiling endpoints
+- `BufferPoolManager`: Buffer pool operations
+
+### 3. Engine Decomposition Structure (Completed Architecture)
 ```
 engine/pebble/
 ├── engine.go                    # Core engine interface and factory (< 100 lines)
@@ -95,7 +119,7 @@ engine/pebble/
 └── handlers/
 ```
 
-### 2. Interface Segregation (Target Interfaces)
+### 4. Interface Segregation (Completed Interfaces)
 - `RowOperations`: Row-level CRUD operations
 - `IndexOperations`: Index management operations
 - `TransactionOperations`: Transaction handling
@@ -111,6 +135,7 @@ engine/pebble/
 - **Test Reliability**: Improved concurrent test stability with proper resource cleanup and realistic conflict handling
 - **Resource Management**: Enhanced resource cleanup in tests prevents actual leaks during testing
 - **Interface Completeness**: Completed SnapshotTransaction implementation with UpdateRows and DeleteRows methods
+- **Technical Debt Reduction**: Systematic refactoring of monolithic components and interface consolidation
 
 ## Troubleshooting Guide
 
@@ -168,9 +193,10 @@ type ReadWriteTransaction interface {
 ```
 
 ## Related Documentation
-- Master Architecture Improvement Roadmap: `spec/GUIDE.md`
-- Architectural Review Findings: `spec/ARCHITECT-REVIEW.md`
-- Maintainability & Technical Debt Reduction Plan: `spec/MAINTAINABILITY_TECHNICAL_DEBT_REDUCTION_PLAN.md`
+- Strategic Development Guide: `spec/GUIDE.md` ⚠️ **PRIMARY STRATEGIC ROADMAP**
+- Architectural Review Findings: `spec/ARCHITECT-REVIEW.md` ⚠️ **TECHNICAL DEBT ANALYSIS**
+- Enhanced Architectural Review: `spec/ARCHITECT-REVIEW-ENHANCED.md` ⚠️ **UPDATED TECHNICAL DEBT ANALYSIS**
+- Maintainability & Technical Debt Reduction Plan: `spec/MAINTAINABILITY_TECHNICAL_DEBT_REDUCTION_PLAN.md` ⚠️ **CURRENT FOCUS AREA**
 - Technical Debt Reduction Implementation Plan: `spec/TECHNICAL_DEBT_REDUCTION_IMPLEMENTATION_PLAN.md`
 - Immediate Actions Implementation Plan: `spec/IMMEDIATE_ACTIONS_IMPLEMENTATION_PLAN.md`
 - Comprehensive Improvement Plan Summary: `spec/COMPREHENSIVE_IMPROVEMENT_PLAN_SUMMARY.md`

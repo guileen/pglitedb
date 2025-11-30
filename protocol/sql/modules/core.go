@@ -7,6 +7,7 @@ import (
 	"github.com/guileen/pglitedb/catalog"
 	"github.com/guileen/pglitedb/logger"
 	"github.com/guileen/pglitedb/protocol/sql"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 	"github.com/guileen/pglitedb/types"
 )
 
@@ -37,18 +38,13 @@ func (ce *CoreExecutor) Execute(ctx context.Context, query string) (*types.Resul
 }
 
 // ExecuteParsed executes a parsed query
-func (ce *CoreExecutor) ExecuteParsed(ctx context.Context, parsed *sql.ParsedQuery) (*types.ResultSet, error) {
-	plan, err := ce.planner.CreatePlan(parsed.Query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create execution plan: %w", err)
-	}
-
-	switch plan.Type {
-	case sql.SelectStatement:
+func (ce *CoreExecutor) ExecuteParsed(ctx context.Context, parsed *parser.ParsedQuery) (*types.ResultSet, error) {
+	switch parsed.StatementType {
+	case parser.SelectStatement:
 		// Delegate to DML executor
-		return ce.planner.Executor().Execute(ctx, parsed.Query)
+		return ce.planner.Executor().Execute(ctx, parsed.QueryString)
 	default:
-		return nil, fmt.Errorf("unsupported statement type: %v", plan.Type)
+		return nil, fmt.Errorf("unsupported statement type: %v", parsed.StatementType)
 	}
 }
 

@@ -4,16 +4,17 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 )
 
 // TestAnalyzeStatementParsing tests the parsing of ANALYZE statements
 func TestAnalyzeStatementParsing(t *testing.T) {
-	parser := NewDDLParser()
+	ddlParser := NewDDLParser()
 	
 	// Test ANALYZE table_name;
-	ddlStmt, err := parser.Parse("ANALYZE users;")
+	ddlStmt, err := ddlParser.Parse("ANALYZE users;")
 	assert.NoError(t, err)
-	assert.Equal(t, AnalyzeStatementType, ddlStmt.Type)
+	assert.Equal(t, parser.AnalyzeStatementType, ddlStmt.Type)
 	
 	analyzeStmt, ok := ddlStmt.Statement.(*AnalyzeStatement)
 	assert.True(t, ok)
@@ -22,9 +23,9 @@ func TestAnalyzeStatementParsing(t *testing.T) {
 	assert.Empty(t, analyzeStmt.Columns)
 	
 	// Test ANALYZE table_name (column1, column2);
-	ddlStmt, err = parser.Parse("ANALYZE users (id, name);")
+	ddlStmt, err = ddlParser.Parse("ANALYZE users (id, name);")
 	assert.NoError(t, err)
-	assert.Equal(t, AnalyzeStatementType, ddlStmt.Type)
+	assert.Equal(t, parser.AnalyzeStatementType, ddlStmt.Type)
 	
 	analyzeStmt, ok = ddlStmt.Statement.(*AnalyzeStatement)
 	assert.True(t, ok)
@@ -33,9 +34,9 @@ func TestAnalyzeStatementParsing(t *testing.T) {
 	assert.ElementsMatch(t, []string{"id", "name"}, analyzeStmt.Columns)
 	
 	// Test ANALYZE; (all tables)
-	ddlStmt, err = parser.Parse("ANALYZE;")
+	ddlStmt, err = ddlParser.Parse("ANALYZE;")
 	assert.NoError(t, err)
-	assert.Equal(t, AnalyzeStatementType, ddlStmt.Type)
+	assert.Equal(t, parser.AnalyzeStatementType, ddlStmt.Type)
 	
 	analyzeStmt, ok = ddlStmt.Statement.(*AnalyzeStatement)
 	assert.True(t, ok)

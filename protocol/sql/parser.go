@@ -2,11 +2,8 @@ package sql
 
 import (
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
 
-	pg_query "github.com/pganalyze/pg_query_go/v6"
 	"github.com/guileen/pglitedb/protocol/sql/parser"
 )
 
@@ -51,7 +48,7 @@ func (p *SimplePGParser) Parse(query string) (*parser.ParsedQuery, error) {
 		OrderBy:          []parser.OrderBy{},
 		WindowFunctions:  []parser.WindowFunction{},
 		ReturningColumns: p.extractReturningColumns(trimmedQuery),
-		Columns:          []*parser.ColumnDefinition{},
+		Columns:          []parser.ColumnDefinition{},
 		AlterActions:     []parser.AlterAction{},
 		IndexColumns:     []string{},
 		Subqueries:       []parser.Subquery{},

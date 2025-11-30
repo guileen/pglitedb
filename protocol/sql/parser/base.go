@@ -65,6 +65,48 @@ func (s StatementType) String() string {
 	}
 }
 
+// DDLStatement represents a parsed DDL statement
+type DDLStatement struct {
+	Type          StatementType
+	Query         string
+	TableName     string
+	NewTableName  string // For ALTER TABLE RENAME
+	IfExists      bool
+	IfNotExists   bool
+	Columns       []ColumnDefinition
+	AlterCommands []AlterCommand
+	IndexName     string
+	IndexNames    []string
+	IndexColumns  []string
+	IndexType     string
+	Unique        bool
+	Concurrent    bool
+	Cascade       bool
+	Restrict      bool
+	ViewName      string
+	ViewNames     []string
+	ViewQuery     string
+	Replace       bool
+	ViewColumnNames []string
+	ViewOptions   map[string]string
+	IndexOptions  map[string]string
+	ColumnNames   []string // For ANALYZE statements
+	WhereClause   string   // For partial indexes
+	AllTables     bool     // For ANALYZE statements
+	Statement     interface{} // For storing specific statement types like AnalyzeStatement
+}
+
+// AlterCommand represents a single ALTER TABLE command
+type AlterCommand struct {
+	Action           interface{} // The type of alter action
+	ColumnName       string
+	ColumnType       string
+	ConstraintName   string
+	ConstraintType   string
+	ConstraintTypes  []string
+	ConstraintColumns []string
+}
+
 // ColumnDefinition represents a column definition in a table
 type ColumnDefinition struct {
 	Name       string
@@ -213,9 +255,12 @@ type ParsedQuery struct {
 	HavingClause     string
 	WindowFunctions  []WindowFunction
 	ReturningColumns []string
+	Updates          map[string]interface{}
+	QueryString      string
+	RawStmt          interface{}
 	
 	// DDL specific fields
-	Columns          []*ColumnDefinition
+	Columns          []ColumnDefinition
 	TableName        string
 	NewTableName     string    // For ALTER TABLE RENAME
 	AlterActions     []AlterAction

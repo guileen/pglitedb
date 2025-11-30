@@ -3,6 +3,7 @@ package sql
 import (
 	"github.com/guileen/pglitedb/catalog"
 	"github.com/guileen/pglitedb/catalog/system/interfaces"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 )
 
 // QueryOptimizer is responsible for optimizing query execution plans
@@ -93,10 +94,10 @@ func (o *QueryOptimizer) applyRewriteRules(plan *Plan) *Plan {
 		Operation:   plan.Operation,
 		Table:       plan.Table,
 		Fields:      make([]string, len(plan.Fields)),
-		Conditions:  make([]Condition, len(plan.Conditions)),
+		Conditions:  make([]parser.Condition, len(plan.Conditions)),
 		Limit:       plan.Limit,
 		Offset:      plan.Offset,
-		OrderBy:     make([]OrderBy, len(plan.OrderBy)),
+		OrderBy:     make([]parser.OrderBy, len(plan.OrderBy)),
 		GroupBy:     make([]string, len(plan.GroupBy)),
 		Aggregates:  make([]Aggregate, len(plan.Aggregates)),
 		QueryString: plan.QueryString,

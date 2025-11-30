@@ -3,62 +3,65 @@ package sql
 import (
 	"testing"
 	"time"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 )
 
 func TestHybridParser_Parse(t *testing.T) {
-	parser := NewHybridPGParser()
+	sqlParser := NewSimplePGParser()
+	planner := NewPlanner(sqlParser)
 	
 	tests := []struct {
 		name        string
 		query       string
-		expectedType StatementType
+		expectedType parser.StatementType
 	}{
 		{
 			name:        "Simple SELECT",
 			query:       "SELECT id, name FROM users",
-			expectedType: SelectStatement,
+			expectedType: parser.SelectStatement,
 		},
 		{
 			name:        "Simple INSERT",
 			query:       "INSERT INTO users (name) VALUES ('Alice')",
-			expectedType: InsertStatement,
+			expectedType: parser.InsertStatement,
 		},
 		{
 			name:        "Simple UPDATE",
 			query:       "UPDATE users SET name = 'Bob' WHERE id = 1",
-			expectedType: UpdateStatement,
+			expectedType: parser.UpdateStatement,
 		},
 		{
 			name:        "Simple DELETE",
 			query:       "DELETE FROM users WHERE id = 1",
-			expectedType: DeleteStatement,
+			expectedType: parser.DeleteStatement,
 		},
 		{
 			name:        "BEGIN transaction",
 			query:       "BEGIN",
-			expectedType: BeginStatement,
+			expectedType: parser.BeginStatement,
 		},
 		{
 			name:        "COMMIT transaction",
 			query:       "COMMIT",
-			expectedType: CommitStatement,
+			expectedType: parser.CommitStatement,
 		},
 		{
 			name:        "ROLLBACK transaction",
 			query:       "ROLLBACK",
-			expectedType: RollbackStatement,
+			expectedType: parser.RollbackStatement,
 		},
 	}
 	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parsed, err := parser.Parse(tt.query)
+			// Create a plan from the parsed query
+			plan, err := planner.CreatePlan(tt.query)
 			if err != nil {
-				t.Fatalf("Parse failed: %v", err)
+				t.Fatalf("CreatePlan failed: %v", err)
 			}
 			
-			if parsed.Type != tt.expectedType {
-				t.Errorf("Expected type %v, got %v", tt.expectedType, parsed.Type)
+			if plan.Type != tt.expectedType {
+				t.Errorf("Expected type %v, got %v", tt.expectedType, plan.Type)
 			}
 		})
 	}

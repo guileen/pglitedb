@@ -10,6 +10,7 @@ import (
 	"github.com/guileen/pglitedb/codec"
 	"github.com/guileen/pglitedb/engine/pebble"
 	"github.com/guileen/pglitedb/protocol/sql"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 	"github.com/guileen/pglitedb/storage"
 	
 	"github.com/guileen/pglitedb/catalog"
@@ -459,37 +460,37 @@ func (c *Client) Delete(ctx context.Context, tenantID int64, tableName string, w
 }
 
 // statementTypeToString converts StatementType to string representation
-func statementTypeToString(st sql.StatementType) string {
+func statementTypeToString(st parser.StatementType) string {
 	switch st {
-	case sql.SelectStatement:
+	case parser.SelectStatement:
 		return "SELECT"
-	case sql.InsertStatement:
+	case parser.InsertStatement:
 		return "INSERT"
-	case sql.UpdateStatement:
+	case parser.UpdateStatement:
 		return "UPDATE"
-	case sql.DeleteStatement:
+	case parser.DeleteStatement:
 		return "DELETE"
-	case sql.BeginStatement:
+	case parser.BeginStatement:
 		return "BEGIN"
-	case sql.CommitStatement:
+	case parser.CommitStatement:
 		return "COMMIT"
-	case sql.RollbackStatement:
+	case parser.RollbackStatement:
 		return "ROLLBACK"
-	case sql.CreateTableStatement:
+	case parser.CreateTableStatement:
 		return "CREATE_TABLE"
-	case sql.DropTableStatement:
+	case parser.DropTableStatement:
 		return "DROP_TABLE"
-	case sql.AlterTableStatement:
+	case parser.AlterTableStatement:
 		return "ALTER_TABLE"
-	case sql.CreateIndexStatement:
+	case parser.CreateIndexStatement:
 		return "CREATE_INDEX"
-	case sql.DropIndexStatement:
+	case parser.DropIndexStatement:
 		return "DROP_INDEX"
-	case sql.CreateViewStatement:
+	case parser.CreateViewStatement:
 		return "CREATE_VIEW"
-	case sql.DropViewStatement:
+	case parser.DropViewStatement:
 		return "DROP_VIEW"
-	case sql.AnalyzeStatementType:
+	case parser.AnalyzeStatementType:
 		return "ANALYZE"
 	default:
 		return "UNKNOWN"

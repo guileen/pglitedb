@@ -4,6 +4,7 @@ import (
 	"testing"
 	
 	"github.com/stretchr/testify/assert"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 )
 
 func TestQueryOptimizer_NewQueryOptimizer(t *testing.T) {
@@ -32,12 +33,12 @@ func TestQueryOptimizer_OptimizePlan(t *testing.T) {
 	optimizer := NewQueryOptimizer()
 	
 	plan := &Plan{
-		Type:      SelectStatement,
+		Type:      parser.SelectStatement,
 		Operation: "select",
 		Table:     "users",
 		Fields:    []string{"id", "name"},
-		Conditions: []Condition{
-			{Field: "id", Operator: "=", Value: 1},
+		Conditions: []parser.Condition{
+			{Field: "id", Operator: "=", Value: "1"},
 		},
 	}
 	
@@ -57,15 +58,15 @@ func TestQueryOptimizer_ApplyRewriteRules(t *testing.T) {
 	optimizer := NewQueryOptimizer()
 	
 	plan := &Plan{
-		Type:      SelectStatement,
+		Type:      parser.SelectStatement,
 		Operation: "select",
 		Table:     "users",
 		Fields:    []string{"id", "name"},
-		Conditions: []Condition{
-			{Field: "id", Operator: "=", Value: 1},
+		Conditions: []parser.Condition{
+			{Field: "id", Operator: "=", Value: "1"},
 		},
-		OrderBy: []OrderBy{
-			{Field: "name", Order: "ASC"},
+		OrderBy: []parser.OrderBy{
+			{Field: "name", Direction: "ASC"},
 		},
 	}
 	
@@ -84,8 +85,8 @@ func TestQueryOptimizer_PredicatePushdown(t *testing.T) {
 	optimizer := NewQueryOptimizer()
 	
 	plan := &Plan{
-		Conditions: []Condition{
-			{Field: "age", Operator: ">", Value: 18},
+		Conditions: []parser.Condition{
+			{Field: "age", Operator: ">", Value: "18"},
 			{Field: "name", Operator: "=", Value: "John"},
 		},
 	}
@@ -125,8 +126,8 @@ func TestQueryOptimizer_ConstantFolding(t *testing.T) {
 	optimizer := NewQueryOptimizer()
 	
 	plan := &Plan{
-		Conditions: []Condition{
-			{Field: "id", Operator: "=", Value: 1},
+		Conditions: []parser.Condition{
+			{Field: "id", Operator: "=", Value: "1"},
 		},
 	}
 	

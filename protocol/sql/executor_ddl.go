@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 	"github.com/guileen/pglitedb/types"
 )
 
@@ -21,21 +22,21 @@ func (e *Executor) executeDDL(ctx context.Context, query string) (*types.ResultS
 
 	// Handle different DDL statement types
 	switch ddlStmt.Type {
-	case CreateTableStatement:
+	case parser.CreateTableStatement:
 		return e.executeCreateTable(ctx, ddlStmt)
-	case CreateIndexStatement:
+	case parser.CreateIndexStatement:
 		return e.executeCreateIndex(ctx, ddlStmt)
-	case DropTableStatement:
+	case parser.DropTableStatement:
 		return e.executeDropTable(ctx, ddlStmt)
-	case DropIndexStatement:
+	case parser.DropIndexStatement:
 		return e.executeDropIndex(ctx, ddlStmt)
-	case AlterTableStatement:
+	case parser.AlterTableStatement:
 		return e.executeAlterTable(ctx, ddlStmt)
-	case CreateViewStatement:
+	case parser.CreateViewStatement:
 		return e.executeCreateView(ctx, ddlStmt)
-	case DropViewStatement:
+	case parser.DropViewStatement:
 		return e.executeDropView(ctx, ddlStmt)
-	case AnalyzeStatementType:
+	case parser.AnalyzeStatementType:
 		return e.executeAnalyze(ctx, query)
 	default:
 		// For unsupported DDL operations, return a successful result
@@ -48,7 +49,7 @@ func (e *Executor) executeDDL(ctx context.Context, query string) (*types.ResultS
 }
 
 // executeCreateTable handles CREATE TABLE statements
-func (e *Executor) executeCreateTable(ctx context.Context, ddlStmt *DDLStatement) (*types.ResultSet, error) {
+func (e *Executor) executeCreateTable(ctx context.Context, ddlStmt *parser.DDLStatement) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -96,7 +97,7 @@ func (e *Executor) executeCreateTable(ctx context.Context, ddlStmt *DDLStatement
 }
 
 // executeCreateIndex handles CREATE INDEX statements
-func (e *Executor) executeCreateIndex(ctx context.Context, ddlStmt *DDLStatement) (*types.ResultSet, error) {
+func (e *Executor) executeCreateIndex(ctx context.Context, ddlStmt *parser.DDLStatement) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -122,7 +123,7 @@ func (e *Executor) executeCreateIndex(ctx context.Context, ddlStmt *DDLStatement
 }
 
 // executeDropTable handles DROP TABLE statements
-func (e *Executor) executeDropTable(ctx context.Context, ddlStmt *DDLStatement) (*types.ResultSet, error) {
+func (e *Executor) executeDropTable(ctx context.Context, ddlStmt *parser.DDLStatement) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -150,7 +151,7 @@ func (e *Executor) executeDropTable(ctx context.Context, ddlStmt *DDLStatement) 
 }
 
 // executeDropIndex handles DROP INDEX statements
-func (e *Executor) executeDropIndex(ctx context.Context, ddlStmt *DDLStatement) (*types.ResultSet, error) {
+func (e *Executor) executeDropIndex(ctx context.Context, ddlStmt *parser.DDLStatement) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -168,7 +169,7 @@ func (e *Executor) executeDropIndex(ctx context.Context, ddlStmt *DDLStatement) 
 }
 
 // executeAlterTable handles ALTER TABLE statements
-func (e *Executor) executeAlterTable(ctx context.Context, ddlStmt *DDLStatement) (*types.ResultSet, error) {
+func (e *Executor) executeAlterTable(ctx context.Context, ddlStmt *parser.DDLStatement) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -183,7 +184,7 @@ func (e *Executor) executeAlterTable(ctx context.Context, ddlStmt *DDLStatement)
 }
 
 // executeCreateView handles CREATE VIEW statements
-func (e *Executor) executeCreateView(ctx context.Context, ddlStmt *DDLStatement) (*types.ResultSet, error) {
+func (e *Executor) executeCreateView(ctx context.Context, ddlStmt *parser.DDLStatement) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -201,7 +202,7 @@ func (e *Executor) executeCreateView(ctx context.Context, ddlStmt *DDLStatement)
 }
 
 // executeDropView handles DROP VIEW statements
-func (e *Executor) executeDropView(ctx context.Context, ddlStmt *DDLStatement) (*types.ResultSet, error) {
+func (e *Executor) executeDropView(ctx context.Context, ddlStmt *parser.DDLStatement) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}

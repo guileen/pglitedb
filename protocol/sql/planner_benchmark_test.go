@@ -98,7 +98,7 @@ func BenchmarkPlanner_ExtractConditionsFromExpr_Simple(b *testing.B) {
 			b.Fatal(err)
 		}
 		
-		pgNode, ok := parsed.Statement.(*pg_query.Node)
+		pgNode, ok := parsed.RawStmt.(*pg_query.Node)
 		if !ok {
 			b.Fatal("Expected pg_query.Node")
 		}
@@ -134,7 +134,7 @@ func BenchmarkPlanner_ExtractConditionsFromExpr_Complex(b *testing.B) {
 			b.Fatal(err)
 		}
 		
-		pgNode, ok := parsed.Statement.(*pg_query.Node)
+		pgNode, ok := parsed.RawStmt.(*pg_query.Node)
 		if !ok {
 			b.Fatal("Expected pg_query.Node")
 		}

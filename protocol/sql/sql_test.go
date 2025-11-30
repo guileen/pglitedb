@@ -6,41 +6,42 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 )
 
 func TestPGParser_Parse(t *testing.T) {
-	parser := NewPGParser()
+	sqlParser := NewPGParser()
 
 	query := "SELECT id, name FROM users WHERE age > 18 ORDER BY name LIMIT 10"
-	parsed, err := parser.Parse(query)
+	parsed, err := sqlParser.Parse(query)
 	require.NoError(t, err)
 	require.NotNil(t, parsed)
-	assert.Equal(t, SelectStatement, parsed.Type)
-	assert.Equal(t, query, parsed.Query)
+	assert.Equal(t, parser.SelectStatement, parsed.StatementType)
+	assert.Equal(t, query, parsed.QueryString)
 }
 
 func TestPGParser_Validate(t *testing.T) {
-	parser := NewPGParser()
+	sqlParser := NewPGParser()
 
 	// Valid query
-	err := parser.Validate("SELECT id, name FROM users")
+	err := sqlParser.Validate("SELECT id, name FROM users")
 	assert.NoError(t, err)
 
 	// Invalid query
-	err = parser.Validate("SELECT id, name FROM")
+	err = sqlParser.Validate("SELECT id, name FROM")
 	assert.Error(t, err)
 }
 
 func TestPlanner_CreatePlan(t *testing.T) {
-	parser := NewPGParser()
-	planner := NewPlanner(parser)
+	sqlParser := NewPGParser()
+	planner := NewPlanner(sqlParser)
 
 	query := "SELECT id, name FROM users WHERE age > 18 ORDER BY name LIMIT 10"
 	plan, err := planner.CreatePlan(query)
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 	
-	assert.Equal(t, SelectStatement, plan.Type)
+	assert.Equal(t, parser.SelectStatement, plan.Type)
 	assert.Equal(t, "select", plan.Operation)
 	assert.Equal(t, "users", plan.Table)
 	assert.Contains(t, plan.Fields, "id")
@@ -48,8 +49,8 @@ func TestPlanner_CreatePlan(t *testing.T) {
 }
 
 func TestExecutor_Execute(t *testing.T) {
-	parser := NewPGParser()
-	planner := NewPlanner(parser)
+	sqlParser := NewPGParser()
+	planner := NewPlanner(sqlParser)
 	executor := NewExecutorWithCatalog(planner, nil) // Pass nil catalog for this test
 
 	query := "SELECT id, name FROM users"
@@ -61,8 +62,8 @@ func TestExecutor_Execute(t *testing.T) {
 }
 
 func TestExecutor_DropTable(t *testing.T) {
-	parser := NewPGParser()
-	planner := NewPlanner(parser)
+	sqlParser := NewPGParser()
+	planner := NewPlanner(sqlParser)
 	executor := NewExecutorWithCatalog(planner, nil) // Pass nil catalog for this test
 
 	// Test DROP TABLE without IF EXISTS

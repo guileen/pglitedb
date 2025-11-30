@@ -2,6 +2,7 @@ package sql
 
 import (
 	pg_query "github.com/pganalyze/pg_query_go/v6"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 )
 
 // AnalyzeStatement represents a parsed ANALYZE statement
@@ -13,8 +14,8 @@ type AnalyzeStatement struct {
 }
 
 // parseAnalyzeStatement parses an ANALYZE statement from a VacuumStmt
-func (p *DDLParser) parseAnalyzeStatement(stmt *pg_query.VacuumStmt, ddlStmt *DDLStatement) {
-	ddlStmt.Type = AnalyzeStatementType
+func (p *DDLParser) parseAnalyzeStatement(stmt *pg_query.VacuumStmt, ddlStmt *parser.DDLStatement) {
+	ddlStmt.Type = parser.AnalyzeStatementType
 	
 	analyzeStmt := &AnalyzeStatement{
 		Query:     ddlStmt.Query,

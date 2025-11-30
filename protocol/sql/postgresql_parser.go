@@ -1,5 +1,9 @@
 package sql
 
+import (
+	"github.com/guileen/pglitedb/protocol/sql/parser"
+)
+
 // PostgreSQLParser implements the Parser interface for PostgreSQL queries
 type PostgreSQLParser struct {
 	pgParser Parser
@@ -8,12 +12,12 @@ type PostgreSQLParser struct {
 // NewPostgreSQLParser creates a new PostgreSQL parser instance
 func NewPostgreSQLParser() *PostgreSQLParser {
 	return &PostgreSQLParser{
-		pgParser: NewPGParser(),
+		pgParser: NewPGParserFull(),
 	}
 }
 
 // Parse takes a raw SQL query string and returns a parsed representation
-func (p *PostgreSQLParser) Parse(query string) (*ParsedQuery, error) {
+func (p *PostgreSQLParser) Parse(query string) (*parser.ParsedQuery, error) {
 	return p.pgParser.Parse(query)
 }
 
@@ -23,12 +27,12 @@ func (p *PostgreSQLParser) Validate(query string) error {
 }
 
 // ParseWithParams parses a query with parameter information
-func (p *PostgreSQLParser) ParseWithParams(query string, paramCount int) (*ParsedQuery, error) {
+func (p *PostgreSQLParser) ParseWithParams(query string, paramCount int) (*parser.ParsedQuery, error) {
 	return p.pgParser.ParseWithParams(query, paramCount)
 }
 
 // GetStatementType returns the type of the SQL statement
-func (p *PostgreSQLParser) GetStatementType(stmt interface{}) StatementType {
+func (p *PostgreSQLParser) GetStatementType(stmt interface{}) parser.StatementType {
 	return p.pgParser.GetStatementType(stmt)
 }
 

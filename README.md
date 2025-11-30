@@ -4,14 +4,14 @@
 [![GitHub issues](https://img.shields.io/github/issues/guileen/pglitedb)](https://github.com/guileen/pglitedb/issues)
 [![License](https://img.shields.io/github/license/guileen/pglitedb)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/guileen/pglitedb)](https://goreportcard.com/report/github.com/guileen/pglitedb)
-[![Test Coverage](https://img.shields.io/badge/coverage-65.7%25-yellowgreen)](spec/TEST_SUMMARY.md)
+[![Test Coverage](https://img.shields.io/badge/coverage-30.8%25-orange)](spec/TEST_SUMMARY.md)
 [![Regress Tests](https://img.shields.io/badge/regress%20tests-100%25-brightgreen)](spec/TEST_SUMMARY.md)
 [![Performance](https://img.shields.io/badge/performance-3100%20TPS-blue)](spec/TEST_SUMMARY.md)
-[![Connection Timeout](https://img.shields.io/badge/timeout%20tests-passing-brightgreen)](spec/TEST_SUMMARY.md)
+[![Parser Tests](https://img.shields.io/badge/parser%20tests-passing-brightgreen)](spec/TEST_SUMMARY.md)
 
 PGLiteDB is a cutting-edge, high-performance embedded database that offers full PostgreSQL wire protocol compatibility. Built on CockroachDB's Pebble storage engine (an LSM-tree based key-value store), PGLiteDB delivers exceptional performance while maintaining PostgreSQL compatibility, making it the ideal choice for applications requiring both speed and SQL functionality.
 
-With 100% PostgreSQL regression test compliance (228/228 tests passing) and optimized performance of ~3,100 TPS with ~3.2ms latency, PGLiteDB provides enterprise-grade PostgreSQL compatibility while delivering exceptional performance for embedded use cases. Recent optimizations have achieved significant performance improvements through query plan caching, parser optimizations, and enhanced resource management. Connection timeout implementation has been thoroughly tested and verified.
+With 100% PostgreSQL regression test compliance (228/228 tests passing) and optimized performance of ~3,100 TPS with ~3.2ms latency, PGLiteDB provides enterprise-grade PostgreSQL compatibility while delivering exceptional performance for embedded use cases. Recent optimizations have achieved significant performance improvements through query plan caching, parser enhancements, and enhanced resource management. All parser enhancements have been thoroughly tested and verified.
 
 ## 🌟 Key Selling Points
 
