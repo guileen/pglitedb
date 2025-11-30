@@ -14,7 +14,7 @@ cd /Users/gl/agentwork/postgresql-18.1/src/test/regress
 
 # Run tests and capture output
 OUTPUT_FILE="/tmp/regress_output_$TIMESTAMP.txt"
-./pg_regress --outputdir=/tmp/regress_test --schedule=parallel_schedule > "$OUTPUT_FILE" 2>&1
+./pg_regress --host=localhost --port=5666 --outputdir=/tmp/regress_test --schedule=parallel_schedule > "$OUTPUT_FILE" 2>&1
 TEST_EXIT_CODE=$?
 
 # Save human-readable output with timestamped filename

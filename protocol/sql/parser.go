@@ -382,22 +382,3 @@ func (p *SimplePGParser) SupportsParameterPlaceholders() bool {
 	return true
 }
 
-// NormalizeQuery normalizes a SQL query by removing extra whitespace and standardizing formatting
-// This is used for creating cache keys to improve cache hit rates
-func NormalizeQuery(query string) string {
-	// Convert to lowercase for case-insensitive comparison
-	normalized := strings.ToLower(strings.TrimSpace(query))
-	
-	// Replace multiple whitespace with single space
-	whitespaceRegex := regexp.MustCompile(`\s+`)
-	normalized = whitespaceRegex.ReplaceAllString(normalized, " ")
-	
-	// Remove extra spaces around common SQL operators and keywords
-	operators := []string{",", "=", "!=", "<>", "<", ">", "<=", ">=", "(", ")", ";", "+", "-", "*", "/"}
-	for _, op := range operators {
-		normalized = strings.ReplaceAll(normalized, " "+op, op)
-		normalized = strings.ReplaceAll(normalized, op+" ", op)
-	}
-	
-	return strings.TrimSpace(normalized)
-}

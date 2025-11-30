@@ -256,9 +256,10 @@ func (s *PostgreSQLServer) handleQuery(backend *pgproto3.Backend, query string) 
 
 	logger.Debug("Processing query", "query", query, "query_id", queryCtx.QueryID)
 	
-	// Handle empty query
-	if strings.TrimSpace(query) == "" {
-		logger.Debug("Empty query received")
+	// Handle empty query or standalone semicolon
+	trimmedQuery := strings.TrimSpace(query)
+	if trimmedQuery == "" || trimmedQuery == ";" {
+		logger.Debug("Empty query or standalone semicolon received")
 		backend.Send(&pgproto3.EmptyQueryResponse{})
 		backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
 		if err := backend.Flush(); err != nil {

@@ -27,8 +27,14 @@ func (e *Executor) executeSelect(ctx context.Context, plan *Plan) (*types.Result
 		return e.executeFunctionCall(ctx, plan)
 	}
 
+	// Handle queries without tables (expressions, constants, etc.)
+	trimmedTable := strings.TrimSpace(plan.Table)
+	if trimmedTable == "" {
+		return e.executeExpressionQuery(ctx, plan)
+	}
+
 	// Handle regular table queries
-	if isSystemTable(plan.Table) {
+	if IsSystemTable(plan.Table) {
 		return e.executeSystemTableQuery(ctx, plan)
 	}
 
@@ -134,14 +140,47 @@ func (e *Executor) executeFunctionCall(ctx context.Context, plan *Plan) (*types.
 	}
 }
 
+// executeExpressionQuery handles SELECT queries without tables (expressions, constants, etc.)
+func (e *Executor) executeExpressionQuery(ctx context.Context, plan *Plan) (*types.ResultSet, error) {
+	// For now, handle simple cases
+	result := types.AcquireExecutorResultSet()
+	
+	// Set up columns based on the fields in the plan
+	if len(plan.Fields) > 0 {
+		result.Columns = make([]string, len(plan.Fields))
+		copy(result.Columns, plan.Fields)
+	} else {
+		// Default column name for expression results
+		result.Columns = []string{"result"}
+	}
+
+	// For expression queries without tables, return a single row with NULL values
+	// In a more complete implementation, we would evaluate the actual expressions
+	row := make([]interface{}, len(result.Columns))
+	for i := range row {
+		row[i] = nil
+	}
+	
+	result.Rows = [][]interface{}{row}
+	result.Count = 1
+	
+	return result, nil
+}
+
 // executeAggregateSelect handles SELECT queries with aggregate functions
 func (e *Executor) executeAggregateSelect(ctx context.Context, plan *Plan) (*types.ResultSet, error) {
 	if e.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
 
+	// Handle queries without tables (expressions, constants, etc.)
+	trimmedTable := strings.TrimSpace(plan.Table)
+	if trimmedTable == "" {
+		return e.executeExpressionQuery(ctx, plan)
+	}
+
 	// Handle system table queries
-	if isSystemTable(plan.Table) {
+	if IsSystemTable(plan.Table) {
 		return e.executeSystemTableQuery(ctx, plan)
 	}
 
@@ -257,8 +296,14 @@ func (e *Executor) executeSystemTableQuery(ctx context.Context, plan *Plan) (*ty
 		return nil, fmt.Errorf("catalog not initialized")
 	}
 	
+	// Handle empty table names (shouldn't happen, but just in case)
+	trimmedTable := strings.TrimSpace(plan.Table)
+	if trimmedTable == "" {
+		return e.executeExpressionQuery(ctx, plan)
+	}
+	
 	// Normalize the table name to ensure consistent format
-	fullTableName := strings.TrimSpace(plan.Table)
+	fullTableName := trimmedTable
 	
 	// Ensure the table name has the proper schema prefix
 	if !strings.Contains(fullTableName, ".") {

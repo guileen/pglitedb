@@ -46,7 +46,7 @@ func (c *memcodec) DecodeIndexKeyWithSchema(key []byte, indexColumnTypes []types
 		var valueEnd int
 
 		switch colType {
-		case types.ColumnTypeString, types.ColumnTypeText, types.ColumnTypeUUID, types.ColumnTypeBinary:
+		case types.ColumnTypeString, types.ColumnTypeText, types.ColumnTypeVarchar, types.ColumnTypeUUID, types.ColumnTypeBinary:
 			// Find the end of the string/bytes value (terminated by 0x00 0x00)
 			valueEnd = offset + 1
 			for valueEnd < len(key)-1 {
@@ -216,12 +216,13 @@ func (c *memcodec) DecodeRow(data []byte, schemaDef *types.TableDefinition) (*ty
 	record.UpdatedAt = time.Unix(encoded.UpdatedAt, 0)
 	record.Version = encoded.Version
 
+	// Validate that all expected columns can be decoded
 	for _, col := range schemaDef.Columns {
 		if valueBytes, ok := encoded.Columns[col.Name]; ok {
 			value, err := c.DecodeValue(valueBytes, col.Type)
 			if err != nil {
 				ReleaseDecodedRecord(record) // Return to pool on error
-				return nil, errors.Wrapf(err, errors.ErrCodeCodec, "DecodeRow", "failed to decode column %s", col.Name)
+				return nil, errors.Wrapf(err, errors.ErrCodeCodec, "DecodeRow", "failed to decode column '%s' of type %s", col.Name, col.Type)
 			}
 			// Reuse value from pool if available
 			recordValue := AcquireValue()
@@ -247,7 +248,7 @@ func (c *memcodec) DecodeValue(data []byte, colType types.ColumnType) (interface
 	}
 
 	switch colType {
-	case types.ColumnTypeString, types.ColumnTypeText:
+	case types.ColumnTypeString, types.ColumnTypeText, types.ColumnTypeVarchar:
 		return decodeString(data)
 	case types.ColumnTypeNumber, types.ColumnTypeSmallInt, types.ColumnTypeInteger, types.ColumnTypeBigInt, types.ColumnTypeNumeric:
 		return decodeNumber(data)
@@ -282,7 +283,7 @@ func (c *memcodec) DecodeCompositeKey(data []byte, colTypes []types.ColumnType) 
 		}
 
 		switch colType {
-		case types.ColumnTypeString, types.ColumnTypeText, types.ColumnTypeUUID, types.ColumnTypeBinary:
+		case types.ColumnTypeString, types.ColumnTypeText, types.ColumnTypeVarchar, types.ColumnTypeUUID, types.ColumnTypeBinary:
 			endIdx = offset + 1
 			for endIdx < len(data) {
 				if data[endIdx] == 0x00 {
