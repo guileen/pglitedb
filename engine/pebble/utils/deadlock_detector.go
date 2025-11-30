@@ -69,8 +69,17 @@ func (dd *DeadlockDetector) RemoveTransaction(txnID uint64) {
 	delete(dd.waitGraph, txnID)
 	
 	// Remove this transaction from all other transactions' wait lists
-	for _, waits := range dd.waitGraph {
-		delete(waits, txnID)
+	// Create a copy of the keys to avoid modifying the map while iterating
+	keys := make([]uint64, 0, len(dd.waitGraph))
+	for k := range dd.waitGraph {
+		keys = append(keys, k)
+	}
+	
+	// Now safely remove the transaction from each wait list
+	for _, k := range keys {
+		if waits, exists := dd.waitGraph[k]; exists {
+			delete(waits, txnID)
+		}
 	}
 	dd.mu.Unlock()
 }
@@ -277,6 +286,7 @@ func (dd *DeadlockDetector) detectCycleAndAbort(txnID uint64, visited, recStack 
 	recStack[txnID] = true
 	
 	// Check transactions that this transaction is waiting for
+	// Need to hold lock when accessing shared data structures
 	dd.mu.RLock()
 	waits, exists := dd.waitGraph[txnID]
 	dd.mu.RUnlock()
@@ -321,8 +331,17 @@ func (dd *DeadlockDetector) abortYoungestTransaction(txnID1, txnID2 uint64) {
 	delete(dd.waitGraph, abortTxnID)
 	
 	// Remove this transaction from all other transactions' wait lists
-	for _, waits := range dd.waitGraph {
-		delete(waits, abortTxnID)
+	// Create a copy of the keys to avoid modifying the map while iterating
+	keys := make([]uint64, 0, len(dd.waitGraph))
+	for k := range dd.waitGraph {
+		keys = append(keys, k)
+	}
+	
+	// Now safely remove the transaction from each wait list
+	for _, k := range keys {
+		if waits, exists := dd.waitGraph[k]; exists {
+			delete(waits, abortTxnID)
+		}
 	}
 	dd.mu.Unlock()
 	

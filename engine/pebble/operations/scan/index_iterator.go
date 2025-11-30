@@ -332,11 +332,13 @@ func (ii *IndexIterator) ResetForReuse() {
 	ii.tableID = 0
 	ii.batchSize = 0
 	ii.rowIDBuffer = ii.rowIDBuffer[:0]
+	
+	// Efficiently reset the rowCache by reassigning a new map instead of clearing
+	// This is more efficient than deleting all keys when the map is large
 	if ii.rowCache != nil {
-		for k := range ii.rowCache {
-			delete(ii.rowCache, k)
-		}
+		ii.rowCache = make(map[int64]*dbTypes.Record)
 	}
+	
 	ii.cacheIdx = 0
 	// Keep the rowIDValuePool as it's a value object
 }

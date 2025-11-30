@@ -241,8 +241,17 @@ func (p *PebbleKV) SetWithOptions(ctx context.Context, key, value []byte, opts *
 		return shared.ErrClosed
 	}
 
-	atomic.AddInt64(&p.pendingWrites, 1)
-	defer atomic.AddInt64(&p.pendingWrites, -1)
+	// For async writes (Sync: false), increment pending counter and don't decrement immediately
+	// For sync writes (Sync: true), increment and decrement immediately
+	isAsync := opts == nil || !opts.Sync
+	
+	if isAsync {
+		atomic.AddInt64(&p.pendingWrites, 1)
+		// Note: Counter is decremented by Flush operations, not immediately
+	} else {
+		atomic.AddInt64(&p.pendingWrites, 1)
+		defer atomic.AddInt64(&p.pendingWrites, -1)
+	}
 
 	var pebbleOpts *pebble.WriteOptions
 	if opts != nil {
@@ -252,6 +261,7 @@ func (p *PebbleKV) SetWithOptions(ctx context.Context, key, value []byte, opts *
 	}
 
 	if err := p.db.Set(key, value, pebbleOpts); err != nil {
+		atomic.AddInt64(&p.pendingWrites, -1) // Decrement on error
 		return fmt.Errorf("pebble set: %w", err)
 	}
 
@@ -464,6 +474,7 @@ func (p *PebbleKV) Stats() shared.KVStats {
 		MemTableSize:       int64(metrics.MemTable.Size),
 		FlushCount:         int64(metrics.Flush.Count),
 		CompactionCount:    int64(metrics.Compact.Count),
+		PendingWrites:      atomic.LoadInt64(&p.pendingWrites),
 		// Compaction-specific statistics
 		L0FileCount:            int64(metrics.Levels[0].NumFiles),
 		L1FileCount:            int64(metrics.Levels[1].NumFiles),
@@ -480,6 +491,9 @@ func (p *PebbleKV) Flush() error {
 		return shared.ErrClosed
 	}
 
+	// Reset pending writes counter when flushing (process all pending writes)
+	atomic.StoreInt64(&p.pendingWrites, 0)
+
 	return p.db.Flush()
 }
 
@@ -492,6 +506,8 @@ func (p *PebbleKV) backgroundFlush() {
 				p.mu.Lock()
 				if !p.closed {
 					_ = p.db.Flush()
+					// Reset pending writes counter when background flushing (process all pending writes)
+					atomic.StoreInt64(&p.pendingWrites, 0)
 				}
 				p.mu.Unlock()
 			}
@@ -553,9 +569,22 @@ func (p *PebbleKV) Close() error {
 		p.compactionMonitor.Stop()
 	}
 
-	// Wait for pending writes to complete
-	for atomic.LoadInt64(&p.pendingWrites) > 0 {
-		time.Sleep(10 * time.Millisecond)
+	// Wait for pending writes to complete (with timeout)
+	timeout := time.After(5 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	waiting := true
+	for waiting {
+		select {
+		case <-timeout:
+			// Timeout - proceed with close anyway
+			waiting = false
+		case <-ticker.C:
+			if atomic.LoadInt64(&p.pendingWrites) <= 0 {
+				waiting = false
+			}
+		}
 	}
 
 	return p.db.Close()

@@ -2,6 +2,7 @@ package pools
 
 import (
 	"sync"
+	"sync/atomic"
 )
 
 // Pool represents a generic resource pool interface
@@ -37,18 +38,23 @@ func (bp *BasePool) Get() (interface{}, bool) {
 	fromPool := resource != nil
 	
 	if !fromPool {
-		bp.created++
+		atomic.AddUint64(&bp.created, 1)
 		resource = bp.pool.New()
 	}
 	
-	bp.acquired++
+	atomic.AddUint64(&bp.acquired, 1)
 	return resource, fromPool
 }
 
 // Put returns a resource to the pool
 func (bp *BasePool) Put(resource interface{}) {
-	bp.released++
+	atomic.AddUint64(&bp.released, 1)
 	bp.pool.Put(resource)
+}
+
+// IncrementErrors atomically increments the error counter
+func (bp *BasePool) IncrementErrors() {
+	atomic.AddUint64(&bp.errors, 1)
 }
 
 // Name returns the pool name
@@ -60,10 +66,10 @@ func (bp *BasePool) Name() string {
 func (bp *BasePool) Stats() PoolStats {
 	return PoolStats{
 		Name:     bp.name,
-		Acquired: bp.acquired,
-		Released: bp.released,
-		Created:  bp.created,
-		Errors:   bp.errors,
+		Acquired: atomic.LoadUint64(&bp.acquired),
+		Released: atomic.LoadUint64(&bp.released),
+		Created:  atomic.LoadUint64(&bp.created),
+		Errors:   atomic.LoadUint64(&bp.errors),
 	}
 }
 
