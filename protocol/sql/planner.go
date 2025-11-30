@@ -11,12 +11,24 @@ import (
 	"github.com/guileen/pglitedb/protocol/sql/parser"
 )
 
+// Cache defines the interface for cache implementations
+type Cache interface {
+	Get(key string) (interface{}, bool)
+	Put(key string, value interface{})
+	Remove(key string)
+	Len() int
+	Clear()
+	Stats() (hits, misses int64)
+	HitRate() float64
+	ResetStats()
+}
+
 // Planner is responsible for creating execution plans from parsed queries
 type Planner struct {
 	parser    Parser
 	executor  *Executor
 	optimizer *QueryOptimizer
-	planCache *LRUCache
+	planCache Cache
 	planPool  *PlanPool
 }
 
@@ -30,7 +42,8 @@ func NewPlanner(parser Parser) *Planner {
 	
 	// Initialize plan cache with larger capacity to reduce repeated parsing
 	// Increased from 5000 to 10000 to further reduce CGO call overhead
-	planCache := NewLRUCache(10000)
+	// Using sharded LRU cache to reduce lock contention in concurrent scenarios
+	planCache := NewShardedLRUCache(10000)
 	
 	return &Planner{
 		parser:    parser,
@@ -45,7 +58,8 @@ func NewPlanner(parser Parser) *Planner {
 func NewPlannerWithCatalog(parser Parser, catalogMgr catalog.Manager) *Planner {
 	// Initialize plan cache with larger capacity to reduce repeated parsing
 	// Increased from 5000 to 10000 to further reduce CGO call overhead
-	planCache := NewLRUCache(10000)
+	// Using sharded LRU cache to reduce lock contention in concurrent scenarios
+	planCache := NewShardedLRUCache(10000)
 	
 	planner := &Planner{
 		parser:    parser,
@@ -84,7 +98,7 @@ func (p *Planner) SetCatalog(catalogMgr catalog.Manager) {
 // EnablePlanCaching enables or disables query plan caching
 func (p *Planner) EnablePlanCaching(enabled bool) {
 	if enabled && p.planCache == nil {
-		p.planCache = NewLRUCache(1000)
+		p.planCache = NewShardedLRUCache(1000)
 	} else if !enabled {
 		p.planCache = nil
 	}
@@ -159,10 +173,33 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 			Type:        parsedQuery.StatementType,
 			Table:       parsedQuery.Table,
 			Fields:      parsedQuery.Fields,
-			Conditions:  parsedQuery.Conditions,
 			OrderBy:     parsedQuery.OrderBy,
 			Limit:       parsedQuery.Limit,
 			Updates:     parsedQuery.Updates,
+		}
+		
+		// Convert parser.Conditions to planner.Conditions
+		plan.Conditions = make([]Condition, len(parsedQuery.Conditions))
+		for i, cond := range parsedQuery.Conditions {
+			// Parse the string value back to the appropriate type
+			var parsedValue interface{} = cond.Value
+			// Try to parse as integer
+			if intVal, err := strconv.ParseInt(cond.Value, 10, 32); err == nil {
+				parsedValue = int32(intVal)
+			} else if floatVal, err := strconv.ParseFloat(cond.Value, 64); err == nil {
+				parsedValue = floatVal
+			} else if cond.Value == "true" {
+				parsedValue = true
+			} else if cond.Value == "false" {
+				parsedValue = false
+			}
+			// For other cases, keep as string
+			
+			plan.Conditions[i] = Condition{
+				Field:    cond.Field,
+				Operator: cond.Operator,
+				Value:    parsedValue,
+			}
 		}
 		
 		// Set operation based on statement type
@@ -352,7 +389,7 @@ func (p *Planner) copyPlan(original *Plan) *Plan {
 				Value:    valueStr,
 			}
 		}
-		plan.Conditions = parserConditions
+		plan.Conditions = *conditions
 	}
 	
 	if len(original.OrderBy) > 0 {
