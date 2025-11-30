@@ -34,15 +34,33 @@ func (e *pebbleEngine) GetRowBatch(ctx context.Context, tenantID, tableID int64,
 
 // InsertRowBatch inserts multiple rows in a batch
 func (e *pebbleEngine) InsertRowBatch(ctx context.Context, tenantID, tableID int64, rows []*dbTypes.Record, schemaDef *dbTypes.TableDefinition) ([]int64, error) {
+	// Use parallel batch processor for large batches
+	if len(rows) >= 1000 && e.batchProcessor != nil {
+		return e.batchProcessor.ProcessBatchInsert(ctx, tenantID, tableID, rows, schemaDef)
+	}
+	
+	// Use sequential processing for smaller batches
 	return e.insertOperations.InsertRowBatch(ctx, tenantID, tableID, rows, schemaDef, e.NextRowID, e.batchUpdateIndexes, e.kv.Commit)
 }
 
 // UpdateRowBatch updates multiple rows in a batch
 func (e *pebbleEngine) UpdateRowBatch(ctx context.Context, tenantID, tableID int64, updates []engineTypes.RowUpdate, schemaDef *dbTypes.TableDefinition) error {
+	// Use parallel batch processor for large batches
+	if len(updates) >= 1000 && e.batchProcessor != nil {
+		return e.batchProcessor.ProcessBatchUpdate(ctx, tenantID, tableID, updates, schemaDef)
+	}
+	
+	// Use sequential processing for smaller batches
 	return e.updateOperations.UpdateRowBatch(ctx, tenantID, tableID, updates, schemaDef, e.GetRowBatch, e.deleteIndexesBulk, e.batchUpdateIndexesBulk, e.kv.CommitBatchWithOptions)
 }
 
 // DeleteRowBatch deletes multiple rows in a batch
 func (e *pebbleEngine) DeleteRowBatch(ctx context.Context, tenantID, tableID int64, rowIDs []int64, schemaDef *dbTypes.TableDefinition) error {
+	// Use parallel batch processor for large batches
+	if len(rowIDs) >= 1000 && e.batchProcessor != nil {
+		return e.batchProcessor.ProcessBatchDelete(ctx, tenantID, tableID, rowIDs, schemaDef)
+	}
+	
+	// Use sequential processing for smaller batches
 	return e.deleteOperations.DeleteRowBatch(ctx, tenantID, tableID, rowIDs, schemaDef, e.GetRowBatch, e.deleteIndexesBulk, e.kv.CommitBatchWithOptions)
 }

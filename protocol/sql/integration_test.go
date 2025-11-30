@@ -416,6 +416,10 @@ func TestIntegration_AdvancedDataTypesInSQL(t *testing.T) {
 }
 
 func TestIntegration_ComplexScenarios(t *testing.T) {
+	// Disable literal normalization for proper test isolation
+	EnableLiteralNormalization(false)
+	defer EnableLiteralNormalization(true)
+	
 	// Create SQL executor
 	eng, cleanup := setupTestEngine(t)
 	defer cleanup()

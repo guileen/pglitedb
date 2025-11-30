@@ -48,46 +48,27 @@ func NewLRUCacheWithExpiration(capacity int, expiration time.Duration) *LRUCache
 
 // Get retrieves a value from the cache
 func (c *LRUCache) Get(key string) (interface{}, bool) {
-	c.mutex.RLock()
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 	
 	if element, exists := c.cache[key]; exists {
 		entry := element.Value.(*cacheEntry)
 		
 		// Check if entry has expired
 		if c.expiration > 0 && time.Since(entry.timestamp) > c.expiration {
-			// Entry expired, need to remove it
-			c.mutex.RUnlock()
-			c.mutex.Lock()
-			// Double-check that the entry still exists
-			if element, exists := c.cache[key]; exists {
-				entry := element.Value.(*cacheEntry)
-				if c.expiration > 0 && time.Since(entry.timestamp) > c.expiration {
-					c.removeElement(element)
-					c.mutex.Unlock()
-					atomic.AddInt64(&c.misses, 1)
-					return nil, false
-				}
-			}
-			c.mutex.Unlock()
-			c.mutex.RLock()
+			// Entry expired, remove it
+			c.removeElement(element)
+			atomic.AddInt64(&c.misses, 1)
+			return nil, false
 		}
 		
 		// Move to front (most recently used)
-		c.mutex.RUnlock()
-		c.mutex.Lock()
-		// Double-check that the entry still exists
-		if element, exists := c.cache[key]; exists {
-			c.evictList.MoveToFront(element)
-			value := element.Value.(*cacheEntry).value
-			c.mutex.Unlock()
-			atomic.AddInt64(&c.hits, 1)
-			return value, true
-		}
-		c.mutex.Unlock()
-		c.mutex.RLock()
+		c.evictList.MoveToFront(element)
+		value := entry.value
+		atomic.AddInt64(&c.hits, 1)
+		return value, true
 	}
 	
-	c.mutex.RUnlock()
 	atomic.AddInt64(&c.misses, 1)
 	return nil, false
 }

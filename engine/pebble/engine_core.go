@@ -6,6 +6,7 @@ import (
 
 	"github.com/guileen/pglitedb/codec"
 	engineTypes "github.com/guileen/pglitedb/engine/types"
+	"github.com/guileen/pglitedb/engine/pebble/operations/batch"
 	"github.com/guileen/pglitedb/engine/pebble/indexes"
 	"github.com/guileen/pglitedb/engine/pebble/operations/query"
 	"github.com/guileen/pglitedb/engine/pebble/operations/scan"
@@ -28,6 +29,7 @@ type pebbleEngine struct {
 	deleteOperations    *query.DeleteOperations
 	deadlockDetector    *utils.DeadlockDetector
 	iteratorPool        *scan.IteratorPool
+	batchProcessor      batch.ParallelBatchProcessor // Add parallel batch processor
 }
 
 func NewPebbleEngine(kvStore storage.KV, c codec.Codec) engineTypes.StorageEngine {
@@ -46,6 +48,9 @@ func NewPebbleEngine(kvStore storage.KV, c codec.Codec) engineTypes.StorageEngin
 		// the transaction manager to abort this transaction
 	})
 	
+	// Create parallel batch processor
+	batchProcessor := batch.NewParallelBatchProcessor(kvStore, c)
+	
 	return &pebbleEngine{
 		kv:                  kvStore,
 		codec:               c,
@@ -59,10 +64,17 @@ func NewPebbleEngine(kvStore storage.KV, c codec.Codec) engineTypes.StorageEngin
 		deleteOperations:    deleteOps,
 		deadlockDetector:    deadlockDetector,
 		iteratorPool:        scan.NewIteratorPool(),
+		batchProcessor:      batchProcessor,
 	}
 }
 
 func (e *pebbleEngine) Close() error {
+	// Close the parallel batch processor if it exists
+	if closer, ok := e.batchProcessor.(interface{ Close() error }); ok {
+		if err := closer.Close(); err != nil {
+			return err
+		}
+	}
 	return e.kv.Close()
 }
 

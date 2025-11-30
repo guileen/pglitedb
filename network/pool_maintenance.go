@@ -78,22 +78,21 @@ func (p *ConnectionPool) adaptPoolSize() {
 		if newMax > p.config.MaxAdaptiveConnections {
 			newMax = p.config.MaxAdaptiveConnections
 		}
-		p.adjustPoolCapacity(newMax)
+		p.AdjustPoolCapacity(newMax)
 	} else if avgHitRate > maxThreshold && currentMax > p.config.MinAdaptiveConnections {
 		// Contract pool
 		newMax := int(float64(currentMax) * p.config.ContractionFactor)
 		if newMax < p.config.MinAdaptiveConnections {
 			newMax = p.config.MinAdaptiveConnections
 		}
-		p.adjustPoolCapacity(newMax)
+		p.AdjustPoolCapacity(newMax)
 	}
 }
 
-// adjustPoolCapacity changes the maximum pool capacity
-func (p *ConnectionPool) adjustPoolCapacity(newMax int) {
-	// This is a simplified implementation
-	// In a production environment, you would need to handle
-	// resizing the connections channel safely
+// AdjustPoolCapacity changes the maximum pool capacity
+func (p *ConnectionPool) AdjustPoolCapacity(newMax int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.config.MaxConnections = newMax
 }
 

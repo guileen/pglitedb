@@ -3,7 +3,6 @@ package sql
 import (
 	"strconv"
 	"testing"
-	"time"
 )
 
 func BenchmarkLRUCacheGet(b *testing.B) {
