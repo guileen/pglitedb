@@ -234,12 +234,13 @@ func (p *PebbleKV) Set(ctx context.Context, key, value []byte) error {
 }
 
 func (p *PebbleKV) SetWithOptions(ctx context.Context, key, value []byte, opts *shared.WriteOptions) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
+	// Check if closed with read lock first
+	p.mu.RLock()
 	if p.closed {
+		p.mu.RUnlock()
 		return shared.ErrClosed
 	}
+	p.mu.RUnlock()
 
 	// For async writes (Sync: false), increment pending counter and don't decrement immediately
 	// For sync writes (Sync: true), increment and decrement immediately
@@ -260,12 +261,29 @@ func (p *PebbleKV) SetWithOptions(ctx context.Context, key, value []byte, opts *
 		}
 	}
 
-	if err := p.db.Set(key, value, pebbleOpts); err != nil {
+	// Only lock for the actual database operation, and use read lock for checking closed state
+	p.mu.RLock()
+	if p.closed {
+		p.mu.RUnlock()
+		atomic.AddInt64(&p.pendingWrites, -1) // Decrement if closed
+		return shared.ErrClosed
+	}
+	
+	// Clone key and value to avoid holding references
+	keyClone := make([]byte, len(key))
+	copy(keyClone, key)
+	valueClone := make([]byte, len(value))
+	copy(valueClone, value)
+	
+	err := p.db.Set(keyClone, valueClone, pebbleOpts)
+	p.mu.RUnlock()
+	
+	if err != nil {
 		atomic.AddInt64(&p.pendingWrites, -1) // Decrement on error
 		return fmt.Errorf("pebble set: %w", err)
 	}
 
-	// Update timestamp for MVCC
+	// Update timestamp for MVCC (no lock needed for sync.Map)
 	ts := p.allocateTimestamp()
 	p.setKeyTimestamp(key, ts)
 
@@ -277,15 +295,25 @@ func (p *PebbleKV) Delete(ctx context.Context, key []byte) error {
 }
 
 func (p *PebbleKV) DeleteWithOptions(ctx context.Context, key []byte, opts *shared.WriteOptions) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
+	// Check if closed with read lock first
+	p.mu.RLock()
 	if p.closed {
+		p.mu.RUnlock()
 		return shared.ErrClosed
 	}
+	p.mu.RUnlock()
 
-	atomic.AddInt64(&p.pendingWrites, 1)
-	defer atomic.AddInt64(&p.pendingWrites, -1)
+	// For async writes (Sync: false), increment pending counter and don't decrement immediately
+	// For sync writes (Sync: true), increment and decrement immediately
+	isAsync := opts == nil || !opts.Sync
+	
+	if isAsync {
+		atomic.AddInt64(&p.pendingWrites, 1)
+		// Note: Counter is decremented by Flush operations, not immediately
+	} else {
+		atomic.AddInt64(&p.pendingWrites, 1)
+		defer atomic.AddInt64(&p.pendingWrites, -1)
+	}
 
 	var pebbleOpts *pebble.WriteOptions
 	if opts != nil {
@@ -294,11 +322,27 @@ func (p *PebbleKV) DeleteWithOptions(ctx context.Context, key []byte, opts *shar
 		}
 	}
 
-	if err := p.db.Delete(key, pebbleOpts); err != nil {
+	// Only lock for the actual database operation, and use read lock for checking closed state
+	p.mu.RLock()
+	if p.closed {
+		p.mu.RUnlock()
+		atomic.AddInt64(&p.pendingWrites, -1) // Decrement if closed
+		return shared.ErrClosed
+	}
+	
+	// Clone key to avoid holding references
+	keyClone := make([]byte, len(key))
+	copy(keyClone, key)
+	
+	err := p.db.Delete(keyClone, pebbleOpts)
+	p.mu.RUnlock()
+	
+	if err != nil {
+		atomic.AddInt64(&p.pendingWrites, -1) // Decrement on error
 		return fmt.Errorf("pebble delete: %w", err)
 	}
 
-	// Update timestamp for MVCC
+	// Update timestamp for MVCC (no lock needed for sync.Map)
 	ts := p.allocateTimestamp()
 	p.setKeyTimestamp(key, ts)
 
@@ -392,12 +436,17 @@ func (p *PebbleKV) NewSnapshot() (shared.Snapshot, error) {
 }
 
 func (p *PebbleKV) NewTransaction(ctx context.Context) (shared.Transaction, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
+	// Use a read lock instead of write lock for transaction creation
+	// since we're only reading the closed state and atomically incrementing nextTxnID
+	p.mu.RLock()
+	
 	if p.closed {
+		p.mu.RUnlock()
 		return nil, shared.ErrClosed
 	}
+	
+	// Release the read lock before creating the batch to avoid blocking other operations
+	p.mu.RUnlock()
 
 	txnID := atomic.AddUint64(&p.nextTxnID, 1)
 	txn := &PebbleTransaction{
@@ -503,13 +552,19 @@ func (p *PebbleKV) backgroundFlush() {
 		case <-p.flushTicker.C:
 			// Only flush if there are pending writes
 			if atomic.LoadInt64(&p.pendingWrites) > 0 {
-				p.mu.Lock()
-				if !p.closed {
-					_ = p.db.Flush()
-					// Reset pending writes counter when background flushing (process all pending writes)
-					atomic.StoreInt64(&p.pendingWrites, 0)
+				// Use a read lock first to check if closed
+				p.mu.RLock()
+				if p.closed {
+					p.mu.RUnlock()
+					return
 				}
-				p.mu.Unlock()
+				p.mu.RUnlock()
+				
+				// Perform flush without holding the lock
+				_ = p.db.Flush()
+				
+				// Reset pending writes counter when background flushing (process all pending writes)
+				atomic.StoreInt64(&p.pendingWrites, 0)
 			}
 		case <-p.flushDone:
 			return

@@ -3,16 +3,21 @@ package sql
 import (
 	"container/list"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // LRUCache implements a thread-safe LRU cache with expiration support
 type LRUCache struct {
-	capacity   int
+	capacity   int64
 	cache      map[string]*list.Element
 	evictList  *list.List
 	mutex      sync.RWMutex
 	expiration time.Duration
+	
+	// Atomic counters for better performance monitoring
+	hits   int64
+	misses int64
 }
 
 // cacheEntry represents a cached item
@@ -25,7 +30,7 @@ type cacheEntry struct {
 // NewLRUCache creates a new LRU cache with the specified capacity
 func NewLRUCache(capacity int) *LRUCache {
 	return &LRUCache{
-		capacity:  capacity,
+		capacity:  int64(capacity),
 		cache:     make(map[string]*list.Element),
 		evictList: list.New(),
 	}
@@ -34,7 +39,7 @@ func NewLRUCache(capacity int) *LRUCache {
 // NewLRUCacheWithExpiration creates a new LRU cache with expiration
 func NewLRUCacheWithExpiration(capacity int, expiration time.Duration) *LRUCache {
 	return &LRUCache{
-		capacity:   capacity,
+		capacity:   int64(capacity),
 		cache:      make(map[string]*list.Element),
 		evictList:  list.New(),
 		expiration: expiration,
@@ -43,23 +48,47 @@ func NewLRUCacheWithExpiration(capacity int, expiration time.Duration) *LRUCache
 
 // Get retrieves a value from the cache
 func (c *LRUCache) Get(key string) (interface{}, bool) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
+	c.mutex.RLock()
+	
 	if element, exists := c.cache[key]; exists {
 		entry := element.Value.(*cacheEntry)
 		
 		// Check if entry has expired
 		if c.expiration > 0 && time.Since(entry.timestamp) > c.expiration {
-			c.removeElement(element)
-			return nil, false
+			// Entry expired, need to remove it
+			c.mutex.RUnlock()
+			c.mutex.Lock()
+			// Double-check that the entry still exists
+			if element, exists := c.cache[key]; exists {
+				entry := element.Value.(*cacheEntry)
+				if c.expiration > 0 && time.Since(entry.timestamp) > c.expiration {
+					c.removeElement(element)
+					c.mutex.Unlock()
+					atomic.AddInt64(&c.misses, 1)
+					return nil, false
+				}
+			}
+			c.mutex.Unlock()
+			c.mutex.RLock()
 		}
 		
 		// Move to front (most recently used)
-		c.evictList.MoveToFront(element)
-		return entry.value, true
+		c.mutex.RUnlock()
+		c.mutex.Lock()
+		// Double-check that the entry still exists
+		if element, exists := c.cache[key]; exists {
+			c.evictList.MoveToFront(element)
+			value := element.Value.(*cacheEntry).value
+			c.mutex.Unlock()
+			atomic.AddInt64(&c.hits, 1)
+			return value, true
+		}
+		c.mutex.Unlock()
+		c.mutex.RLock()
 	}
 	
+	c.mutex.RUnlock()
+	atomic.AddInt64(&c.misses, 1)
 	return nil, false
 }
 
@@ -88,7 +117,7 @@ func (c *LRUCache) Put(key string, value interface{}) {
 	c.cache[key] = element
 
 	// Evict oldest if necessary
-	if c.evictList.Len() > c.capacity {
+	if int64(c.evictList.Len()) > c.capacity {
 		c.evictOldest()
 	}
 }
@@ -116,6 +145,27 @@ func (c *LRUCache) Clear() {
 	defer c.mutex.Unlock()
 	c.cache = make(map[string]*list.Element)
 	c.evictList.Init()
+}
+
+// Stats returns cache hit/miss statistics
+func (c *LRUCache) Stats() (hits, misses int64) {
+	return atomic.LoadInt64(&c.hits), atomic.LoadInt64(&c.misses)
+}
+
+// HitRate returns the cache hit rate as a percentage
+func (c *LRUCache) HitRate() float64 {
+	hits, misses := c.Stats()
+	total := hits + misses
+	if total == 0 {
+		return 0.0
+	}
+	return float64(hits) / float64(total) * 100
+}
+
+// ResetStats resets the cache statistics
+func (c *LRUCache) ResetStats() {
+	atomic.StoreInt64(&c.hits, 0)
+	atomic.StoreInt64(&c.misses, 0)
 }
 
 // evictOldest removes the oldest entry from the cache

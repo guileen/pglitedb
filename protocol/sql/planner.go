@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"sync/atomic"
 	
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 	"github.com/guileen/pglitedb/catalog"
@@ -18,10 +17,6 @@ type Planner struct {
 	executor  *Executor
 	optimizer *QueryOptimizer
 	planCache *LRUCache
-	
-	// Metrics for plan caching
-	cacheHits   int64
-	cacheMisses int64
 }
 
 // NewPlanner creates a new query planner
@@ -107,23 +102,25 @@ func (p *Planner) PlanCacheSize() int {
 
 // CacheStats returns cache hit and miss statistics
 func (p *Planner) CacheStats() (hits, misses int64) {
-	return atomic.LoadInt64(&p.cacheHits), atomic.LoadInt64(&p.cacheMisses)
+	if p.planCache != nil {
+		return p.planCache.Stats()
+	}
+	return 0, 0
 }
 
 // CacheHitRate returns the cache hit rate as a percentage
 func (p *Planner) CacheHitRate() float64 {
-	hits, misses := p.CacheStats()
-	total := hits + misses
-	if total == 0 {
-		return 0.0
+	if p.planCache != nil {
+		return p.planCache.HitRate()
 	}
-	return float64(hits) / float64(total) * 100
+	return 0.0
 }
 
 // ResetCacheStats resets the cache hit/miss counters
 func (p *Planner) ResetCacheStats() {
-	atomic.StoreInt64(&p.cacheHits, 0)
-	atomic.StoreInt64(&p.cacheMisses, 0)
+	if p.planCache != nil {
+		p.planCache.ResetStats()
+	}
 }
 
 // CreatePlan creates an execution plan from a SQL query
@@ -135,17 +132,12 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 	if p.planCache != nil {
 		if cachedPlan, ok := p.planCache.Get(normalizedQuery); ok {
 			if plan, ok := cachedPlan.(*Plan); ok {
-				// Increment cache hit counter
-				atomic.AddInt64(&p.cacheHits, 1)
 				// Return a copy of the cached plan to avoid concurrency issues
 				return p.copyPlan(plan), nil
 			}
 		}
 	}
 	
-	// Increment cache miss counter (we're about to parse/create a new plan)
-	atomic.AddInt64(&p.cacheMisses, 1)
-
 	// Parse the query using the configured parser
 	parsedQuery, err := p.parser.Parse(query)
 	if err != nil {
