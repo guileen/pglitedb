@@ -1,11 +1,8 @@
 package pgserver
 
 import (
-	"fmt"
-	"log"
 	"net"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
@@ -124,104 +121,6 @@ func (s *PostgreSQLServer) Start(port string) error {
 	return s.StartTCP(port)
 }
 
-// StartTCP starts the PostgreSQL server on the specified TCP port
-func (s *PostgreSQLServer) StartTCP(port string) error {
-	logger.Info("Starting PostgreSQL server TCP listener", "port", port)
-	
-	var err error
-	s.listener, err = net.Listen("tcp", ":"+port)
-	if err != nil {
-		logger.Error("Failed to start TCP listener", "error", err, "port", port)
-		return fmt.Errorf("failed to start TCP listener: %w", err)
-	}
-	
-	logger.Info("PostgreSQL server listening on TCP port", "port", port)
-	log.Printf("PostgreSQL server listening on TCP port %s", port)
-	
-	connectionCount := 0
-	for {
-		conn, err := s.listener.Accept()
-		if err != nil {
-			s.mu.Lock()
-			closed := s.closed
-			s.mu.Unlock()
-			
-			if closed {
-				logger.Info("TCP listener closed, exiting accept loop")
-				return nil
-			}
-			
-			logger.Error("Failed to accept connection", "error", err)
-			log.Printf("Failed to accept connection: %v", err)
-			continue
-		}
-		
-		connectionCount++
-		logger.Debug("Accepted new TCP connection", "connection_count", connectionCount, "remote_addr", conn.RemoteAddr().String())
-		
-		// Add nil check to prevent panic
-		if s.connectionHandler == nil {
-			logger.Error("Connection handler is nil, closing connection")
-			conn.Close()
-			continue
-		}
-		
-		go s.connectionHandler.HandleConnection(conn)
-	}
-}
-
-// StartUnix starts the PostgreSQL server on the specified Unix socket
-func (s *PostgreSQLServer) StartUnix(socketPath string) error {
-	logger.Info("Starting PostgreSQL server Unix socket listener", "socketPath", socketPath)
-	
-	// Remove existing socket file if it exists
-	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
-		logger.Warn("Failed to remove existing socket file", "error", err, "socketPath", socketPath)
-		log.Printf("Warning: failed to remove existing socket file: %v", err)
-	}
-	
-	var err error
-	s.listener, err = net.Listen("unix", socketPath)
-	if err != nil {
-		logger.Error("Failed to start Unix socket listener", "error", err, "socketPath", socketPath)
-		return fmt.Errorf("failed to start Unix socket listener: %w", err)
-	}
-	
-	logger.Info("PostgreSQL server listening on Unix socket", "socketPath", socketPath)
-	log.Printf("PostgreSQL server listening on Unix socket %s", socketPath)
-	
-	connectionCount := 0
-	for {
-		conn, err := s.listener.Accept()
-		if err != nil {
-			s.mu.Lock()
-			closed := s.closed
-			s.mu.Unlock()
-			
-			if closed {
-				logger.Info("Unix socket listener closed, exiting accept loop")
-				return nil
-			}
-			
-			logger.Error("Failed to accept connection", "error", err)
-			log.Printf("Failed to accept connection: %v", err)
-			continue
-		}
-		
-		connectionCount++
-		logger.Debug("Accepted new Unix connection", "connection_count", connectionCount, "local_addr", conn.LocalAddr().String())
-		
-		// Add nil check to prevent panic
-		if s.connectionHandler == nil {
-			logger.Error("Connection handler is nil, closing connection")
-			conn.Close()
-			continue
-		}
-		
-		go s.connectionHandler.HandleConnection(conn)
-	}
-}
-
 // Close shuts down the PostgreSQL server
 func (s *PostgreSQLServer) Close() error {
 	s.mu.Lock()
@@ -256,6 +155,10 @@ func (s *PostgreSQLServer) Close() error {
 			return err
 		}
 	}
+	
+	// Close components
+	// Note: We're not calling Close() on connectionHandler as it's not part of the interface
+	// In a real implementation, we might need to type assert or add Close to the interface
 	
 	logger.Info("PostgreSQL server closed successfully")
 	return nil
