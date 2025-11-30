@@ -7,6 +7,7 @@ import (
 
 // normalizeLiterals controls whether literals should be normalized to placeholders
 // This can be set to false for testing to ensure cache isolation
+// Enabled by default for better cache hit rates
 var normalizeLiterals = true
 
 // Pre-compiled regex patterns for better performance
@@ -57,7 +58,7 @@ func EnableLiteralNormalization(enable bool) {
 
 // NormalizeQuery normalizes a SQL query by removing extra whitespace and standardizing formatting
 // This is used for creating cache keys to improve cache hit rates
-// Optimized version using pre-compiled regex patterns for better performance
+// Enhanced version with more aggressive normalization for better cache hit rates
 func NormalizeQuery(query string) string {
 	// Remove comments using pre-compiled regex
 	query = commentRegex1.ReplaceAllString(query, "")
@@ -149,9 +150,27 @@ func NormalizeQuery(query string) string {
 	normalized = likeRegex.ReplaceAllString(normalized, " like ")
 	normalized = ilikeRegex.ReplaceAllString(normalized, " ilike ")
 	
+	// Additional aggressive normalization for even better cache hit rates
+	// Normalize multiple spaces around keywords
+	normalized = strings.ReplaceAll(normalized, "  ", " ")
+	
+	// Normalize common variations that don't affect query semantics
+	normalized = strings.ReplaceAll(normalized, " asc ", " ")
+	normalized = strings.ReplaceAll(normalized, " desc ", " desc ")
+	
+	// Normalize common whitespace variations
+	normalized = strings.ReplaceAll(normalized, "( ", "(")
+	normalized = strings.ReplaceAll(normalized, " )", ")")
+	normalized = strings.ReplaceAll(normalized, "[ ", "[")
+	normalized = strings.ReplaceAll(normalized, " ]", "]")
+	
 	// Final trim and space normalization
 	normalized = strings.TrimSpace(normalized)
 	normalized = whitespaceRegex.ReplaceAllString(normalized, " ")
+	
+	// Remove trailing spaces before commas and semicolons
+	normalized = strings.ReplaceAll(normalized, " ,", ",")
+	normalized = strings.ReplaceAll(normalized, " ;", ";")
 	
 	return normalized
 }
