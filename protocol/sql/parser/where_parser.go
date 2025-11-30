@@ -26,36 +26,46 @@ func (wp *WhereParser) ParseWhereClause(wherePart string) []Condition {
 		parts := strings.Split(wherePart, " AND ")
 		for _, part := range parts {
 			part = strings.TrimSpace(part)
-			if strings.Contains(part, " = ") {
-				eqParts := strings.Split(part, " = ")
-				if len(eqParts) == 2 {
-					field := strings.TrimSpace(eqParts[0])
-					value := strings.TrimSpace(eqParts[1])
-					
-					// Remove quotes if present
-					if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
-						value = strings.Trim(value, "'")
-					} else if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
-						value = strings.Trim(value, "\"")
+			
+			// Try to parse various comparison operators
+			operators := []string{" = ", " > ", " < ", " >= ", " <= ", " != ", " <> "}
+			foundOperator := false
+			
+			for _, op := range operators {
+				if strings.Contains(part, op) {
+					opParts := strings.Split(part, op)
+					if len(opParts) == 2 {
+						field := strings.TrimSpace(opParts[0])
+						value := strings.TrimSpace(opParts[1])
+						
+						// Remove quotes if present
+						if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
+							value = strings.Trim(value, "'")
+						} else if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
+							value = strings.Trim(value, "\"")
+						}
+						
+						condition := Condition{
+							Field:    field,
+							Operator: strings.TrimSpace(op),
+							Value:    value,
+						}
+						conditions = append(conditions, condition)
+						foundOperator = true
+						break
 					}
-					
-					condition := Condition{
-						Field:    field,
-						Operator: "=",
-						Value:    value,
-					}
-					conditions = append(conditions, condition)
-					continue
 				}
 			}
 			
-			// Fall back to the original simplified representation
-			condition := Condition{
-				Field:    "*", // Simplified
-				Operator: "*", // Simplified
-				Value:    part,
+			// If no operator found, fall back to the original simplified representation
+			if !foundOperator {
+				condition := Condition{
+					Field:    "*", // Simplified
+					Operator: "*", // Simplified
+					Value:    part,
+				}
+				conditions = append(conditions, condition)
 			}
-			conditions = append(conditions, condition)
 		}
 	}
 	

@@ -192,8 +192,8 @@ regress_bench:
 	echo "Running regression tests..."; \
 	scripts/run_regress.sh; \
 	echo "Running pgbench tests..."; \
-	mkdir -p bench && scripts/run_pgbench.sh | tee $(PWD)/bench/bench_$$TIMESTAMP.json; \
-	echo "Benchmark test results saved to bench/bench_$$TIMESTAMP.json"; \
+	mkdir -p bench && scripts/run_pgbench.sh | tee $(PWD)/bench/bench_$$TIMESTAMP.log; \
+	echo "Benchmark test results saved to bench/bench_$$TIMESTAMP.log"; \
 	echo "Tests completed. Results saved to regress/ and bench/ directories."
 
 ## run-both: 同时运行 HTTP 和 PostgreSQL 服务器（需要多个终端）

@@ -9,8 +9,8 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 mkdir -p bench
 
 # Find the two most recent benchmark files
-LATEST_BENCH=$(ls -t bench/*.json | head -n 1)
-PREVIOUS_BENCH=$(ls -t bench/*.json | head -n 2 | tail -n 1)
+LATEST_BENCH=$(ls -t bench/*.log | head -n 1)
+PREVIOUS_BENCH=$(ls -t bench/*.log | head -n 2 | tail -n 1)
 
 if [ -z "$LATEST_BENCH" ] || [ -z "$PREVIOUS_BENCH" ]; then
     echo "Error: Not enough benchmark files to compare"
