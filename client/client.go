@@ -458,6 +458,71 @@ func (c *Client) Delete(ctx context.Context, tenantID int64, tableName string, w
 	}, nil
 }
 
+// statementTypeToString converts StatementType to string representation
+func statementTypeToString(st sql.StatementType) string {
+	switch st {
+	case sql.SelectStatement:
+		return "SELECT"
+	case sql.InsertStatement:
+		return "INSERT"
+	case sql.UpdateStatement:
+		return "UPDATE"
+	case sql.DeleteStatement:
+		return "DELETE"
+	case sql.BeginStatement:
+		return "BEGIN"
+	case sql.CommitStatement:
+		return "COMMIT"
+	case sql.RollbackStatement:
+		return "ROLLBACK"
+	case sql.CreateTableStatement:
+		return "CREATE_TABLE"
+	case sql.DropTableStatement:
+		return "DROP_TABLE"
+	case sql.AlterTableStatement:
+		return "ALTER_TABLE"
+	case sql.CreateIndexStatement:
+		return "CREATE_INDEX"
+	case sql.DropIndexStatement:
+		return "DROP_INDEX"
+	case sql.CreateViewStatement:
+		return "CREATE_VIEW"
+	case sql.DropViewStatement:
+		return "DROP_VIEW"
+	case sql.AnalyzeStatementType:
+		return "ANALYZE"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+// Explain explains a SQL query and returns the execution plan
+func (c *Client) Explain(ctx context.Context, query interface{}) (*types.QueryResult, error) {
+	// Convert query interface to string
+	sqlQuery, ok := query.(string)
+	if !ok {
+		return nil, fmt.Errorf("invalid query type: expected string")
+	}
+	
+	plan, err := c.executor.Explain(sqlQuery)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Convert plan to a readable string representation
+	planStr := fmt.Sprintf("Plan Type: %s\nOperation: %s\nTable: %s\nFields: %v", 
+		statementTypeToString(plan.Type), plan.Operation, plan.Table, plan.Fields)
+	
+	// Convert plan to QueryResult
+	return &types.QueryResult{
+		Rows: [][]interface{}{{planStr}},
+		Columns: []types.ColumnInfo{
+			{Name: "plan", Type: types.ColumnTypeString},
+		},
+		Count: 1,
+	}, nil
+}
+
 // BatchInsert inserts multiple records into the specified table in a single batch operation
 func (c *Client) BatchInsert(ctx context.Context, tenantID int64, tableName string, dataList []map[string]interface{}) (*types.QueryResult, error) {
 	if len(dataList) == 0 {
