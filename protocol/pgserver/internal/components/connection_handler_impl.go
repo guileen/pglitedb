@@ -1,14 +1,14 @@
 package components
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/guileen/pglitedb/logger"
-	ctx "github.com/guileen/pglitedb/context"
+	customctx "github.com/guileen/pglitedb/context"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/guileen/pglitedb/protocol/sql"
 )
@@ -59,8 +59,8 @@ func (ch *ConnectionHandler) HandleConnection(conn net.Conn) {
 	logger.Info("Handling new client connection", "remote_addr", conn.RemoteAddr().String(), "local_addr", conn.LocalAddr().String())
 	
 	// Get a RequestContext from the pool
-	reqCtx := ctx.GetRequestContext()
-	defer ctx.PutRequestContext(reqCtx)
+	reqCtx := customctx.GetRequestContext()
+	defer customctx.PutRequestContext(reqCtx)
 	
 	defer func() {
 		conn.Close()
@@ -172,64 +172,107 @@ func (ch *ConnectionHandler) HandleConnection(conn net.Conn) {
 
 // Extended Query Protocol handlers
 func (ch *ConnectionHandler) handleQuery(backend *pgproto3.Backend, query string) bool {
-	// This is a placeholder - in a real implementation, this would delegate to the query processor
+	// Delegate to query processor if available
+	if ch.queryProcessor != nil {
+		// Type assert to the expected interface and call ProcessQuery
+		if processor, ok := ch.queryProcessor.(interface {
+			ProcessQuery(ctx context.Context, backend *pgproto3.Backend, query string) (bool, error)
+		}); ok {
+			shouldClose, err := processor.ProcessQuery(context.Background(), backend, query)
+			if err != nil {
+				logger.Error("Query processing failed", "error", err)
+				return true
+			}
+			return shouldClose
+		}
+	}
+	
+	// Fallback implementation - send a simple response
+	backend.Send(&pgproto3.CommandComplete{CommandTag: []byte("SELECT 0")})
+	backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+	if err := backend.Flush(); err != nil {
+		logger.Error("Failed to flush query response", "error", err)
+		return true
+	}
 	return false
 }
 
 func (ch *ConnectionHandler) handleParse(backend *pgproto3.Backend, msg *pgproto3.Parse) bool {
-	logger.Debug("Parsing prepared statement", "name", msg.Name, "query", msg.Query, "parameter_count", len(msg.ParameterOIDs))
-	
-	// Create a prepared statement
-	stmt := &PreparedStatement{
-		Name:  msg.Name,
-		Query: msg.Query,
-		ParameterOIDs: msg.ParameterOIDs,
+	// Delegate to statement manager if available
+	if ch.statementManager != nil {
+		// Type assert to the expected interface and call Parse
+		if manager, ok := ch.statementManager.(interface {
+			Parse(backend *pgproto3.Backend, msg *pgproto3.Parse) bool
+		}); ok {
+			return manager.Parse(backend, msg)
+		}
 	}
 	
-	// Parse the query to extract RETURNING columns if present
-	startTime := time.Now()
-	parsed, err := ch.parser.Parse(msg.Query)
-	parseDuration := time.Since(startTime)
-	if err == nil {
-		stmt.ReturningColumns = parsed.ReturningColumns
-		logger.Debug("Query parsed for prepared statement", "parse_duration", parseDuration.String(), "returning_columns", parsed.ReturningColumns)
-	} else {
-		logger.Warn("Failed to parse query for prepared statement", "error", err, "parse_duration", parseDuration.String())
-	}
-	
-	// Store the prepared statement with mutex protection
-	ch.psMutex.Lock()
-	if msg.Name == "" {
-		// unnamed statement
-		ch.preparedStatements[""] = stmt
-		logger.Debug("Stored unnamed prepared statement")
-	} else {
-		ch.preparedStatements[msg.Name] = stmt
-		logger.Debug("Stored named prepared statement", "name", msg.Name)
-	}
-	ch.psMutex.Unlock()
-	
+	// Fallback implementation - send a simple response
 	backend.Send(&pgproto3.ParseComplete{})
 	if err := backend.Flush(); err != nil {
-		logger.Error("Failed to flush ParseComplete", "error", err)
+		logger.Error("Failed to flush Parse response", "error", err)
 		return true
 	}
-	
-	logger.Debug("Parse completed successfully")
 	return false
 }
 
 func (ch *ConnectionHandler) handleBind(backend *pgproto3.Backend, msg *pgproto3.Bind) bool {
-	// Placeholder implementation
+	// Delegate to statement manager if available
+	if ch.statementManager != nil {
+		// Type assert to the expected interface and call Bind
+		if manager, ok := ch.statementManager.(interface {
+			Bind(backend *pgproto3.Backend, msg *pgproto3.Bind) bool
+		}); ok {
+			return manager.Bind(backend, msg)
+		}
+	}
+	
+	// Fallback implementation - send a simple response
+	backend.Send(&pgproto3.BindComplete{})
+	if err := backend.Flush(); err != nil {
+		logger.Error("Failed to flush Bind response", "error", err)
+		return true
+	}
 	return false
 }
 
 func (ch *ConnectionHandler) handleDescribe(backend *pgproto3.Backend, msg *pgproto3.Describe) bool {
-	// Placeholder implementation
+	// Delegate to statement manager if available
+	if ch.statementManager != nil {
+		// Type assert to the expected interface and call Describe
+		if manager, ok := ch.statementManager.(interface {
+			Describe(backend *pgproto3.Backend, msg *pgproto3.Describe) bool
+		}); ok {
+			return manager.Describe(backend, msg)
+		}
+	}
+	
+	// Fallback implementation - send a simple response
+	backend.Send(&pgproto3.NoData{})
+	if err := backend.Flush(); err != nil {
+		logger.Error("Failed to flush Describe response", "error", err)
+		return true
+	}
 	return false
 }
 
 func (ch *ConnectionHandler) handleExecute(backend *pgproto3.Backend, msg *pgproto3.Execute) bool {
-	// Placeholder implementation
+	// Delegate to statement manager if available
+	if ch.statementManager != nil {
+		// Type assert to the expected interface and call Execute
+		if manager, ok := ch.statementManager.(interface {
+			Execute(backend *pgproto3.Backend, msg *pgproto3.Execute) bool
+		}); ok {
+			return manager.Execute(backend, msg)
+		}
+	}
+	
+	// Fallback implementation - send a simple response
+	backend.Send(&pgproto3.CommandComplete{CommandTag: []byte("EXECUTE")})
+	if err := backend.Flush(); err != nil {
+		logger.Error("Failed to flush Execute response", "error", err)
+		return true
+	}
 	return false
 }

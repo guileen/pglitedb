@@ -3,8 +3,8 @@ package pgserver
 import (
 	"context"
 	"time"
-	
 	"github.com/guileen/pglitedb/logger"
+	"github.com/guileen/pglitedb/protocol/pgserver/config"
 )
 
 // ProfilingConfig holds configuration for profiling
@@ -16,6 +16,8 @@ type ProfilingConfig struct {
 
 // StartProfiling starts the profiling service
 func (s *PostgreSQLServer) StartProfiling() error {
+	// The server manager handles starting the server which includes profiling
+	// This method is kept for backward compatibility
 	if s.httpPort != "" && s.profilingService != nil {
 		logger.Info("Starting profiling service", "port", s.httpPort)
 		go func() {
@@ -44,39 +46,20 @@ func (s *PostgreSQLServer) StopProfiling() error {
 
 // IsProfilingEnabled returns whether profiling is enabled
 func (s *PostgreSQLServer) IsProfilingEnabled() bool {
-	return s.httpPort != "" && s.profilingService != nil
+	config := s.serverManager.GetConfig(s)
+	return config.ProfilingPort != "" && s.profilingService != nil
 }
 
 // GetProfilingPort returns the profiling port
 func (s *PostgreSQLServer) GetProfilingPort() string {
-	return s.httpPort
+	config := s.serverManager.GetConfig(s)
+	return config.ProfilingPort
 }
 
 // SetProfilingPort sets the profiling port and restarts profiling if needed
 func (s *PostgreSQLServer) SetProfilingPort(port string) error {
-	// Stop existing profiling
-	if s.profilingService != nil {
-		if err := s.profilingService.Stop(); err != nil {
-			logger.Error("Failed to stop existing profiling service", "error", err)
-			return err
-		}
-	}
-	
-	// Update port
-	s.httpPort = port
-	
-	// Create new profiling service if port is not empty
-	if port != "" {
-		s.profilingService = NewProfilingService(port)
-		// Start profiling in a separate goroutine
-		go func() {
-			if err := s.profilingService.Start(); err != nil {
-				logger.Error("Failed to start profiling service", "error", err)
-			}
-		}()
-	}
-	
-	return nil
+	// Delegate to server manager for setting profiling port
+	return s.serverManager.ApplyConfig(s, &config.ServerConfig{ProfilingPort: port})
 }
 
 // ProfilingStatus returns the current profiling status

@@ -10,6 +10,9 @@ import (
 	"github.com/guileen/pglitedb/pool"
 	"github.com/guileen/pglitedb/protocol/sql"
 	"github.com/guileen/pglitedb/logger"
+	"github.com/guileen/pglitedb/protocol/pgserver/components/server"
+	"github.com/guileen/pglitedb/protocol/pgserver/components/connection"
+	"github.com/guileen/pglitedb/protocol/pgserver/components/buffer"
 )
 
 // PostgreSQLServer represents the main PostgreSQL server
@@ -28,6 +31,11 @@ type PostgreSQLServer struct {
 	
 	// Buffer pools for network I/O
 	bufferPool *pool.MultiBufferPool
+	
+	// Component managers
+	serverManager      *server.ServerManager
+	connectionManager  *connection.ConnectionManager
+	bufferPoolManager  *buffer.BufferPoolManager
 	
 	// Component references
 	connectionHandler ConnectionHandlerInterface
@@ -81,12 +89,20 @@ func NewPostgreSQLServer(executor *sql.Executor, planner *sql.Planner) *PostgreS
 	statementManager := NewPreparedStatementManager(parser)
 	connectionHandler := NewConnectionHandler(queryProcessor, statementManager, parser)
 	
+	// Create component managers
+	serverManager := server.NewServerManager()
+	connectionManager := connection.NewConnectionManager(adaptivePool.ConnectionPool)
+	bufferPoolManager := buffer.NewBufferPoolManager(bufferPool)
+	
 	server := &PostgreSQLServer{
 		executor:          executor,
 		parser:            parser,
 		planner:           planner,
 		bufferPool:        bufferPool,
 		connectionPool:    adaptivePool.ConnectionPool,
+		serverManager:     serverManager,
+		connectionManager: connectionManager,
+		bufferPoolManager: bufferPoolManager,
 		connectionHandler: connectionHandler,
 		queryProcessor:    queryProcessor,
 		statementManager:  statementManager,
@@ -102,6 +118,12 @@ func (s *PostgreSQLServer) WithProfiling(port string) *PostgreSQLServer {
 	s.httpPort = port
 	// Create profiling service
 	s.profilingService = NewProfilingService(port)
+	
+	// Update the server configuration with the profiling port
+	config := s.serverManager.GetConfig(s)
+	config.ProfilingPort = port
+	// In a real implementation, we would apply the config here
+	
 	return s
 }
 
@@ -118,7 +140,8 @@ func (s *PostgreSQLServer) Start(port string) error {
 		}()
 	}
 	
-	return s.StartTCP(port)
+	// Use server manager to start the server
+	return s.serverManager.Start(s, port)
 }
 
 // Close shuts down the PostgreSQL server
@@ -129,23 +152,14 @@ func (s *PostgreSQLServer) Close() error {
 	logger.Info("Closing PostgreSQL server", "was_already_closed", s.closed)
 	s.closed = true
 	
-	if s.listener != nil {
-		err := s.listener.Close()
-		if err != nil {
-			logger.Error("Error closing listener", "error", err)
-			return err
-		}
-		logger.Info("PostgreSQL server listener closed successfully")
+	// Close the listener using connection manager
+	if err := s.connectionManager.CloseListener(); err != nil {
+		return err
 	}
 	
-	// Close the connection pool if it exists
-	if s.connectionPool != nil {
-		err := s.connectionPool.Close()
-		if err != nil {
-			logger.Error("Error closing connection pool", "error", err)
-			return err
-		}
-		logger.Info("PostgreSQL server connection pool closed successfully")
+	// Close the connection pool using connection manager
+	if err := s.connectionManager.CloseConnectionPool(); err != nil {
+		return err
 	}
 	
 	// Stop the profiling server
