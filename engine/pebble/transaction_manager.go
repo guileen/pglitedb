@@ -19,6 +19,9 @@ type transaction struct {
 	isolation storage.IsolationLevel
 }
 
+// Compile-time check to ensure transaction implements engineTypes.Transaction interface
+var _ engineTypes.Transaction = (*transaction)(nil)
+
 // Snapshot transaction implementation
 type snapshotTransaction struct {
 	engine     *pebbleEngine
@@ -27,6 +30,9 @@ type snapshotTransaction struct {
 	mutations  map[string][]byte
 	closed     bool
 }
+
+// Compile-time check to ensure snapshotTransaction implements engineTypes.Transaction interface
+var _ engineTypes.Transaction = (*snapshotTransaction)(nil)
 
 // BeginTx starts a new transaction with default isolation level
 func (e *pebbleEngine) BeginTx(ctx context.Context) (engineTypes.Transaction, error) {
