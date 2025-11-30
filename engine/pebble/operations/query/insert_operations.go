@@ -42,12 +42,6 @@ func (i *InsertOperations) InsertRow(ctx context.Context, tenantID, tableID int6
 	if err := i.kv.Set(ctx, key, value); err != nil {
 		return 0, fmt.Errorf("insert row: %w", err)
 	}
-	// Force a flush to ensure the data is immediately visible
-	if flusher, ok := i.kv.(interface{ Flush() error }); ok {
-		if err := flusher.Flush(); err != nil {
-			return 0, fmt.Errorf("flush: %w", err)
-		}
-	}
 	if err := updateIndexesFunc(ctx, tenantID, tableID, rowID, row, schemaDef, true); err != nil {
 		return 0, fmt.Errorf("update indexes: %w", err)
 	}
@@ -103,13 +97,6 @@ func (i *InsertOperations) InsertRowBatch(ctx context.Context, tenantID, tableID
 
 	if err := commitFunc(ctx, batch); err != nil {
 		return nil, fmt.Errorf("commit batch: %w", err)
-	}
-	
-	// Force a flush to ensure the data is immediately visible
-	if flusher, ok := i.kv.(interface{ Flush() error }); ok {
-		if err := flusher.Flush(); err != nil {
-			return nil, fmt.Errorf("flush: %w", err)
-		}
 	}
 
 	return rowIDs, nil

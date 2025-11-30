@@ -884,16 +884,16 @@ func TestPebbleKV_Configuration(t *testing.T) {
 	config := DefaultPebbleConfig(filepath.Join(tmpDir, "db"))
 	
 	// Test that our new configuration options are set correctly in default config
-	if config.BlockSize != 64<<10 {
-		t.Errorf("expected BlockSize 65536, got %d", config.BlockSize)
+	if config.BlockSize != 32<<10 {
+		t.Errorf("expected BlockSize 32768, got %d", config.BlockSize)
 	}
 	
-	if config.L0CompactionThreshold != 8 {
-		t.Errorf("expected L0CompactionThreshold 8, got %d", config.L0CompactionThreshold)
+	if config.L0CompactionThreshold != 4 {
+		t.Errorf("expected L0CompactionThreshold 4, got %d", config.L0CompactionThreshold)
 	}
 	
-	if config.L0StopWritesThreshold != 32 {
-		t.Errorf("expected L0StopWritesThreshold 32, got %d", config.L0StopWritesThreshold)
+	if config.L0StopWritesThreshold != 12 {
+		t.Errorf("expected L0StopWritesThreshold 12, got %d", config.L0StopWritesThreshold)
 	}
 	
 	if !config.CompressionEnabled {
