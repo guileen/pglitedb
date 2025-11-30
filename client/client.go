@@ -234,18 +234,13 @@ func (c *Client) DirectBatchInsert(ctx context.Context, tenantID int64, tableNam
 		return 0, fmt.Errorf("direct operations not available")
 	}
 	
-	// For now, insert records one by one
-	// In the future, we could optimize this to use the engine's batch operations directly
-	var count int64
-	for _, data := range dataList {
-		_, err := c.manager.InsertRow(ctx, tenantID, tableName, data)
-		if err != nil {
-			return count, err
-		}
-		count++
+	// Use batch insert for better performance
+	count, err := c.manager.InsertBatch(ctx, tenantID, tableName, dataList)
+	if err != nil {
+		return 0, err
 	}
 	
-	return count, nil
+	return int64(len(count)), nil
 }
 
 // Select retrieves records from the specified table
