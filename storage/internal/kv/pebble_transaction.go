@@ -15,7 +15,7 @@ type PebbleTransaction struct {
 	closed     bool
 	readKeys   map[string][]byte
 	isolation  shared.IsolationLevel
-	txnID      uint64
+	txnID      uint64 // Atomic access - never modified after creation
 	kv         *PebbleKV
 	writeKeys  map[string]bool
 
@@ -237,8 +237,8 @@ func (t *PebbleTransaction) SetIsolation(level shared.IsolationLevel) error {
 }
 
 func (t *PebbleTransaction) TxnID() uint64 {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	// txnID is immutable after creation, so we can return it directly
+	// This avoids the mutex lock and reduces synchronization overhead
 	return t.txnID
 }
 

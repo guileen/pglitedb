@@ -21,6 +21,20 @@ func NewParameterBinder(ast *pg_query.ParseResult, params []interface{}) *Parame
 	}
 }
 
+// Init initializes the parameter binder with new AST and parameters
+// This method is used when retrieving objects from a pool
+func (pb *ParameterBinder) Init(ast *pg_query.ParseResult, params []interface{}) {
+	pb.ast = ast
+	pb.params = params
+}
+
+// Reset resets the parameter binder for reuse in a pool
+// This method clears references to allow garbage collection
+func (pb *ParameterBinder) Reset() {
+	pb.ast = nil
+	pb.params = nil
+}
+
 // BindParameters binds parameters in the AST and returns a new AST
 func (pb *ParameterBinder) BindParameters() (*pg_query.ParseResult, error) {
 	if len(pb.ast.Stmts) == 0 {
