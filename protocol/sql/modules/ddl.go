@@ -6,6 +6,7 @@ import (
 
 	"github.com/guileen/pglitedb/catalog"
 	"github.com/guileen/pglitedb/protocol/sql"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 	"github.com/guileen/pglitedb/types"
 )
 
@@ -32,21 +33,21 @@ func (de *DDLExecutor) ExecuteDDL(ctx context.Context, query string) (*types.Res
 
 	// Handle different DDL statement types
 	switch ddlStmt.Type {
-	case sql.CreateTableStatement:
+	case parser.CreateTableStatement:
 		return de.executeCreateTable(ctx, ddlStmt)
-	case sql.CreateIndexStatement:
+	case parser.CreateIndexStatement:
 		return de.executeCreateIndex(ctx, ddlStmt)
-	case sql.DropTableStatement:
+	case parser.DropTableStatement:
 		return de.executeDropTable(ctx, ddlStmt)
-	case sql.DropIndexStatement:
+	case parser.DropIndexStatement:
 		return de.executeDropIndex(ctx, ddlStmt)
-	case sql.AlterTableStatement:
+	case parser.AlterTableStatement:
 		return de.executeAlterTable(ctx, ddlStmt)
-	case sql.CreateViewStatement:
+	case parser.CreateViewStatement:
 		return de.executeCreateView(ctx, ddlStmt)
-	case sql.DropViewStatement:
+	case parser.DropViewStatement:
 		return de.executeDropView(ctx, ddlStmt)
-	case sql.AnalyzeStatementType:
+	case parser.AnalyzeStatementType:
 		// This should be handled by the analyze executor
 		return nil, fmt.Errorf("ANALYZE should be handled by analyze executor")
 	default:
@@ -60,7 +61,7 @@ func (de *DDLExecutor) ExecuteDDL(ctx context.Context, query string) (*types.Res
 }
 
 // executeCreateTable handles CREATE TABLE statements
-func (de *DDLExecutor) executeCreateTable(ctx context.Context, ddlStmt *sql.DDLStatement) (*types.ResultSet, error) {
+func (de *DDLExecutor) executeCreateTable(ctx context.Context, ddlStmt *parser.DDLStatement) (*types.ResultSet, error) {
 	if de.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -108,7 +109,7 @@ func (de *DDLExecutor) executeCreateTable(ctx context.Context, ddlStmt *sql.DDLS
 }
 
 // executeCreateIndex handles CREATE INDEX statements
-func (de *DDLExecutor) executeCreateIndex(ctx context.Context, ddlStmt *sql.DDLStatement) (*types.ResultSet, error) {
+func (de *DDLExecutor) executeCreateIndex(ctx context.Context, ddlStmt *parser.DDLStatement) (*types.ResultSet, error) {
 	if de.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -134,7 +135,7 @@ func (de *DDLExecutor) executeCreateIndex(ctx context.Context, ddlStmt *sql.DDLS
 }
 
 // executeDropTable handles DROP TABLE statements
-func (de *DDLExecutor) executeDropTable(ctx context.Context, ddlStmt *sql.DDLStatement) (*types.ResultSet, error) {
+func (de *DDLExecutor) executeDropTable(ctx context.Context, ddlStmt *parser.DDLStatement) (*types.ResultSet, error) {
 	if de.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -162,7 +163,7 @@ func (de *DDLExecutor) executeDropTable(ctx context.Context, ddlStmt *sql.DDLSta
 }
 
 // executeDropIndex handles DROP INDEX statements
-func (de *DDLExecutor) executeDropIndex(ctx context.Context, ddlStmt *sql.DDLStatement) (*types.ResultSet, error) {
+func (de *DDLExecutor) executeDropIndex(ctx context.Context, ddlStmt *parser.DDLStatement) (*types.ResultSet, error) {
 	if de.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -180,7 +181,7 @@ func (de *DDLExecutor) executeDropIndex(ctx context.Context, ddlStmt *sql.DDLSta
 }
 
 // executeAlterTable handles ALTER TABLE statements
-func (de *DDLExecutor) executeAlterTable(ctx context.Context, ddlStmt *sql.DDLStatement) (*types.ResultSet, error) {
+func (de *DDLExecutor) executeAlterTable(ctx context.Context, ddlStmt *parser.DDLStatement) (*types.ResultSet, error) {
 	if de.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -195,7 +196,7 @@ func (de *DDLExecutor) executeAlterTable(ctx context.Context, ddlStmt *sql.DDLSt
 }
 
 // executeCreateView handles CREATE VIEW statements
-func (de *DDLExecutor) executeCreateView(ctx context.Context, ddlStmt *sql.DDLStatement) (*types.ResultSet, error) {
+func (de *DDLExecutor) executeCreateView(ctx context.Context, ddlStmt *parser.DDLStatement) (*types.ResultSet, error) {
 	if de.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}
@@ -213,7 +214,7 @@ func (de *DDLExecutor) executeCreateView(ctx context.Context, ddlStmt *sql.DDLSt
 }
 
 // executeDropView handles DROP VIEW statements
-func (de *DDLExecutor) executeDropView(ctx context.Context, ddlStmt *sql.DDLStatement) (*types.ResultSet, error) {
+func (de *DDLExecutor) executeDropView(ctx context.Context, ddlStmt *parser.DDLStatement) (*types.ResultSet, error) {
 	if de.catalog == nil {
 		return nil, fmt.Errorf("catalog not initialized")
 	}

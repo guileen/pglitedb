@@ -6,6 +6,7 @@ import (
 
 	"github.com/guileen/pglitedb/catalog"
 	"github.com/guileen/pglitedb/logger"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 	"github.com/guileen/pglitedb/types"
 )
 
@@ -83,53 +84,53 @@ func (e *Executor) Execute(ctx context.Context, query string) (*types.ResultSet,
 		return nil, fmt.Errorf("failed to parse query: %w", err)
 	}
 
-	switch parsed.Type {
-	case SelectStatement:
+	switch parsed.StatementType {
+	case parser.SelectStatement:
 		plan, err := e.planner.CreatePlan(query)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create execution plan: %w", err)
 		}
 		return e.executeSelect(ctx, plan)
-	case InsertStatement, UpdateStatement, DeleteStatement:
+	case parser.InsertStatement, parser.UpdateStatement, parser.DeleteStatement:
 		plan, err := e.planner.CreatePlan(query)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create execution plan: %w", err)
 		}
-		switch parsed.Type {
-		case InsertStatement:
+		switch parsed.StatementType {
+		case parser.InsertStatement:
 			return e.executeInsert(ctx, plan)
-		case UpdateStatement:
+		case parser.UpdateStatement:
 			return e.executeUpdate(ctx, plan)
-		case DeleteStatement:
+		case parser.DeleteStatement:
 			return e.executeDelete(ctx, plan)
 		}
-	case BeginStatement:
+	case parser.BeginStatement:
 		return e.executeBegin(ctx)
-	case CommitStatement:
+	case parser.CommitStatement:
 		return e.executeCommit(ctx)
-	case RollbackStatement:
+	case parser.RollbackStatement:
 		return e.executeRollback(ctx)
-	case CreateTableStatement, DropTableStatement, AlterTableStatement, 
-	     CreateIndexStatement, DropIndexStatement, CreateViewStatement, DropViewStatement:
+	case parser.CreateTableStatement, parser.DropTableStatement, parser.AlterTableStatement: 
+	case parser.CreateIndexStatement, parser.DropIndexStatement, parser.CreateViewStatement, parser.DropViewStatement:
 		return e.executeDDL(ctx, query)
-	case AnalyzeStatementType:
+	case parser.AnalyzeStatementType:
 		return e.executeAnalyze(ctx, query)
 	default:
-		return nil, fmt.Errorf("unsupported statement type: %v", parsed.Type)
+		return nil, fmt.Errorf("unsupported statement type: %v", parsed.StatementType)
 	}
 
 	// This should never be reached
-	return nil, fmt.Errorf("unhandled statement type: %v", parsed.Type)
+	return nil, fmt.Errorf("unhandled statement type: %v", parsed.StatementType)
 }
 
-func (e *Executor) ExecuteParsed(ctx context.Context, parsed *ParsedQuery) (*types.ResultSet, error) {
-	plan, err := e.planner.CreatePlan(parsed.Query)
+func (e *Executor) ExecuteParsed(ctx context.Context, parsed *parser.ParsedQuery) (*types.ResultSet, error) {
+	plan, err := e.planner.CreatePlan(parsed.QueryString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create execution plan: %w", err)
 	}
 
 	switch plan.Type {
-	case SelectStatement:
+	case parser.SelectStatement:
 		return e.executeSelect(ctx, plan)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %v", plan.Type)

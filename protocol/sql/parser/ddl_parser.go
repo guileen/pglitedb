@@ -5,11 +5,15 @@ import (
 )
 
 // DDLParser handles DDL (CREATE, ALTER, DROP) statement parsing
-type DDLParser struct{}
+type DDLParser struct {
+	helperParser *HelperParser
+}
 
 // NewDDLParser creates a new DDLParser
 func NewDDLParser() *DDLParser {
-	return &DDLParser{}
+	return &DDLParser{
+		helperParser: NewHelperParser(),
+	}
 }
 
 // ExtractCreateTableInfo extracts information from a CREATE TABLE statement
@@ -41,7 +45,7 @@ func (dp *DDLParser) ExtractCreateTableInfo(parsed *ParsedQuery, query, lowerQue
 		if strings.Contains(lowerQuery, "(") {
 			columnsStart := strings.Index(query, "(")
 			if columnsStart != -1 {
-				columnsEnd := dp.findMatchingParen(query, columnsStart)
+				columnsEnd := dp.helperParser.FindMatchingParen(query, columnsStart)
 				if columnsEnd != -1 {
 					columnsPart := query[columnsStart+1 : columnsEnd]
 					parsed.Columns = dp.parseColumnDefinitions(columnsPart)
@@ -126,7 +130,7 @@ func (dp *DDLParser) ExtractCreateIndexInfo(parsed *ParsedQuery, query, lowerQue
 				// Extract columns
 				columnsStart := strings.Index(afterOn, "(")
 				if columnsStart != -1 {
-					columnsEnd := dp.findMatchingParen(afterOn, columnsStart)
+					columnsEnd := dp.helperParser.FindMatchingParen(afterOn, columnsStart)
 					if columnsEnd != -1 {
 						columnsPart := afterOn[columnsStart+1 : columnsEnd]
 						columns := strings.Split(columnsPart, ",")
@@ -165,8 +169,8 @@ func (dp *DDLParser) ExtractDropIndexInfo(parsed *ParsedQuery, query, lowerQuery
 }
 
 // parseColumnDefinitions parses column definitions from CREATE TABLE statement
-func (dp *DDLParser) parseColumnDefinitions(columnsPart string) []*ColumnDefinition {
-	var columns []*ColumnDefinition
+func (dp *DDLParser) parseColumnDefinitions(columnsPart string) []ColumnDefinition {
+	var columns []ColumnDefinition
 	
 	// Split by comma, but respect parentheses in constraints
 	parts := dp.splitColumnDefinitions(columnsPart)
@@ -187,7 +191,7 @@ func (dp *DDLParser) parseColumnDefinitions(columnsPart string) []*ColumnDefinit
 		}
 		
 		column := dp.parseColumnDefinition(trimmedPart)
-		if column != nil {
+		if column.Name != "" {  // Check if column was successfully parsed
 			columns = append(columns, column)
 		}
 	}
@@ -230,16 +234,15 @@ func (dp *DDLParser) splitColumnDefinitions(s string) []string {
 }
 
 // parseColumnDefinition parses a single column definition
-func (dp *DDLParser) parseColumnDefinition(columnPart string) *ColumnDefinition {
+func (dp *DDLParser) parseColumnDefinition(columnPart string) ColumnDefinition {
+	var column ColumnDefinition
 	parts := strings.Fields(columnPart)
 	if len(parts) < 2 {
-		return nil
+		return column // Return zero value if parsing fails
 	}
 	
-	column := &ColumnDefinition{
-		Name: parts[0],
-		Type: strings.ToUpper(parts[1]),
-	}
+	column.Name = parts[0]
+	column.Type = strings.ToUpper(parts[1])
 	
 	// Parse additional properties
 	for i := 2; i < len(parts); i++ {
@@ -279,8 +282,8 @@ func (dp *DDLParser) parseAlterActions(actionsPart string) []AlterAction {
 	if strings.HasPrefix(strings.ToUpper(actionsPart), "ADD COLUMN ") {
 		columnPart := strings.TrimSpace(actionsPart[11:]) // Skip "ADD COLUMN "
 		column := dp.parseColumnDefinition(columnPart)
-		if column != nil {
-			action := &AddColumnAction{ColumnDef: column}
+		if column.Name != "" {  // Check if column was successfully parsed
+			action := &AddColumnAction{ColumnDef: &column}
 			actions = append(actions, action)
 		}
 	} else if strings.HasPrefix(strings.ToUpper(actionsPart), "DROP COLUMN ") {
@@ -290,26 +293,4 @@ func (dp *DDLParser) parseAlterActions(actionsPart string) []AlterAction {
 	}
 	
 	return actions
-}
-
-// findMatchingParen finds the matching closing parenthesis
-func (dp *DDLParser) findMatchingParen(s string, openPos int) int {
-	if openPos >= len(s) || s[openPos] != '(' {
-		return -1
-	}
-	
-	level := 1
-	for i := openPos + 1; i < len(s); i++ {
-		switch s[i] {
-		case '(':
-			level++
-		case ')':
-			level--
-			if level == 0 {
-				return i
-			}
-		}
-	}
-	
-	return -1
 }

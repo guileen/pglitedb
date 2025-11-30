@@ -10,6 +10,7 @@ import (
 	"time"
 
 	pg_query "github.com/pganalyze/pg_query_go/v6"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 )
 
 // HybridPGParser implements a hybrid PostgreSQL parser that combines
@@ -39,7 +40,7 @@ type HybridPGParser struct {
 
 // cachedParseResult stores cached parsing results
 type cachedParseResult struct {
-	parsed     *ParsedQuery
+	parsed     *parser.ParsedQuery
 	timestamp  time.Time
 	lastAccess time.Time
 }
@@ -56,7 +57,7 @@ func NewHybridPGParser() *HybridPGParser {
 
 // Parse takes a raw SQL query string and returns a parsed representation
 // It tries the simple parser first, uses cache if available, and falls back to full parser
-func (p *HybridPGParser) Parse(query string) (*ParsedQuery, error) {
+func (p *HybridPGParser) Parse(query string) (*parser.ParsedQuery, error) {
 	p.statsMutex.Lock()
 	p.parseAttempts++
 	p.statsMutex.Unlock()
@@ -129,7 +130,7 @@ func (p *HybridPGParser) Parse(query string) (*ParsedQuery, error) {
 }
 
 // getCachedResult retrieves a parsed result from cache if available
-func (p *HybridPGParser) getCachedResult(query string) *ParsedQuery {
+func (p *HybridPGParser) getCachedResult(query string) *parser.ParsedQuery {
 	// Normalize the query for better cache hit rates
 	normalizedQuery := NormalizeQuery(query)
 	
@@ -147,7 +148,7 @@ func (p *HybridPGParser) getCachedResult(query string) *ParsedQuery {
 }
 
 // cacheResult stores a parsed result in cache
-func (p *HybridPGParser) cacheResult(query string, parsed *ParsedQuery) {
+func (p *HybridPGParser) cacheResult(query string, parsed *parser.ParsedQuery) {
 	// Normalize the query for better cache hit rates
 	normalizedQuery := NormalizeQuery(query)
 	
@@ -169,13 +170,13 @@ func (p *HybridPGParser) cacheResult(query string, parsed *ParsedQuery) {
 
 // isSimpleParseValid checks if the result from simple parser is valid enough
 // This is a heuristic to determine when we can trust the simple parser
-func (p *HybridPGParser) isSimpleParseValid(parsed *ParsedQuery) bool {
+func (p *HybridPGParser) isSimpleParseValid(parsed *parser.ParsedQuery) bool {
 	// For now, we trust the simple parser for basic CRUD operations
 	// In the future, we might add more sophisticated validation
-	switch parsed.Type {
-	case SelectStatement, InsertStatement, UpdateStatement, DeleteStatement:
+	switch parsed.StatementType {
+	case parser.SelectStatement, parser.InsertStatement, parser.UpdateStatement, parser.DeleteStatement:
 		// For SELECT statements, check if it's a complex query that might need the full parser
-		if parsed.Type == SelectStatement {
+		if parsed.StatementType == parser.SelectStatement {
 			return p.isSelectQuerySimpleEnough(parsed)
 		}
 		return true
@@ -185,7 +186,7 @@ func (p *HybridPGParser) isSimpleParseValid(parsed *ParsedQuery) bool {
 }
 
 // isSelectQuerySimpleEnough determines if a SELECT query is simple enough for the simple parser
-func (p *HybridPGParser) isSelectQuerySimpleEnough(parsed *ParsedQuery) bool {
+func (p *HybridPGParser) isSelectQuerySimpleEnough(parsed *parser.ParsedQuery) bool {
 	// If we have complex features, fall back to full parser
 	if len(parsed.OrderBy) > 2 {
 		// More than 2 ORDER BY clauses might be complex
@@ -218,7 +219,7 @@ func (p *HybridPGParser) isSelectQuerySimpleEnough(parsed *ParsedQuery) bool {
 	
 	// Check for complex conditions
 	for _, condition := range parsed.Conditions {
-		if p.isComplexCondition(condition) {
+		if p.isComplexCondition(parser.Condition(condition)) {
 			return false
 		}
 	}
@@ -247,7 +248,7 @@ func (p *HybridPGParser) isComplexField(field string) bool {
 }
 
 // isComplexCondition checks if a condition is complex
-func (p *HybridPGParser) isComplexCondition(condition Condition) bool {
+func (p *HybridPGParser) isComplexCondition(condition parser.Condition) bool {
 	// Check for subqueries (indicated by parentheses)
 	if strings.Contains(fmt.Sprintf("%v", condition.Value), "(") {
 		return true
@@ -279,14 +280,14 @@ func (p *HybridPGParser) Validate(query string) error {
 }
 
 // ParseWithParams parses a query with parameter information
-func (p *HybridPGParser) ParseWithParams(query string, paramCount int) (*ParsedQuery, error) {
+func (p *HybridPGParser) ParseWithParams(query string, paramCount int) (*parser.ParsedQuery, error) {
 	// For parameterized queries, we might want to use the full parser
 	// as they tend to be more complex, but we still try the simple path first
 	return p.Parse(query)
 }
 
 // GetStatementType returns the type of the SQL statement
-func (p *HybridPGParser) GetStatementType(stmt interface{}) StatementType {
+func (p *HybridPGParser) GetStatementType(stmt interface{}) parser.StatementType {
 	// Delegate to the appropriate parser based on the statement type
 	switch s := stmt.(type) {
 	case *pg_query.Node:
@@ -294,7 +295,7 @@ func (p *HybridPGParser) GetStatementType(stmt interface{}) StatementType {
 	case string:
 		return p.simpleParser.GetStatementType(s)
 	default:
-		return SelectStatement
+		return parser.SelectStatement
 	}
 }
 
@@ -367,6 +368,16 @@ func (p *HybridPGParser) GetAverageParseTime() time.Duration {
 		return p.totalParseTime / time.Duration(p.parseAttempts)
 	}
 	return 0
+}
+
+// getStatementType determines the type of SQL statement
+func (p *HybridPGParser) getStatementType(query string) parser.StatementType {
+	return parser.GetStatementType(query)
+}
+
+// extractReturningColumns extracts RETURNING columns from a query
+func (p *HybridPGParser) extractReturningColumns(query string) []string {
+	return parser.ParseReturningColumns(query)
 }
 
 // shouldUseSimpleParser determines if we should attempt to use the simple parser first

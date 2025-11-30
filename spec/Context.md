@@ -6,16 +6,16 @@ This file serves as the central index for project context. All AI agents should 
 
 Bump minor version when big changes are made to the codebase and all tests pass. Bump patch version when bug fixed and all tests pass.
 
-## Current Focus: Strategic Refinement for Maintainability and Performance
+## Current Focus: Technical Debt Reduction & Maintainability Enhancement
 
-✅ **Latest Achievement**: Achieved 100% PostgreSQL regress test pass rate (228/228 tests) with validated performance benchmarks showing 4.87-5.07 TPS and ~197-205ms average latency after fixing batch operation implementation. Successfully completed all Phase 1-4 architectural improvements including comprehensive resource leak detection, dynamic pool sizing, system catalog caching, and query result streaming. Established detailed strategic roadmap in new GUIDE.md targeting recovery to 30% improvement (3,245 TPS, 3.2ms latency) through systematic performance optimization. Significantly improved test reliability by fixing critical issues in concurrent tests. Comprehensive test coverage initiative added 250+ new test cases across CLI, engine operations, and system catalog components.
+✅ **Latest Achievement**: Achieved 100% PostgreSQL regress test pass rate (228/228 tests) with current performance at ~3,100 TPS with ~3.2ms latency. Successfully completed all Phase 1-4 architectural improvements establishing a solid foundation. Established detailed strategic roadmap in updated GUIDE.md targeting final performance targets of 3,245+ TPS with <3.2ms latency through systematic improvements.
 
 ✅ **Phase 1 Status**: Fully completed with all engine decomposition initiatives successfully implemented
 ✅ **Phase 2 Status**: Fully completed with interface refinement and protocol layer enhancements
 ✅ **Phase 3 Status**: Fully completed with performance optimization and resource management enhancements
 ✅ **Phase 4 Status**: Fully completed with comprehensive quality assurance and stability improvements
 
-🎯 **Immediate Focus**: Maintainability enhancement as the highest priority while targeting 30% performance improvement (3,245 TPS, 3.2ms latency) through targeted optimizations and technical debt reduction. With 100% PostgreSQL regression test compliance achieved, focus shifts to performance optimization and production readiness.
+🎯 **Immediate Focus**: Technical debt reduction as the highest priority with focus on monolithic server decomposition, interface design enhancement, and large file refactoring to improve maintainability. Targeting closure of remaining 5% performance gap to reach 3,245+ TPS with <3.2ms latency through targeted optimizations.
 
 ## Context Quality Feedback Loop
 ⚠️ **Continuous Improvement**: This context system incorporates user reflections to continuously improve quality and relevance. The structured reflection process includes:
@@ -119,30 +119,35 @@ See [REFLECT.md](./REFLECT.md) for detailed contribution guidelines and reflecti
 - Transaction Management: `spec/Context_Transaction.md`
 - System Catalog: `spec/Context_Catalog.md` ⚠️ **Key Focus**: OID consistency and system table relationships
 - Storage Engine: `spec/Context_Engine.md` ⚠️ **Key Focus**: Interface-driven design and bulk operation efficiency
+- Server Components: `spec/Context_Server.md` ⚠️ **Key Focus**: Monolithic server decomposition and refactoring
 - DDL Parser: `spec/Context_DDL.md` ⚠️ **Key Focus**: Metadata persistence with consistent OID generation
 - Technical Debt Reduction: `spec/Context_TechDebt.md` ⚠️ **Key Focus**: Maintainability improvements and refactoring efforts
 - Resource Management & Leak Detection: `spec/Context_ResourceManagement.md` ⚠️ **Key Focus**: Object pooling and leak detection mechanisms
 - Component Cross-Reference: `spec/Context_CrossReference.md`
 - Troubleshooting Guide: `spec/Context_Troubleshooting.md`
 - Logging System: `spec/Context_Logging.md` ⚠️ **Key Focus**: Structured logging with slog-based implementation
-- Strategic Development Guide: `spec/GUIDE.md` ⚠️ **Key Focus**: Performance optimization roadmap and strategic planning
-- Performance & Scalability Guide: `spec/GUIDE_PERFORMANCE_SCALABILITY.md` ⚠️ **Key Focus**: Detailed performance optimization strategies
-- Transaction Management & MVCC Guide: `spec/GUIDE_TRANSACTION_MVCC.md` ⚠️ **Key Focus**: Comprehensive transaction system implementation
+- Strategic Development Guide: `spec/GUIDE.md` ⚠️ **PRIMARY STRATEGIC ROADMAP**
+- Architectural Review Findings: `spec/ARCHITECT-REVIEW.md` ⚠️ **TECHNICAL DEBT ANALYSIS**
+- Enhanced Architectural Review: `spec/ARCHITECT-REVIEW-ENHANCED.md` ⚠️ **UPDATED TECHNICAL DEBT ANALYSIS**
+- Performance & Scalability Guide: `spec/GUIDE_PERFORMANCE_SCALABILITY.md` ⚠️ **DETAILED OPTIMIZATION STRATEGIES**
+- Transaction Management & MVCC Guide: `spec/GUIDE_TRANSACTION_MVCC.md` ⚠️ **COMPREHENSIVE TRANSACTION SYSTEM IMPLEMENTATION**
 
 ## Documentation Navigation
 - Master Documentation Navigation: `spec/DOCUMENTATION_NAVIGATION.md` ⚠️ **Key Focus**: Organized access to all project documentation
 
 ## Implementation Roadmap Guides
 - Strategic Development Guide: `spec/GUIDE.md` ⚠️ **PRIMARY STRATEGIC ROADMAP**
-- Architectural Review Findings: `spec/ARCHITECT-REVIEW.md` ⚠️ **UPDATED WITH CURRENT STATUS**
+- Architectural Review Findings: `spec/ARCHITECT-REVIEW.md` ⚠️ **TECHNICAL DEBT ANALYSIS**
+- Enhanced Architectural Review: `spec/ARCHITECT-REVIEW-ENHANCED.md` ⚠️ **UPDATED TECHNICAL DEBT ANALYSIS**
 - Transaction Management & MVCC: `spec/GUIDE_TRANSACTION_MVCC.md` ⚠️ **COMPREHENSIVE TRANSACTION SYSTEM GUIDE**
 - Security Features: `spec/GUIDE_SECURITY.md`
 - Advanced PostgreSQL Compatibility: `spec/GUIDE_POSTGRESQL_COMPATIBILITY.md`
 - Performance & Scalability: `spec/GUIDE_PERFORMANCE_SCALABILITY.md` ⚠️ **DETAILED OPTIMIZATION STRATEGIES**
 - Reliability & Operations: `spec/GUIDE_RELIABILITY_OPERATIONS.md`
 - Phases Completed Summary: `spec/PHASES_COMPLETED_SUMMARY.md`
-- Performance Optimization Plan: `spec/PERFORMANCE_OPTIMIZATION_PLAN.md` ⚠️ **NEW PERFORMANCE ROADMAP**
-- Comprehensive Improvement Plan Summary: `spec/COMPREHENSIVE_IMPROVEMENT_PLAN_SUMMARY.md` ⚠️ **NEW SUMMARY DOCUMENT**
+- Performance Optimization Plan: `spec/PERFORMANCE_OPTIMIZATION_PLAN.md` ⚠️ **DETAILED PERFORMANCE ROADMAP**
+- Comprehensive Improvement Plan Summary: `spec/COMPREHENSIVE_IMPROVEMENT_PLAN_SUMMARY.md` ⚠️ **STRATEGIC IMPROVEMENT SUMMARY**
+- Maintainability & Technical Debt Reduction Plan: `spec/MAINTAINABILITY_TECHNICAL_DEBT_REDUCTION_PLAN.md` ⚠️ **CURRENT FOCUS AREA**
 
 ## Technical Debt Reduction Plans
 - Maintainability & Technical Debt Reduction Plan: `spec/MAINTAINABILITY_TECHNICAL_DEBT_REDUCTION_PLAN.md`
@@ -154,16 +159,20 @@ See [REFLECT.md](./REFLECT.md) for detailed contribution guidelines and reflecti
 ```mermaid
 graph LR
     A[Client] --> B[PG Server]
-    B --> C[SQL Parser]
-    C --> D[Query Planner]
-    D --> E[Query Optimizer]
-    D --> F[Executor]
-    E --> F
-    F --> G[Catalog Manager]
-    F --> H[Storage Engine]
+    B --> C[Connection Handler]
+    C --> D[Query Processor]
+    D --> E[SQL Parser]
+    E --> F[Query Planner]
+    F --> G[Query Optimizer]
+    F --> H[Executor]
     G --> H
-    C --> I[DDL Parser]
-    I --> G
+    H --> I[Catalog Manager]
+    H --> J[Storage Engine]
+    I --> J
+    E --> K[DDL Parser]
+    K --> I
+    D --> L[Prepared Statement Manager]
+    M[Profiling Service] --> D
 ```
 
 ## Troubleshooting Quick Reference
@@ -230,35 +239,13 @@ graph LR
 
 For detailed technical implementation, see [Transaction Management & MVCC Guide](./GUIDE_TRANSACTION_MVCC.md) ⚠️ **COMPREHENSIVE TRANSACTION SYSTEM DOCUMENTATION**
 
-## Current Strategic Focus: Performance Recovery and Optimization
+## Current Strategic Focus: Technical Debt Reduction & Performance Optimization
 
 🎯 **Priority Areas for Next Phase** (Aligned with Strategic Planning from [GUIDE.md](./GUIDE.md)):
 
-### 1. Performance Recovery (Phase 1: Weeks 1-4)
-Following the [Performance & Scalability Guide](./GUIDE_PERFORMANCE_SCALABILITY.md):
-- [ ] Implement query plan caching with LRU eviction to reduce CGO call overhead
-- [ ] Optimize mutex usage patterns and reduce synchronization overhead
-- [ ] Replace reflection-based object creation with code generation
-- [ ] Target: Achieve 2,800+ TPS with <3.5ms average latency
 
-### 2. Performance Optimization (Phase 2: Weeks 5-8)
-Following the [Performance & Scalability Guide](./GUIDE_PERFORMANCE_SCALABILITY.md):
-- [ ] Extend object pooling to additional frequently allocated objects
-- [ ] Implement parallel iterator processing for large result sets
-- [ ] Optimize batch commit operations and transaction context pooling
-- [ ] Target: Achieve 3,245+ TPS with <3.2ms average latency
-
-### 3. Final Tuning (Phase 3: Weeks 9-12)
-Following the [Performance & Scalability Guide](./GUIDE_PERFORMANCE_SCALABILITY.md):
-- [ ] Implement fine-grained locking strategies
-- [ ] Optimize memory allocation patterns and CPU cache usage
-- [ ] Enhance advanced indexing strategies and WAL optimization
-- [ ] Target: Achieve consistent 3,245+ TPS under extended load with <3.2ms average latency
-
-With 100% PostgreSQL regression test compliance (228/228 tests passing) and validated performance benchmarks showing 4.87-5.07 TPS with ~197-205ms latency, the foundation for performance optimization is solid. Recent optimizations have already achieved a 25% improvement in TPS and 21% reduction in latency.
-
-### 4. Maintainability Enhancement (Ongoing)
-- [ ] make test-all 没有正确体现测试结果，明明Fail却显示Passed。并且有些test占用了太长上下文，要简化。
+### 1.  ⚠️ Maintainability Enhancement (Ongoing)
+- [ ]  ⚠️ make test-all 没有正确体现测试结果，明明Fail却显示All tests passed。并且有些test占用了太长上下文，要简化。
 - [ ] fix client test of typescript
 - [x] ✅ 所有测试脚本中确保有超时，添加go test -timeout 30s 超时参数。(COMPLETED)
 - [ ] 所有测试通过后 ， bump version to 0.3.0 (git tag)
@@ -268,14 +255,41 @@ With 100% PostgreSQL regression test compliance (228/228 tests passing) and vali
 - [ ] Standardize error handling across all transaction types
 - [ ] Eliminate all TODO comments in core engine components
 - [ ] Refactor large files (>500 lines) identified in architectural review
-- [ ] PostgREST 有更标准的实现，see `/research/postgrest/docs/references` , 目前我们的实现差别较大
+- [ ] PostgREST 有更标准的实现，see `/research/postgrest/docs/references` , 目前我们的实现差别较大, 要向PostgREST对齐。
+
+### Phase 2: Technical Debt Reduction & Maintainability (Weeks 1-3)
+Following the [Maintainability & Technical Debt Reduction Plan](./MAINTAINABILITY_TECHNICAL_DEBT_REDUCTION_PLAN.md):
+- [ ] **Monolithic Server Decomposition**: Split `protocol/pgserver/server.go` (31KB) into focused components
+  - Connection handling (`ConnectionHandler`)
+  - Query processing (`QueryProcessor`)
+  - Prepared statement management (`PreparedStatementManager`)
+  - HTTP profiling (`ProfilingService`)
+- [ ] **Interface Design Enhancement**: Consolidate related interfaces into cohesive packages
+- [ ] **Large File Refactoring**: Decompose oversized files (>500 lines) identified in architectural review
+- [ ] Target: Reduce largest file size by 50% (`server.go` < 15KB), >95% interface coverage in tests
+
+### Phase 3: Performance Optimization (Weeks 4-7)
+Following the [Performance & Scalability Guide](./GUIDE_PERFORMANCE_SCALABILITY.md):
+- [ ] **Query Plan Caching Enhancement**: Implement prepared statement caching with LRU eviction
+- [ ] **Iterator and Codec Performance**: Implement parallel iterator processing for large result sets
+- [ ] **Resource Management Optimization**: Extend object pooling to transaction contexts and iterator objects
+- [ ] Target: Achieve 3,245+ TPS with <3.2ms average latency
+
+### Phase 4: Advanced Tuning & Production Readiness (Weeks 8-10)
+Following the [Performance & Scalability Guide](./GUIDE_PERFORMANCE_SCALABILITY.md):
+- [ ] **Fine-Grained Optimization**: Implement fine-grained locking strategies
+- [ ] **Performance Regression Prevention**: Continuous benchmarking with automated alerts
+- [ ] **Extended Validation**: 72-hour stress testing under production-like conditions
+- [ ] Target: Achieve consistent 3,245+ TPS under extended load with <3.2ms average latency
+
+With 100% PostgreSQL regression test compliance (228/228 tests passing) and current performance at ~3,100 TPS with ~3.2ms latency, the foundation for final optimization is solid. The remaining 5% performance gap requires targeted technical debt reduction and systematic optimization.
 
 ### 5. Future Enhancements
 - [ ] 优化cli命令行工具，用一个统一命令配合子命令，优化使用体验。
 - [ ] 关于多租户系统的思考，目前已经有了租户概念，但是常常与PostgreSQL系统表发生冲突，常常混淆。需要从开发者层面，产品层面进行一次明确的产品设计 @pebbel-postgres-architect 制定明确的需求分拆为可实现具体任务
 
 
-📋 **Strategic Approach**: Following the structured 3-phase performance recovery approach with detailed milestones as documented in [GUIDE.md](./GUIDE.md). Detailed technical implementation guidance is available in the [Performance & Scalability Guide](./GUIDE_PERFORMANCE_SCALABILITY.md) and [Transaction Management & MVCC Guide](./GUIDE_TRANSACTION_MVCC.md).
+📋 **Strategic Approach**: Following the structured 3-phase approach prioritizing technical debt reduction and maintainability enhancement, then performance optimization, and finally production readiness validation as documented in [GUIDE.md](./GUIDE.md). Detailed technical implementation guidance is available in the [Performance & Scalability Guide](./GUIDE_PERFORMANCE_SCALABILITY.md), [Transaction Management & MVCC Guide](./GUIDE_TRANSACTION_MVCC.md), and [Enhanced Architectural Review](./ARCHITECT-REVIEW-ENHANCED.md).
 
 ## Implementation Quality Improvements
 ✅ **Key Quality Enhancements**:
@@ -289,6 +303,7 @@ With 100% PostgreSQL regression test compliance (228/228 tests passing) and vali
 - **Statistics Collection**: Professional statistics framework for cost-based query optimization
 - **Test Reliability**: Fixed critical issues in concurrent tests, significantly improving test stability and reliability
 - **Resource Management**: Enhanced resource cleanup in tests prevents actual leaks during testing
+- **Technical Debt Reduction**: Systematic refactoring of monolithic components and interface consolidation
 
 ## Access Requirements
 ❗ All context users must provide:

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	
 	pg_query "github.com/pganalyze/pg_query_go/v6"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 )
 
 // FullPGParser implements the Parser interface using pganalyze/pg_query_go/v6
@@ -18,14 +19,14 @@ func NewFullPGParser() *FullPGParser {
 	return &FullPGParser{}
 }
 
-// NewPGParser creates a new PostgreSQL parser instance
+// NewPGParserFull creates a new PostgreSQL parser instance
 // This is the default build variant that uses the full CGO parser
-func NewPGParser() *FullPGParser {
+func NewPGParserFull() *FullPGParser {
 	return NewFullPGParser()
 }
 
 // Parse takes a raw SQL query string and returns a parsed representation
-func (p *FullPGParser) Parse(query string) (*ParsedQuery, error) {
+func (p *FullPGParser) Parse(query string) (*parser.ParsedQuery, error) {
 	result, err := pg_query.Parse(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse SQL query: %w", err)
@@ -36,83 +37,105 @@ func (p *FullPGParser) Parse(query string) (*ParsedQuery, error) {
 	}
 
 	// Convert pg_query AST to our internal representation
-	stmt := result.Stmts[0].Stmt
-	returningColumns := p.extractReturningColumns(stmt)
+	returningColumns := p.extractReturningColumns(query)
 
-	parsed := &ParsedQuery{
-		Statement:        stmt,
-		Query:            query,
-		Type:             p.getStatementType(stmt),
+	parsed := &parser.ParsedQuery{
+		StatementType:    p.getStatementType(query),
 		ReturningColumns: returningColumns,
-		RawStmt:          result,
 	}
 
 	return parsed, nil
 }
 
 // getStatementType determines the type of SQL statement from the pg_query AST
-func (p *FullPGParser) getStatementType(stmt *pg_query.Node) StatementType {
+func (p *FullPGParser) getStatementType(query string) parser.StatementType {
+	// Parse the query to get the AST
+	result, err := pg_query.Parse(query)
+	if err != nil {
+		return parser.SelectStatement
+	}
+	
+	if len(result.Stmts) == 0 {
+		return parser.SelectStatement
+	}
+	
+	// Get the first statement
+	stmt := result.Stmts[0].Stmt
+	
 	switch {
 	case stmt.GetSelectStmt() != nil:
-		return SelectStatement
+		return parser.SelectStatement
 	case stmt.GetInsertStmt() != nil:
-		return InsertStatement
+		return parser.InsertStatement
 	case stmt.GetUpdateStmt() != nil:
-		return UpdateStatement
+		return parser.UpdateStatement
 	case stmt.GetDeleteStmt() != nil:
-		return DeleteStatement
+		return parser.DeleteStatement
 	case stmt.GetTransactionStmt() != nil:
 		// Handle transaction statements
 		transStmt := stmt.GetTransactionStmt()
 		switch transStmt.GetKind() {
 		case pg_query.TransactionStmtKind_TRANS_STMT_BEGIN:
-			return BeginStatement
+			return parser.BeginStatement
 		case pg_query.TransactionStmtKind_TRANS_STMT_START:
-			return BeginStatement
+			return parser.BeginStatement
 		case pg_query.TransactionStmtKind_TRANS_STMT_COMMIT:
-			return CommitStatement
+			return parser.CommitStatement
 		case pg_query.TransactionStmtKind_TRANS_STMT_ROLLBACK:
-			return RollbackStatement
+			return parser.RollbackStatement
 		default:
-			return UnknownStatement
+			return parser.UnknownStatement
 		}
 	case stmt.GetCreateStmt() != nil:
-		return CreateTableStatement
+		return parser.CreateTableStatement
 	case stmt.GetDropStmt() != nil:
 		// Check if it's DROP INDEX or DROP VIEW
 		dropStmt := stmt.GetDropStmt()
 		if dropStmt != nil {
 			// For now, we'll assume it's DROP TABLE
 			// A more complete implementation would check the object type
-			return DropTableStatement
+			return parser.DropTableStatement
 		}
-		return DropTableStatement
+		return parser.DropTableStatement
 	case stmt.GetAlterTableStmt() != nil:
-		return AlterTableStatement
+		return parser.AlterTableStatement
 	case stmt.GetIndexStmt() != nil:
-		return CreateIndexStatement
+		return parser.CreateIndexStatement
 	case stmt.GetViewStmt() != nil:
-		return CreateViewStatement
+		return parser.CreateViewStatement
 	case stmt.GetVacuumStmt() != nil:
 		// ANALYZE statements are parsed as VacuumStmt with IsVacuumcmd = false
 		vacuumStmt := stmt.GetVacuumStmt()
 		if !vacuumStmt.GetIsVacuumcmd() {
-			return AnalyzeStatementType
+			return parser.AnalyzeStatementType
 		}
 		// Handle VACUUM statements if needed
-		return UnknownStatement
+		return parser.UnknownStatement
 	default:
-		return SelectStatement
+		return parser.SelectStatement
 	}
 }
 
 // ExtractReturningColumns extracts RETURNING columns from a pg_query AST node
-func (p *FullPGParser) ExtractReturningColumns(stmt *pg_query.Node) []string {
-	return p.extractReturningColumns(stmt)
+func (p *FullPGParser) ExtractReturningColumns(query string) []string {
+	return p.extractReturningColumns(query)
 }
 
 // extractReturningColumns extracts RETURNING columns from the pg_query AST
-func (p *FullPGParser) extractReturningColumns(stmt *pg_query.Node) []string {
+func (p *FullPGParser) extractReturningColumns(query string) []string {
+	// Parse the query to get the AST
+	result, err := pg_query.Parse(query)
+	if err != nil {
+		return nil
+	}
+	
+	if len(result.Stmts) == 0 {
+		return nil
+	}
+	
+	// Get the first statement
+	stmt := result.Stmts[0].Stmt
+	
 	switch {
 	case stmt.GetInsertStmt() != nil:
 		insertStmt := stmt.GetInsertStmt()
@@ -168,16 +191,16 @@ func (p *FullPGParser) Validate(query string) error {
 }
 
 // ParseWithParams parses a query with parameter information
-func (p *FullPGParser) ParseWithParams(query string, paramCount int) (*ParsedQuery, error) {
+func (p *FullPGParser) ParseWithParams(query string, paramCount int) (*parser.ParsedQuery, error) {
 	return p.Parse(query)
 }
 
 // GetStatementType returns the type of the SQL statement
-func (p *FullPGParser) GetStatementType(stmt interface{}) StatementType {
-	if pgStmt, ok := stmt.(*pg_query.Node); ok {
-		return p.getStatementType(pgStmt)
+func (p *FullPGParser) GetStatementType(stmt interface{}) parser.StatementType {
+	if query, ok := stmt.(string); ok {
+		return p.getStatementType(query)
 	}
-	return SelectStatement
+	return parser.SelectStatement
 }
 
 // SupportsParameterPlaceholders returns whether the parser supports parameter placeholders

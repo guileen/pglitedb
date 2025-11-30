@@ -5,6 +5,7 @@ import (
 	"strconv"
 	
 	"github.com/pganalyze/pg_query_go/v6"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 )
 
 // ASTParser is a professional SQL parser based on PostgreSQL's parser
@@ -16,16 +17,14 @@ func NewASTParser() *ASTParser {
 }
 
 // Parse parses a SQL query string and returns a parsed query structure
-func (p *ASTParser) Parse(query string) (*ParsedQuery, error) {
+func (p *ASTParser) Parse(query string) (*parser.ParsedQuery, error) {
 	result, err := pg_query.Parse(query)
 	if err != nil {
 		return nil, err
 	}
 	
-	parsed := &ParsedQuery{
-		Statement: result,
-		Query:     query,
-		Type:      p.determineStatementType(result),
+	parsed := &parser.ParsedQuery{
+		StatementType: p.determineStatementType(result),
 	}
 	
 	// Extract details based on AST
@@ -35,28 +34,28 @@ func (p *ASTParser) Parse(query string) (*ParsedQuery, error) {
 }
 
 // determineStatementType determines the type of SQL statement from the parse result
-func (p *ASTParser) determineStatementType(result *pg_query.ParseResult) StatementType {
+func (p *ASTParser) determineStatementType(result *pg_query.ParseResult) parser.StatementType {
 	if len(result.Stmts) == 0 {
-		return UnknownStatement
+		return parser.UnknownStatement
 	}
 	
 	stmt := result.Stmts[0].Stmt
 	switch stmt.Node.(type) {
 	case *pg_query.Node_SelectStmt:
-		return SelectStatement
+		return parser.SelectStatement
 	case *pg_query.Node_InsertStmt:
-		return InsertStatement
+		return parser.InsertStatement
 	case *pg_query.Node_UpdateStmt:
-		return UpdateStatement
+		return parser.UpdateStatement
 	case *pg_query.Node_DeleteStmt:
-		return DeleteStatement
+		return parser.DeleteStatement
 	default:
-		return UnknownStatement
+		return parser.UnknownStatement
 	}
 }
 
 // extractDetails extracts detailed information from the parse result based on AST
-func (p *ASTParser) extractDetails(result *pg_query.ParseResult, parsed *ParsedQuery) {
+func (p *ASTParser) extractDetails(result *pg_query.ParseResult, parsed *parser.ParsedQuery) {
 	if len(result.Stmts) == 0 {
 		return
 	}
@@ -75,7 +74,7 @@ func (p *ASTParser) extractDetails(result *pg_query.ParseResult, parsed *ParsedQ
 }
 
 // extractSelectDetails extracts details from a SELECT statement
-func (p *ASTParser) extractSelectDetails(stmt *pg_query.SelectStmt, parsed *ParsedQuery) {
+func (p *ASTParser) extractSelectDetails(stmt *pg_query.SelectStmt, parsed *parser.ParsedQuery) {
 	// Extract table name from FROM clause
 	if len(stmt.GetFromClause()) > 0 {
 		fromClause := stmt.GetFromClause()[0]
@@ -116,7 +115,7 @@ func (p *ASTParser) extractSelectDetails(stmt *pg_query.SelectStmt, parsed *Pars
 	
 	// Extract ORDER BY
 	if sortClause := stmt.GetSortClause(); sortClause != nil {
-		orderBy := make([]OrderBy, 0, len(sortClause))
+		orderBy := make([]parser.OrderBy, 0, len(sortClause))
 		for _, sortBy := range sortClause {
 			if sortNode := sortBy.GetSortBy(); sortNode != nil {
 				var field string
@@ -138,9 +137,9 @@ func (p *ASTParser) extractSelectDetails(stmt *pg_query.SelectStmt, parsed *Pars
 				}
 				
 				if field != "" {
-					orderBy = append(orderBy, OrderBy{
-						Field: field,
-						Order: order,
+					orderBy = append(orderBy, parser.OrderBy{
+						Field:     field,
+						Direction: order,
 					})
 				}
 			}
@@ -160,8 +159,8 @@ func (p *ASTParser) extractSelectDetails(stmt *pg_query.SelectStmt, parsed *Pars
 }
 
 // extractConditionsFromExpr extracts simple conditions from a pg_query expression
-func (p *ASTParser) extractConditionsFromExpr(expr *pg_query.Node) []Condition {
-	var conditions []Condition
+func (p *ASTParser) extractConditionsFromExpr(expr *pg_query.Node) []parser.Condition {
+	var conditions []parser.Condition
 	
 	if expr == nil {
 		return conditions
@@ -211,10 +210,10 @@ func (p *ASTParser) extractConditionsFromExpr(expr *pg_query.Node) []Condition {
 				}
 				
 				if columnName != "" && opName != "" {
-					conditions = append(conditions, Condition{
+					conditions = append(conditions, parser.Condition{
 						Field:    columnName,
 						Operator: opName,
-						Value:    value,
+						Value:    fmt.Sprintf("%v", value),
 					})
 				}
 			}
@@ -234,7 +233,7 @@ func (p *ASTParser) extractConditionsFromExpr(expr *pg_query.Node) []Condition {
 }
 
 // extractInsertDetails extracts details from an INSERT statement
-func (p *ASTParser) extractInsertDetails(stmt *pg_query.InsertStmt, parsed *ParsedQuery) {
+func (p *ASTParser) extractInsertDetails(stmt *pg_query.InsertStmt, parsed *parser.ParsedQuery) {
 	// Extract table name
 	if relation := stmt.GetRelation(); relation != nil {
 		parsed.Table = relation.GetRelname()
@@ -242,7 +241,7 @@ func (p *ASTParser) extractInsertDetails(stmt *pg_query.InsertStmt, parsed *Pars
 }
 
 // extractUpdateDetails extracts details from an UPDATE statement
-func (p *ASTParser) extractUpdateDetails(stmt *pg_query.UpdateStmt, parsed *ParsedQuery) {
+func (p *ASTParser) extractUpdateDetails(stmt *pg_query.UpdateStmt, parsed *parser.ParsedQuery) {
 	// Extract table name
 	if relation := stmt.GetRelation(); relation != nil {
 		parsed.Table = relation.GetRelname()
@@ -288,7 +287,7 @@ func (p *ASTParser) extractUpdateDetails(stmt *pg_query.UpdateStmt, parsed *Pars
 }
 
 // extractDeleteDetails extracts details from a DELETE statement
-func (p *ASTParser) extractDeleteDetails(stmt *pg_query.DeleteStmt, parsed *ParsedQuery) {
+func (p *ASTParser) extractDeleteDetails(stmt *pg_query.DeleteStmt, parsed *parser.ParsedQuery) {
 	// Extract table name
 	if relation := stmt.GetRelation(); relation != nil {
 		parsed.Table = relation.GetRelname()

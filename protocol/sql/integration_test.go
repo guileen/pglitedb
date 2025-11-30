@@ -11,6 +11,7 @@ import (
 	"github.com/guileen/pglitedb/storage"
 	engineTypes "github.com/guileen/pglitedb/engine/types"
 	"github.com/guileen/pglitedb/engine/pebble"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 	"github.com/guileen/pglitedb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -77,8 +78,8 @@ func TestIntegration_SQLWithIndexes(t *testing.T) {
 		t.Fatalf("Failed to create test table: %v", err)
 	}
 	
-	parser := NewPGParser()
-	planner := NewPlannerWithCatalog(parser, mgr)
+	parserInstance := NewPGParser()
+	planner := NewPlannerWithCatalog(parserInstance, mgr)
 	executor := NewExecutorWithCatalog(planner, mgr)
 
 	// Test 1: Simple SELECT with index lookup (testing query parsing and planning)
@@ -92,7 +93,7 @@ func TestIntegration_SQLWithIndexes(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "id")
@@ -116,7 +117,7 @@ func TestIntegration_SQLWithIndexes(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "id")
@@ -136,7 +137,7 @@ func TestIntegration_SQLWithIndexes(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "name")
@@ -145,7 +146,7 @@ func TestIntegration_SQLWithIndexes(t *testing.T) {
 		// Check that ORDER BY was parsed
 		assert.Len(t, plan.OrderBy, 1)
 		assert.Equal(t, "age", plan.OrderBy[0].Field)
-		assert.Equal(t, "ASC", plan.OrderBy[0].Order)
+		assert.Equal(t, "ASC", plan.OrderBy[0].Direction)
 	})
 
 	// Test 4: SELECT with LIMIT
@@ -158,7 +159,7 @@ func TestIntegration_SQLWithIndexes(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "name")
@@ -178,7 +179,7 @@ func TestIntegration_SQLWithIndexes(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "name")
@@ -191,7 +192,7 @@ func TestIntegration_SQLWithIndexes(t *testing.T) {
 		// Check that ORDER BY was parsed
 		assert.Len(t, plan.OrderBy, 1)
 		assert.Equal(t, "age", plan.OrderBy[0].Field)
-		assert.Equal(t, "DESC", plan.OrderBy[0].Order)
+		assert.Equal(t, "DESC", plan.OrderBy[0].Direction)
 
 		// Check that LIMIT was parsed
 		assert.NotNil(t, plan.Limit)
@@ -213,8 +214,8 @@ func TestIntegration_TransactionsWithIsolationLevels(t *testing.T) {
 		t.Fatalf("Failed to create test table: %v", err)
 	}
 	
-	parser := NewPGParser()
-	planner := NewPlannerWithCatalog(parser, mgr)
+	parserInstance := NewPGParser()
+	planner := NewPlannerWithCatalog(parserInstance, mgr)
 	executor := NewExecutorWithCatalog(planner, mgr)
 
 	// Test 1: Validate transaction-related SQL statements can be parsed
@@ -229,7 +230,7 @@ func TestIntegration_TransactionsWithIsolationLevels(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "id")
@@ -253,7 +254,7 @@ func TestIntegration_TransactionsWithIsolationLevels(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "id")
@@ -269,7 +270,7 @@ func TestIntegration_TransactionsWithIsolationLevels(t *testing.T) {
 		// Check that ORDER BY was parsed
 		assert.Len(t, plan.OrderBy, 1)
 		assert.Equal(t, "age", plan.OrderBy[0].Field)
-		assert.Equal(t, "DESC", plan.OrderBy[0].Order)
+		assert.Equal(t, "DESC", plan.OrderBy[0].Direction)
 	})
 
 	// Test 3: Validate different isolation level scenarios through query complexity
@@ -308,8 +309,8 @@ func TestIntegration_AdvancedDataTypesInSQL(t *testing.T) {
 		t.Fatalf("Failed to create test table: %v", err)
 	}
 	
-	parser := NewPGParser()
-	planner := NewPlannerWithCatalog(parser, mgr)
+	parserInstance := NewPGParser()
+	planner := NewPlannerWithCatalog(parserInstance, mgr)
 	executor := NewExecutorWithCatalog(planner, mgr)
 
 	// Test 1: Query with JSON-like data in conditions
@@ -322,7 +323,7 @@ func TestIntegration_AdvancedDataTypesInSQL(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "name")
@@ -345,7 +346,7 @@ func TestIntegration_AdvancedDataTypesInSQL(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "name")
@@ -368,7 +369,7 @@ func TestIntegration_AdvancedDataTypesInSQL(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "name")
@@ -382,7 +383,7 @@ func TestIntegration_AdvancedDataTypesInSQL(t *testing.T) {
 		// Check that ORDER BY was parsed
 		assert.Len(t, plan.OrderBy, 1)
 		assert.Equal(t, "created_at", plan.OrderBy[0].Field)
-		assert.Equal(t, "DESC", plan.OrderBy[0].Order)
+		assert.Equal(t, "DESC", plan.OrderBy[0].Direction)
 	})
 
 	// Test 4: Complex query with multiple data types
@@ -395,7 +396,7 @@ func TestIntegration_AdvancedDataTypesInSQL(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "name")
@@ -411,7 +412,7 @@ func TestIntegration_AdvancedDataTypesInSQL(t *testing.T) {
 		// Check that ORDER BY was parsed
 		assert.Len(t, plan.OrderBy, 1)
 		assert.Equal(t, "age", plan.OrderBy[0].Field)
-		assert.Equal(t, "ASC", plan.OrderBy[0].Order)
+		assert.Equal(t, "ASC", plan.OrderBy[0].Direction)
 	})
 }
 
@@ -433,8 +434,8 @@ func TestIntegration_ComplexScenarios(t *testing.T) {
 		t.Fatalf("Failed to create test table: %v", err)
 	}
 	
-	parser := NewPGParser()
-	planner := NewPlannerWithCatalog(parser, mgr)
+	parserInstance := NewPGParser()
+	planner := NewPlannerWithCatalog(parserInstance, mgr)
 	executor := NewExecutorWithCatalog(planner, mgr)
 
 	// Test 1: Multi-condition query with index usage
@@ -447,7 +448,7 @@ func TestIntegration_ComplexScenarios(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "name")
@@ -460,7 +461,7 @@ func TestIntegration_ComplexScenarios(t *testing.T) {
 		// Check that ORDER BY was parsed
 		assert.Len(t, plan.OrderBy, 1)
 		assert.Equal(t, "age", plan.OrderBy[0].Field)
-		assert.Equal(t, "DESC", plan.OrderBy[0].Order)
+		assert.Equal(t, "DESC", plan.OrderBy[0].Direction)
 	})
 
 	// Test 2: Aggregation-like query (simulated)
@@ -474,7 +475,7 @@ func TestIntegration_ComplexScenarios(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "name")
@@ -502,7 +503,7 @@ func TestIntegration_ComplexScenarios(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "name")
@@ -516,7 +517,7 @@ func TestIntegration_ComplexScenarios(t *testing.T) {
 		// Check that ORDER BY was parsed
 		assert.Len(t, plan.OrderBy, 1)
 		assert.Equal(t, "age", plan.OrderBy[0].Field)
-		assert.Equal(t, "ASC", plan.OrderBy[0].Order)
+		assert.Equal(t, "ASC", plan.OrderBy[0].Direction)
 
 		// Check that LIMIT was parsed
 		assert.NotNil(t, plan.Limit)
@@ -536,7 +537,7 @@ func TestIntegration_ComplexScenarios(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "name")
@@ -563,7 +564,7 @@ func TestIntegration_ComplexScenarios(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "name")
@@ -583,7 +584,7 @@ func TestIntegration_ComplexScenarios(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err = planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "name")
@@ -603,7 +604,7 @@ func TestIntegration_ComplexScenarios(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err := planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "id")
@@ -619,7 +620,7 @@ func TestIntegration_ComplexScenarios(t *testing.T) {
 		// Verify the plan was created correctly
 		plan, err = planner.CreatePlan(query)
 		require.NoError(t, err)
-		assert.Equal(t, SelectStatement, plan.Type)
+		assert.Equal(t, parser.SelectStatement, plan.Type)
 		assert.Equal(t, "select", plan.Operation)
 		assert.Equal(t, "users", plan.Table)
 		assert.Contains(t, plan.Fields, "name")

@@ -3,8 +3,9 @@ package sql
 import (
 	"fmt"
 	"strconv"
-	
+
 	pg_query "github.com/pganalyze/pg_query_go/v6"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 )
 
 // extractConditionsFromExpr extracts WHERE clause conditions from an expression
@@ -118,7 +119,20 @@ func (p *Planner) extractUpdateInfoFromPGNode(stmt *pg_query.ParseResult, plan *
 	// Extract WHERE conditions
 	if whereClause := updateStmt.GetWhereClause(); whereClause != nil {
 		conditions := p.extractConditionsFromExpr(whereClause)
-		plan.Conditions = conditions
+		plan.Conditions = []parser.Condition{}
+		for _, cond := range conditions {
+			// Type assert cond.Value to string
+			valueStr, ok := cond.Value.(string)
+			if !ok {
+				// Convert to string if it's not already a string
+				valueStr = fmt.Sprintf("%v", cond.Value)
+			}
+			plan.Conditions = append(plan.Conditions, parser.Condition{
+				Field:    cond.Field,
+				Operator: cond.Operator,
+				Value:    valueStr,
+			})
+		}
 	}
 }
 
@@ -197,6 +211,19 @@ func (p *Planner) extractDeleteInfoFromPGNode(stmt *pg_query.ParseResult, plan *
 	// Extract WHERE conditions
 	if whereClause := deleteStmt.GetWhereClause(); whereClause != nil {
 		conditions := p.extractConditionsFromExpr(whereClause)
-		plan.Conditions = conditions
+		plan.Conditions = []parser.Condition{}
+		for _, cond := range conditions {
+			// Type assert cond.Value to string
+			valueStr, ok := cond.Value.(string)
+			if !ok {
+				// Convert to string if it's not already a string
+				valueStr = fmt.Sprintf("%v", cond.Value)
+			}
+			plan.Conditions = append(plan.Conditions, parser.Condition{
+				Field:    cond.Field,
+				Operator: cond.Operator,
+				Value:    valueStr,
+			})
+		}
 	}
 }

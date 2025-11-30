@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	pg_query "github.com/pganalyze/pg_query_go/v6"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 )
 
 
@@ -18,7 +19,7 @@ func NewDDLParser() *DDLParser {
 }
 
 // Parse parses a DDL statement and returns structured information
-func (p *DDLParser) Parse(query string) (*DDLStatement, error) {
+func (p *DDLParser) Parse(query string) (*parser.DDLStatement, error) {
 	result, err := pg_query.Parse(query)
 	if err != nil {
 		return nil, err
@@ -29,34 +30,34 @@ func (p *DDLParser) Parse(query string) (*DDLStatement, error) {
 	}
 
 	stmt := result.Stmts[0].Stmt
-	ddlStmt := &DDLStatement{
+	ddlStmt := &parser.DDLStatement{
 		Query: query,
 	}
 
 	switch {
 	case stmt.GetCreateStmt() != nil:
-		ddlStmt.Type = CreateTableStatement
+		ddlStmt.Type = parser.CreateTableStatement
 		p.parseCreateTable(stmt.GetCreateStmt(), ddlStmt)
 	case stmt.GetIndexStmt() != nil:
-		ddlStmt.Type = CreateIndexStatement
+		ddlStmt.Type = parser.CreateIndexStatement
 		p.parseCreateIndex(stmt.GetIndexStmt(), ddlStmt)
 	case stmt.GetViewStmt() != nil:
-		ddlStmt.Type = CreateViewStatement
+		ddlStmt.Type = parser.CreateViewStatement
 		p.parseCreateView(stmt.GetViewStmt(), ddlStmt)
 	case stmt.GetDropStmt() != nil:
 		dropStmt := stmt.GetDropStmt()
 		if p.isDropIndexStatement(dropStmt) {
-			ddlStmt.Type = DropIndexStatement
+			ddlStmt.Type = parser.DropIndexStatement
 			p.parseDropIndex(dropStmt, ddlStmt)
 		} else if p.isDropViewStatement(dropStmt) {
-			ddlStmt.Type = DropViewStatement
+			ddlStmt.Type = parser.DropViewStatement
 			p.parseDropView(dropStmt, ddlStmt)
 		} else {
-			ddlStmt.Type = DropTableStatement
+			ddlStmt.Type = parser.DropTableStatement
 			p.parseDropTable(dropStmt, ddlStmt)
 		}
 	case stmt.GetAlterTableStmt() != nil:
-		ddlStmt.Type = AlterTableStatement
+		ddlStmt.Type = parser.AlterTableStatement
 		p.parseAlterTable(stmt.GetAlterTableStmt(), ddlStmt)
 	case stmt.GetVacuumStmt() != nil:
 		// ANALYZE statements are parsed as VacuumStmt with IsVacuumcmd = false
@@ -75,16 +76,16 @@ func (p *DDLParser) Parse(query string) (*DDLStatement, error) {
 }
 
 // parseCreateTable parses a CREATE TABLE statement
-func (p *DDLParser) parseCreateTable(stmt *pg_query.CreateStmt, ddlStmt *DDLStatement) {
+func (p *DDLParser) parseCreateTable(stmt *pg_query.CreateStmt, ddlStmt *parser.DDLStatement) {
 	if relation := stmt.GetRelation(); relation != nil {
 		ddlStmt.TableName = relation.GetRelname()
 	}
 
 	if columnDefs := stmt.GetTableElts(); columnDefs != nil {
-		columns := make([]ColumnDefinition, 0)
+		columns := make([]parser.ColumnDefinition, 0)
 		for _, elt := range columnDefs {
 			if columnDef := elt.GetColumnDef(); columnDef != nil {
-				col := ColumnDefinition{
+				col := parser.ColumnDefinition{
 					Name: columnDef.GetColname(),
 				}
 
@@ -140,7 +141,7 @@ func (p *DDLParser) parseCreateTable(stmt *pg_query.CreateStmt, ddlStmt *DDLStat
 }
 
 // parseDropTable parses a DROP TABLE statement
-func (p *DDLParser) parseDropTable(stmt *pg_query.DropStmt, ddlStmt *DDLStatement) {
+func (p *DDLParser) parseDropTable(stmt *pg_query.DropStmt, ddlStmt *parser.DDLStatement) {
 	// Parse table names from the objects
 	if objects := stmt.GetObjects(); objects != nil {
 		tableNames := make([]string, 0)
@@ -182,17 +183,17 @@ func (p *DDLParser) isDropViewStatement(stmt *pg_query.DropStmt) bool {
 }
 
 // parseAlterTable parses an ALTER TABLE statement
-func (p *DDLParser) parseAlterTable(stmt *pg_query.AlterTableStmt, ddlStmt *DDLStatement) {
+func (p *DDLParser) parseAlterTable(stmt *pg_query.AlterTableStmt, ddlStmt *parser.DDLStatement) {
 	if relation := stmt.GetRelation(); relation != nil {
 		ddlStmt.TableName = relation.GetRelname()
 	}
 	
 	// Parse the commands
 	if cmds := stmt.GetCmds(); cmds != nil {
-		alterCommands := make([]AlterCommand, 0)
+		alterCommands := make([]parser.AlterCommand, 0)
 		for _, cmdNode := range cmds {
 			if cmd := cmdNode.GetAlterTableCmd(); cmd != nil {
-				alterCmd := AlterCommand{
+				alterCmd := parser.AlterCommand{
 					Action: cmd.GetSubtype(),
 				}
 				
@@ -304,7 +305,7 @@ func (p *DDLParser) parseAlterTable(stmt *pg_query.AlterTableStmt, ddlStmt *DDLS
 }
 
 // parseCreateIndex parses a CREATE INDEX statement
-func (p *DDLParser) parseCreateIndex(stmt *pg_query.IndexStmt, ddlStmt *DDLStatement) {
+func (p *DDLParser) parseCreateIndex(stmt *pg_query.IndexStmt, ddlStmt *parser.DDLStatement) {
 	if relation := stmt.GetRelation(); relation != nil {
 		ddlStmt.TableName = relation.GetRelname()
 	}
@@ -358,7 +359,7 @@ func (p *DDLParser) parseCreateIndex(stmt *pg_query.IndexStmt, ddlStmt *DDLState
 }
 
 // parseDropIndex parses a DROP INDEX statement
-func (p *DDLParser) parseDropIndex(stmt *pg_query.DropStmt, ddlStmt *DDLStatement) {
+func (p *DDLParser) parseDropIndex(stmt *pg_query.DropStmt, ddlStmt *parser.DDLStatement) {
 	// Parse index names from the objects
 	if objects := stmt.GetObjects(); objects != nil {
 		indexNames := make([]string, 0)
@@ -388,7 +389,7 @@ func (p *DDLParser) parseDropIndex(stmt *pg_query.DropStmt, ddlStmt *DDLStatemen
 }
 
 // parseCreateView parses a CREATE VIEW statement
-func (p *DDLParser) parseCreateView(stmt *pg_query.ViewStmt, ddlStmt *DDLStatement) {
+func (p *DDLParser) parseCreateView(stmt *pg_query.ViewStmt, ddlStmt *parser.DDLStatement) {
 	if view := stmt.GetView(); view != nil {
 		ddlStmt.ViewName = view.GetRelname()
 	}
@@ -430,7 +431,7 @@ func (p *DDLParser) parseCreateView(stmt *pg_query.ViewStmt, ddlStmt *DDLStateme
 }
 
 // parseDropView parses a DROP VIEW statement
-func (p *DDLParser) parseDropView(stmt *pg_query.DropStmt, ddlStmt *DDLStatement) {
+func (p *DDLParser) parseDropView(stmt *pg_query.DropStmt, ddlStmt *parser.DDLStatement) {
 	// Parse view names from the objects
 	if objects := stmt.GetObjects(); objects != nil {
 		viewNames := make([]string, 0)

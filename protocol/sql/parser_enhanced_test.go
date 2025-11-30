@@ -2,15 +2,17 @@ package sql
 
 import (
 	"testing"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 )
 
 func TestSimpleParserEnhancedExtraction(t *testing.T) {
-	parser := NewSimplePGParser()
+	sqlParser := NewSimplePGParser()
+	planner := NewPlanner(sqlParser)
 
 	tests := []struct {
 		name             string
 		query            string
-		expectedType     StatementType
+		expectedType     parser.StatementType
 		expectedTable    string
 		expectedFields   []string
 		expectedLimit    *int64
@@ -20,14 +22,14 @@ func TestSimpleParserEnhancedExtraction(t *testing.T) {
 		{
 			name:          "SELECT with table and fields",
 			query:         "SELECT id, name FROM users",
-			expectedType:  SelectStatement,
+			expectedType:  parser.SelectStatement,
 			expectedTable: "users",
 			expectedFields: []string{"id", "name"},
 		},
 		{
 			name:          "SELECT with WHERE clause",
 			query:         "SELECT * FROM users WHERE age > 25",
-			expectedType:  SelectStatement,
+			expectedType:  parser.SelectStatement,
 			expectedTable: "users",
 			expectedFields: []string{"*"},
 			hasConditions: true,
@@ -35,7 +37,7 @@ func TestSimpleParserEnhancedExtraction(t *testing.T) {
 		{
 			name:          "SELECT with ORDER BY",
 			query:         "SELECT id, name FROM users ORDER BY name DESC",
-			expectedType:  SelectStatement,
+			expectedType:  parser.SelectStatement,
 			expectedTable: "users",
 			expectedFields: []string{"id", "name"},
 			hasOrderBy:    true,
@@ -43,7 +45,7 @@ func TestSimpleParserEnhancedExtraction(t *testing.T) {
 		{
 			name:          "SELECT with LIMIT",
 			query:         "SELECT * FROM users LIMIT 10",
-			expectedType:  SelectStatement,
+			expectedType:  parser.SelectStatement,
 			expectedTable: "users",
 			expectedFields: []string{"*"},
 			expectedLimit: int64Ptr(10),
@@ -51,7 +53,7 @@ func TestSimpleParserEnhancedExtraction(t *testing.T) {
 		{
 			name:          "Complex SELECT query",
 			query:         "SELECT id, name, email FROM users WHERE age > 25 AND active = true ORDER BY created_at DESC LIMIT 100",
-			expectedType:  SelectStatement,
+			expectedType:  parser.SelectStatement,
 			expectedTable: "users",
 			expectedFields: []string{"id", "name", "email"},
 			expectedLimit: int64Ptr(100),
@@ -61,63 +63,64 @@ func TestSimpleParserEnhancedExtraction(t *testing.T) {
 		{
 			name:          "INSERT query",
 			query:         "INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')",
-			expectedType:  InsertStatement,
+			expectedType:  parser.InsertStatement,
 			expectedTable: "users",
 		},
 		{
 			name:          "UPDATE query",
 			query:         "UPDATE users SET name = 'Bob' WHERE id = 1",
-			expectedType:  UpdateStatement,
+			expectedType:  parser.UpdateStatement,
 			expectedTable: "users",
 		},
 		{
 			name:          "DELETE query",
 			query:         "DELETE FROM users WHERE id = 1",
-			expectedType:  DeleteStatement,
+			expectedType:  parser.DeleteStatement,
 			expectedTable: "users",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parsed, err := parser.Parse(tt.query)
+			// Create a plan from the parsed query
+			plan, err := planner.CreatePlan(tt.query)
 			if err != nil {
-				t.Fatalf("Parse failed: %v", err)
+				t.Fatalf("CreatePlan failed: %v", err)
 			}
 
-			if parsed.Type != tt.expectedType {
-				t.Errorf("Expected type %v, got %v", tt.expectedType, parsed.Type)
+			if plan.Type != tt.expectedType {
+				t.Errorf("Expected type %v, got %v", tt.expectedType, plan.Type)
 			}
 
-			if parsed.Table != tt.expectedTable {
-				t.Errorf("Expected table %v, got %v", tt.expectedTable, parsed.Table)
+			if plan.Table != tt.expectedTable {
+				t.Errorf("Expected table %v, got %v", tt.expectedTable, plan.Table)
 			}
 
 			if len(tt.expectedFields) > 0 {
-				if len(parsed.Fields) != len(tt.expectedFields) {
-					t.Errorf("Expected %d fields, got %d", len(tt.expectedFields), len(parsed.Fields))
+				if len(plan.Fields) != len(tt.expectedFields) {
+					t.Errorf("Expected %d fields, got %d", len(tt.expectedFields), len(plan.Fields))
 					return
 				}
 				for i, expected := range tt.expectedFields {
-					if parsed.Fields[i] != expected {
-						t.Errorf("Expected field %s at position %d, got %s", expected, i, parsed.Fields[i])
+					if plan.Fields[i] != expected {
+						t.Errorf("Expected field %s at position %d, got %s", expected, i, plan.Fields[i])
 					}
 				}
 			}
 
 			if tt.expectedLimit != nil {
-				if parsed.Limit == nil {
+				if plan.Limit == nil {
 					t.Error("Expected limit, got nil")
-				} else if *parsed.Limit != *tt.expectedLimit {
-					t.Errorf("Expected limit %d, got %d", *tt.expectedLimit, *parsed.Limit)
+				} else if *plan.Limit != *tt.expectedLimit {
+					t.Errorf("Expected limit %d, got %d", *tt.expectedLimit, *plan.Limit)
 				}
 			}
 
-			if tt.hasConditions && len(parsed.Conditions) == 0 {
+			if tt.hasConditions && len(plan.Conditions) == 0 {
 				t.Error("Expected conditions, got none")
 			}
 
-			if tt.hasOrderBy && len(parsed.OrderBy) == 0 {
+			if tt.hasOrderBy && len(plan.OrderBy) == 0 {
 				t.Error("Expected ORDER BY, got none")
 			}
 		})

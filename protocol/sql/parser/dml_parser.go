@@ -6,11 +6,15 @@ import (
 )
 
 // DMLParser handles DML (INSERT, UPDATE, DELETE) statement parsing
-type DMLParser struct{}
+type DMLParser struct {
+	helperParser *HelperParser
+}
 
 // NewDMLParser creates a new DMLParser
 func NewDMLParser() *DMLParser {
-	return &DMLParser{}
+	return &DMLParser{
+		helperParser: NewHelperParser(),
+	}
 }
 
 // ExtractInsertInfo extracts information from an INSERT statement
@@ -29,7 +33,7 @@ func (dp *DMLParser) ExtractInsertInfo(parsed *ParsedQuery, query, lowerQuery st
 	// Extract columns if specified
 	columnsStart := strings.Index(query, "(")
 	if columnsStart != -1 && strings.Contains(lowerQuery, " values ") {
-		columnsEnd := dp.findMatchingParen(query, columnsStart)
+		columnsEnd := dp.helperParser.FindMatchingParen(query, columnsStart)
 		if columnsEnd != -1 {
 			columnsPart := query[columnsStart+1 : columnsEnd]
 			columns := strings.Split(columnsPart, ",")
@@ -109,7 +113,7 @@ func (dp *DMLParser) parseValuesClause(valuesPart string) [][]string {
 	// Remove outer parentheses if present
 	valuesPart = strings.TrimSpace(valuesPart)
 	if strings.HasPrefix(valuesPart, "(") {
-		endParen := dp.findMatchingParen(valuesPart, 0)
+		endParen := dp.helperParser.FindMatchingParen(valuesPart, 0)
 		if endParen != -1 {
 			valuesPart = valuesPart[1:endParen]
 		}
@@ -211,24 +215,3 @@ func (dp *DMLParser) splitRespectingQuotes(s string) []string {
 	return result
 }
 
-// findMatchingParen finds the matching closing parenthesis
-func (dp *DMLParser) findMatchingParen(s string, openPos int) int {
-	if openPos >= len(s) || s[openPos] != '(' {
-		return -1
-	}
-	
-	level := 1
-	for i := openPos + 1; i < len(s); i++ {
-		switch s[i] {
-		case '(':
-			level++
-		case ')':
-			level--
-			if level == 0 {
-				return i
-			}
-		}
-	}
-	
-	return -1
-}

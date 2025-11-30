@@ -4,8 +4,8 @@ import (
 	"strings"
 )
 
-// parseReturningColumns extracts RETURNING columns from a statement
-func parseReturningColumns(query string) []string {
+// ParseReturningColumns extracts RETURNING columns from a statement
+func ParseReturningColumns(query string) []string {
 	lowerQuery := strings.ToLower(query)
 	returningIndex := strings.Index(lowerQuery, " returning ")
 	if returningIndex == -1 {
@@ -47,8 +47,8 @@ func parseReturningColumns(query string) []string {
 	return columns
 }
 
-// getStatementType determines the type of SQL statement
-func getStatementType(query string) StatementType {
+// GetStatementType determines the type of SQL statement
+func GetStatementType(query string) StatementType {
 	lowerQuery := strings.ToLower(strings.TrimSpace(query))
 	
 	switch {

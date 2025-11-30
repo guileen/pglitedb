@@ -3,10 +3,11 @@ package sql
 import (
 	"context"
 	"fmt"
-	
+
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 	"github.com/guileen/pglitedb/catalog"
 	"github.com/guileen/pglitedb/types"
+	"github.com/guileen/pglitedb/protocol/sql/parser"
 )
 
 // Planner is responsible for creating execution plans from parsed queries
@@ -154,7 +155,7 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 		// Create a basic plan using the information available in ParsedQuery
 		plan := &Plan{
 			QueryString: query,
-			Type:        parsedQuery.Type,
+			Type:        parsedQuery.StatementType,
 			Table:       parsedQuery.Table,
 			Fields:      parsedQuery.Fields,
 			Conditions:  parsedQuery.Conditions,
@@ -164,36 +165,36 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 		}
 		
 		// Set operation based on statement type
-		switch parsedQuery.Type {
-		case SelectStatement:
+		switch parsedQuery.StatementType {
+		case parser.SelectStatement:
 			plan.Operation = "select"
-		case InsertStatement:
+		case parser.InsertStatement:
 			plan.Operation = "insert"
-		case UpdateStatement:
+		case parser.UpdateStatement:
 			plan.Operation = "update"
-		case DeleteStatement:
+		case parser.DeleteStatement:
 			plan.Operation = "delete"
-		case BeginStatement:
+		case parser.BeginStatement:
 			plan.Operation = "begin"
-		case CommitStatement:
+		case parser.CommitStatement:
 			plan.Operation = "commit"
-		case RollbackStatement:
+		case parser.RollbackStatement:
 			plan.Operation = "rollback"
-		case CreateTableStatement:
+		case parser.CreateTableStatement:
 			plan.Operation = "create_table"
-		case DropTableStatement:
+		case parser.DropTableStatement:
 			plan.Operation = "drop_table"
-		case AlterTableStatement:
+		case parser.AlterTableStatement:
 			plan.Operation = "alter_table"
-		case CreateIndexStatement:
+		case parser.CreateIndexStatement:
 			plan.Operation = "create_index"
-		case DropIndexStatement:
+		case parser.DropIndexStatement:
 			plan.Operation = "drop_index"
-		case CreateViewStatement:
+		case parser.CreateViewStatement:
 			plan.Operation = "create_view"
-		case DropViewStatement:
+		case parser.DropViewStatement:
 			plan.Operation = "drop_view"
-		case AnalyzeStatementType:
+		case parser.AnalyzeStatementType:
 			plan.Operation = "analyze"
 		default:
 			plan.Operation = "unknown"
@@ -230,52 +231,52 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 	// Determine statement type and extract relevant information
 	switch {
 	case stmtNode.GetSelectStmt() != nil:
-		plan.Type = SelectStatement
+		plan.Type = parser.SelectStatement
 		plan.Operation = "select"
 		p.extractSelectInfoFromPGNode(pgStmt, plan)
 	case stmtNode.GetInsertStmt() != nil:
-		plan.Type = InsertStatement
+		plan.Type = parser.InsertStatement
 		plan.Operation = "insert"
 		p.extractInsertInfoFromPGNode(pgStmt, plan)
 	case stmtNode.GetUpdateStmt() != nil:
-		plan.Type = UpdateStatement
+		plan.Type = parser.UpdateStatement
 		plan.Operation = "update"
 		p.extractUpdateInfoFromPGNode(pgStmt, plan)
 	case stmtNode.GetDeleteStmt() != nil:
-		plan.Type = DeleteStatement
+		plan.Type = parser.DeleteStatement
 		plan.Operation = "delete"
 		p.extractDeleteInfoFromPGNode(pgStmt, plan)
 	case stmtNode.GetCreateStmt() != nil:
-		plan.Type = CreateTableStatement
+		plan.Type = parser.CreateTableStatement
 	case stmtNode.GetDropStmt() != nil:
-		plan.Type = DropTableStatement
+		plan.Type = parser.DropTableStatement
 	case stmtNode.GetAlterTableStmt() != nil:
-		plan.Type = AlterTableStatement
+		plan.Type = parser.AlterTableStatement
 	case stmtNode.GetIndexStmt() != nil:
-		plan.Type = CreateIndexStatement
+		plan.Type = parser.CreateIndexStatement
 	case stmtNode.GetDropStmt() != nil:
-		plan.Type = DropIndexStatement
+		plan.Type = parser.DropIndexStatement
 	case stmtNode.GetViewStmt() != nil:
-		plan.Type = CreateViewStatement
+		plan.Type = parser.CreateViewStatement
 	case stmtNode.GetDropStmt() != nil:
-		plan.Type = DropViewStatement
+		plan.Type = parser.DropViewStatement
 	case stmtNode.GetTransactionStmt() != nil:
 		transStmt := stmtNode.GetTransactionStmt()
 		switch transStmt.GetKind() {
 		case pg_query.TransactionStmtKind_TRANS_STMT_BEGIN:
-			plan.Type = BeginStatement
+			plan.Type = parser.BeginStatement
 		case pg_query.TransactionStmtKind_TRANS_STMT_COMMIT:
-			plan.Type = CommitStatement
+			plan.Type = parser.CommitStatement
 		case pg_query.TransactionStmtKind_TRANS_STMT_ROLLBACK:
-			plan.Type = RollbackStatement
+			plan.Type = parser.RollbackStatement
 		}
 	case stmtNode.GetVacuumStmt() != nil:
 		vacuumStmt := stmtNode.GetVacuumStmt()
 		if !vacuumStmt.GetIsVacuumcmd() {
-			plan.Type = AnalyzeStatementType
+			plan.Type = parser.AnalyzeStatementType
 		}
 	default:
-		plan.Type = UnknownStatement
+		plan.Type = parser.UnknownStatement
 	}
 	
 	// Apply optimization if optimizer is available
@@ -321,14 +322,49 @@ func (p *Planner) copyPlan(original *Plan) *Plan {
 	
 	if len(original.Conditions) > 0 {
 		conditions := p.planPool.GetConditionSlice(len(original.Conditions))
-		*conditions = append(*conditions, original.Conditions...)
-		plan.Conditions = *conditions
+		for _, cond := range original.Conditions {
+			*conditions = append(*conditions, Condition{
+				Field:    cond.Field,
+				Operator: cond.Operator,
+				Value:    cond.Value,
+			})
+		}
+		// Convert local Condition slice to parser.Condition slice
+		parserConditions := make([]parser.Condition, len(*conditions))
+		for i, cond := range *conditions {
+			// Type assert cond.Value to string
+			valueStr, ok := cond.Value.(string)
+			if !ok {
+				// Convert to string if it's not already a string
+				valueStr = fmt.Sprintf("%v", cond.Value)
+			}
+			parserConditions[i] = parser.Condition{
+				Field:    cond.Field,
+				Operator: cond.Operator,
+				Value:    valueStr,
+			}
+		}
+		plan.Conditions = parserConditions
 	}
 	
 	if len(original.OrderBy) > 0 {
 		orderBy := p.planPool.GetOrderBySlice(len(original.OrderBy))
-		*orderBy = append(*orderBy, original.OrderBy...)
-		plan.OrderBy = *orderBy
+		for _, ob := range original.OrderBy {
+			*orderBy = append(*orderBy, OrderBy{
+				Field: ob.Field,
+				Order: ob.Direction,
+			})
+		}
+		// Convert local OrderBy slice to parser.OrderBy slice
+		parserOrderBy := make([]parser.OrderBy, len(*orderBy))
+		for i, ob := range *orderBy {
+			parserOrderBy[i] = parser.OrderBy{
+				Field:      ob.Field,
+				Direction:  ob.Order,
+				NullsOrder: "", // Default value
+			}
+		}
+		plan.OrderBy = parserOrderBy
 	}
 	
 	if len(original.GroupBy) > 0 {
