@@ -1,7 +1,6 @@
 package pgserver
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net"
@@ -14,7 +13,6 @@ import (
 	"github.com/guileen/pglitedb/pool"
 	"github.com/guileen/pglitedb/protocol/sql"
 	"github.com/guileen/pglitedb/logger"
-	"github.com/jackc/pgx/v5/pgproto3"
 )
 
 // PostgreSQLServer represents the main PostgreSQL server
@@ -35,10 +33,10 @@ type PostgreSQLServer struct {
 	bufferPool *pool.MultiBufferPool
 	
 	// Component references
-	connectionHandler *ConnectionHandler
-	queryProcessor    *QueryProcessor
-	statementManager  *PreparedStatementManager
-	profilingService  *ProfilingService
+	connectionHandler ConnectionHandlerInterface
+	queryProcessor    QueryProcessorInterface
+	statementManager  PreparedStatementManagerInterface
+	profilingService  ProfilingServiceInterface
 }
 
 // NewPostgreSQLServer creates a new PostgreSQL server instance
@@ -82,9 +80,9 @@ func NewPostgreSQLServer(executor *sql.Executor, planner *sql.Planner) *PostgreS
 	
 	// Create components
 	bufferPool := pool.NewMultiBufferPool("pgserver", bufferSizes)
-	connectionHandler := NewConnectionHandler(executor, parser, planner, adaptivePool.ConnectionPool)
 	queryProcessor := NewQueryProcessor(executor, parser, planner)
 	statementManager := NewPreparedStatementManager(parser)
+	connectionHandler := NewConnectionHandler(queryProcessor, statementManager, parser)
 	
 	server := &PostgreSQLServer{
 		executor:          executor,
@@ -161,6 +159,13 @@ func (s *PostgreSQLServer) StartTCP(port string) error {
 		connectionCount++
 		logger.Debug("Accepted new TCP connection", "connection_count", connectionCount, "remote_addr", conn.RemoteAddr().String())
 		
+		// Add nil check to prevent panic
+		if s.connectionHandler == nil {
+			logger.Error("Connection handler is nil, closing connection")
+			conn.Close()
+			continue
+		}
+		
 		go s.connectionHandler.HandleConnection(conn)
 	}
 }
@@ -205,6 +210,13 @@ func (s *PostgreSQLServer) StartUnix(socketPath string) error {
 		
 		connectionCount++
 		logger.Debug("Accepted new Unix connection", "connection_count", connectionCount, "local_addr", conn.LocalAddr().String())
+		
+		// Add nil check to prevent panic
+		if s.connectionHandler == nil {
+			logger.Error("Connection handler is nil, closing connection")
+			conn.Close()
+			continue
+		}
 		
 		go s.connectionHandler.HandleConnection(conn)
 	}
