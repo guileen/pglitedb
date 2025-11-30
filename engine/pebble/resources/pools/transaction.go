@@ -40,3 +40,40 @@ func (tp *TxnPool) Release(txn *TransactionWrapper) {
 	txn.txn = nil
 	tp.BasePool.Put(txn)
 }
+
+// TxnIDPool manages transaction ID resources
+type TxnIDPool struct {
+	BasePool
+}
+
+// TxnIDWrapper wraps a transaction ID for pooling
+type TxnIDWrapper struct {
+	ID uint64
+}
+
+// NewTxnIDPool creates a new transaction ID pool
+func NewTxnIDPool() *TxnIDPool {
+	return &TxnIDPool{
+		BasePool: *NewBasePool("txnID", func() interface{} {
+			return &TxnIDWrapper{}
+		}),
+	}
+}
+
+// AcquireTxnID gets a transaction ID from the pool
+func (tip *TxnIDPool) AcquireTxnID() *TxnIDWrapper {
+	id := tip.BasePool.pool.Get()
+	fromPool := id != nil
+	
+	if !fromPool {
+		id = &TxnIDWrapper{}
+	}
+	
+	return id.(*TxnIDWrapper)
+}
+
+// ReleaseTxnID returns a transaction ID to the pool
+func (tip *TxnIDPool) ReleaseTxnID(id *TxnIDWrapper) {
+	id.ID = 0
+	tip.BasePool.Put(id)
+}

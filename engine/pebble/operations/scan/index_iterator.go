@@ -331,7 +331,11 @@ func (ii *IndexIterator) ResetForReuse() {
 	ii.tenantID = 0
 	ii.tableID = 0
 	ii.batchSize = 0
-	ii.rowIDBuffer = ii.rowIDBuffer[:0]
+	
+	// Reset buffers
+	if ii.rowIDBuffer != nil {
+		ii.rowIDBuffer = ii.rowIDBuffer[:0]
+	}
 	
 	// Efficiently reset the rowCache by clearing instead of reassigning
 	// This avoids allocation overhead and is more efficient for pooling
@@ -342,5 +346,9 @@ func (ii *IndexIterator) ResetForReuse() {
 	}
 	
 	ii.cacheIdx = 0
-	// Keep the rowIDValuePool as it's a value object
+	
+	// Keep the rowIDValuePool as it's a value object, but reset its data
+	if ii.rowIDValuePool != nil {
+		ii.rowIDValuePool.Data = nil
+	}
 }

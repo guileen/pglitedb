@@ -5,11 +5,13 @@ import (
 	"github.com/guileen/pglitedb/engine/pebble/resources/metrics"
 	"github.com/guileen/pglitedb/types"
 	engineTypes "github.com/guileen/pglitedb/engine/types"
+	scan "github.com/guileen/pglitedb/engine/pebble/operations/scan"
 )
 
 // Manager coordinates all resource pools
 type Manager struct {
 	batchPool           *BatchPool
+	batchOperationPool  *BatchOperationPool
 	txnPool             *TxnPool
 	recordPool          *RecordPool
 	bufferPool          *BufferPool
@@ -18,6 +20,11 @@ type Manager struct {
 	scanResultPool      *ScanResultPool
 	keyPools            *KeyPools
 	tieredBufferPool    *TieredBufferPool
+	
+	// Iterator pools
+	indexIteratorPool   *IndexIteratorPool
+	rowIteratorPool     *RowIteratorPool
+	indexOnlyIteratorPool *IndexOnlyIteratorPool
 	
 	// Leak detector
 	leakDetector *leak.Detector
@@ -33,6 +40,7 @@ func NewManager(
 ) *Manager {
 	return &Manager{
 		batchPool:           NewBatchPool(),
+		batchOperationPool:  NewBatchOperationPool(),
 		txnPool:             NewTxnPool(),
 		recordPool:          NewRecordPool(),
 		bufferPool:          NewBufferPool(),
@@ -41,6 +49,9 @@ func NewManager(
 		scanResultPool:      NewScanResultPool(),
 		keyPools:            NewKeyPools(),
 		tieredBufferPool:    NewTieredBufferPool(),
+		indexIteratorPool:   NewIndexIteratorPool(),
+		rowIteratorPool:     NewRowIteratorPool(),
+		indexOnlyIteratorPool: NewIndexOnlyIteratorPool(),
 		leakDetector:        leakDetector,
 		metrics:             metrics,
 	}
@@ -146,10 +157,50 @@ func (pm *Manager) ReleaseTieredBuffer(buf []byte) {
 	pm.tieredBufferPool.Release(buf)
 }
 
+// AcquireBatchOperation gets a batch operation from the pool
+func (pm *Manager) AcquireBatchOperation() *BatchOperationWrapper {
+	return pm.batchOperationPool.Acquire()
+}
+
+// ReleaseBatchOperation returns a batch operation to the pool
+func (pm *Manager) ReleaseBatchOperation(op *BatchOperationWrapper) {
+	pm.batchOperationPool.Release(op)
+}
+
 // AcquireKeyEncoder gets a key encoder from the pool
 func (pm *Manager) AcquireKeyEncoder() interface{} {
 	encoder := pm.keyEncoderPool.Acquire()
 	return encoder
+}
+
+// AcquireIndexIterator gets an index iterator from the pool
+func (pm *Manager) AcquireIndexIterator() *scan.IndexIterator {
+	return pm.indexIteratorPool.Acquire()
+}
+
+// ReleaseIndexIterator returns an index iterator to the pool
+func (pm *Manager) ReleaseIndexIterator(iter *scan.IndexIterator) {
+	pm.indexIteratorPool.Release(iter)
+}
+
+// AcquireRowIterator gets a row iterator from the pool
+func (pm *Manager) AcquireRowIterator() *scan.RowIterator {
+	return pm.rowIteratorPool.Acquire()
+}
+
+// ReleaseRowIterator returns a row iterator to the pool
+func (pm *Manager) ReleaseRowIterator(iter *scan.RowIterator) {
+	pm.rowIteratorPool.Release(iter)
+}
+
+// AcquireIndexOnlyIterator gets an index-only iterator from the pool
+func (pm *Manager) AcquireIndexOnlyIterator() *scan.IndexOnlyIterator {
+	return pm.indexOnlyIteratorPool.Acquire()
+}
+
+// ReleaseIndexOnlyIterator returns an index-only iterator to the pool
+func (pm *Manager) ReleaseIndexOnlyIterator(iter *scan.IndexOnlyIterator) {
+	pm.indexOnlyIteratorPool.Release(iter)
 }
 
 // ReleaseKeyEncoder returns a key encoder to the pool

@@ -136,6 +136,7 @@ type BufferPool struct {
 	keyBuffers    sync.Pool
 	valueBuffers  sync.Pool
 	rowIDBuffers  sync.Pool
+	recordMaps    sync.Pool
 }
 
 // MemoryManager manages memory usage for batch operations
@@ -577,6 +578,11 @@ func NewBufferPool() *BufferPool {
 				return make([]int64, 0, 64)
 			},
 		},
+		recordMaps: sync.Pool{
+			New: func() interface{} {
+				return make(map[int64]*dbTypes.Record)
+			},
+		},
 	}
 }
 
@@ -594,6 +600,62 @@ func (bp *BufferPool) ReleaseKeyBuffer(buf []byte) {
 	if cap(buf) <= 1024 { // Only pool reasonably sized buffers
 		bp.keyBuffers.Put(buf[:0])
 	}
+}
+
+// AcquireValueBuffer acquires a value buffer from the pool
+func (bp *BufferPool) AcquireValueBuffer() []byte {
+	buf := bp.valueBuffers.Get()
+	if buf == nil {
+		return make([]byte, 0, 256)
+	}
+	return buf.([]byte)[:0]
+}
+
+// ReleaseValueBuffer releases a value buffer to the pool
+func (bp *BufferPool) ReleaseValueBuffer(buf []byte) {
+	if cap(buf) <= 2048 { // Only pool reasonably sized buffers
+		bp.valueBuffers.Put(buf[:0])
+	}
+}
+
+// AcquireRowIDBuffer acquires a row ID buffer from the pool
+func (bp *BufferPool) AcquireRowIDBuffer() []int64 {
+	buf := bp.rowIDBuffers.Get()
+	if buf == nil {
+		return make([]int64, 0, 64)
+	}
+	return buf.([]int64)[:0]
+}
+
+// ReleaseRowIDBuffer releases a row ID buffer to the pool
+func (bp *BufferPool) ReleaseRowIDBuffer(buf []int64) {
+	if cap(buf) <= 1024 { // Only pool reasonably sized buffers
+		bp.rowIDBuffers.Put(buf[:0])
+	}
+}
+
+// AcquireRecordMap acquires a record map from the pool
+func (bp *BufferPool) AcquireRecordMap() map[int64]*dbTypes.Record {
+	m := bp.recordMaps.Get()
+	if m == nil {
+		return make(map[int64]*dbTypes.Record)
+	}
+	
+	// Clear the map without reallocating
+	recordMap := m.(map[int64]*dbTypes.Record)
+	for k := range recordMap {
+		delete(recordMap, k)
+	}
+	return recordMap
+}
+
+// ReleaseRecordMap releases a record map to the pool
+func (bp *BufferPool) ReleaseRecordMap(m map[int64]*dbTypes.Record) {
+	// Clear the map without reallocating
+	for k := range m {
+		delete(m, k)
+	}
+	bp.recordMaps.Put(m)
 }
 
 // NewMemoryManager creates a new memory manager

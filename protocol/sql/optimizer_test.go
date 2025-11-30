@@ -137,7 +137,7 @@ func TestQueryOptimizer_ConstantFolding(t *testing.T) {
 	// The conditions should remain unchanged
 	assert.Len(t, plan.Conditions, 1)
 	assert.Equal(t, "id", plan.Conditions[0].Field)
-	assert.Equal(t, 1, plan.Conditions[0].Value)
+	assert.Equal(t, "1", plan.Conditions[0].Value)
 }
 
 func TestQueryOptimizer_ExpressionSimplification(t *testing.T) {

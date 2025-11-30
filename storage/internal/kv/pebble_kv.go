@@ -479,6 +479,16 @@ func (p *PebbleKV) setKeyTimestamp(key []byte, ts int64) {
 	p.keyTimestamps.Store(string(key), ts)
 }
 
+// GetActiveTransaction retrieves an active transaction by its ID
+func (p *PebbleKV) GetActiveTransaction(txnID uint64) (*PebbleTransaction, bool) {
+	if txn, ok := p.activeTransactions.Load(txnID); ok {
+		if pebbleTxn, ok := txn.(*PebbleTransaction); ok {
+			return pebbleTxn, true
+		}
+	}
+	return nil, false
+}
+
 func (p *PebbleKV) Stats() shared.KVStats {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

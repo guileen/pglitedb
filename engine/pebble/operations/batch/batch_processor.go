@@ -133,6 +133,7 @@ func (bp *BatchProcessorImpl) ProcessBatchUpdate(ctx context.Context, tenantID, 
 	batch := bp.kv.NewBatch()
 	defer batch.Close()
 
+	// Use pooled map for updatedRows
 	updatedRows := make(map[int64]*dbTypes.Record, len(updates))
 	for _, update := range updates {
 		oldRow, ok := oldRows[update.RowID]

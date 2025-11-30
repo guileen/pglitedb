@@ -35,3 +35,40 @@ func (fep *FilterExprPool) Release(expr *engineTypes.FilterExpression) {
 	*expr = engineTypes.FilterExpression{} // Reset to zero value
 	fep.BasePool.Put(expr)
 }
+
+// FilterExprSlicePool manages slices of filter expressions
+type FilterExprSlicePool struct {
+	BasePool
+}
+
+// NewFilterExprSlicePool creates a new filter expression slice pool
+func NewFilterExprSlicePool() *FilterExprSlicePool {
+	return &FilterExprSlicePool{
+		BasePool: *NewBasePool("filterExprSlice", func() interface{} {
+			return make([]*engineTypes.FilterExpression, 0, 4) // Small capacity for typical use cases
+		}),
+	}
+}
+
+// AcquireFilterExprSlice gets a filter expression slice from the pool
+func (fesp *FilterExprSlicePool) AcquireFilterExprSlice() []*engineTypes.FilterExpression {
+	slice := fesp.BasePool.pool.Get()
+	fromPool := slice != nil
+
+	if !fromPool {
+		return make([]*engineTypes.FilterExpression, 0, 4)
+	}
+
+	return slice.([]*engineTypes.FilterExpression)
+}
+
+// ReleaseFilterExprSlice returns a filter expression slice to the pool
+func (fesp *FilterExprSlicePool) ReleaseFilterExprSlice(slice []*engineTypes.FilterExpression) {
+	// Clear the slice without reallocating
+	for i := range slice {
+		slice[i] = nil
+	}
+	slice = slice[:0]
+
+	fesp.BasePool.Put(slice)
+}

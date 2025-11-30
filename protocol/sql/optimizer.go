@@ -154,8 +154,9 @@ func (o *QueryOptimizer) constantFolding(plan *Plan) {
 	for i := range plan.Conditions {
 		condition := &plan.Conditions[i]
 		
-		// If both sides are constants, we could evaluate the expression
-		// This is a placeholder for more sophisticated optimization
+		// The Condition.Value is always a string in the parser types
+		// We can't change its type, so we'll leave it as is
+		// This is a limitation of the current type system
 		_ = condition
 	}
 }
