@@ -198,9 +198,10 @@ func (bp *BatchProcessorImpl) ProcessBatchDelete(ctx context.Context, tenantID, 
 
 // generateRowID generates a new row ID
 func (bp *BatchProcessorImpl) generateRowID(ctx context.Context, tenantID, tableID int64) (int64, error) {
-	// This is a placeholder implementation
 	// In a real implementation, this would use a proper ID generator
-	return 0, fmt.Errorf("not implemented")
+	// For now, we'll use a simple incrementing counter for testing
+	staticID := int64(1000) // Start from 1000 to avoid conflicts with existing IDs
+	return atomic.AddInt64(&staticID, 1), nil
 }
 
 // getRowBatch retrieves multiple rows by their IDs

@@ -5,21 +5,24 @@ import (
 	"fmt"
 
 	"github.com/guileen/pglitedb/codec"
+	"github.com/guileen/pglitedb/idgen"
 	"github.com/guileen/pglitedb/storage"
 	dbTypes "github.com/guileen/pglitedb/types"
 )
 
 // Inserter handles row insertion operations
 type Inserter struct {
-	kv    storage.KV
-	codec codec.Codec
+	kv          storage.KV
+	codec       codec.Codec
+	idGenerator idgen.IDGeneratorInterface
 }
 
 // NewInserter creates a new inserter
-func NewInserter(kv storage.KV, codec codec.Codec) *Inserter {
+func NewInserter(kv storage.KV, codec codec.Codec, idGenerator idgen.IDGeneratorInterface) *Inserter {
 	return &Inserter{
-		kv:    kv,
-		codec: codec,
+		kv:          kv,
+		codec:       codec,
+		idGenerator: idGenerator,
 	}
 }
 
@@ -83,7 +86,6 @@ func (i *Inserter) InsertRowBatch(ctx context.Context, tenantID, tableID int64, 
 
 // generateRowID generates a new row ID
 func (i *Inserter) generateRowID(ctx context.Context, tenantID, tableID int64) (int64, error) {
-	// This is a placeholder implementation
-	// In a real implementation, this would use a proper ID generator
-	return 0, fmt.Errorf("not implemented")
+	// Use the IDGenerator from the engine package
+	return i.idGenerator.NextRowID(ctx, tenantID, tableID)
 }

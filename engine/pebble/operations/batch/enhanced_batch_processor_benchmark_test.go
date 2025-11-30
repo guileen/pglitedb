@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/guileen/pglitedb/codec"
-	"github.com/guileen/pglitedb/storage"
 )
 
 func BenchmarkEnhancedBatchProcessor_LatencyTracker(b *testing.B) {
@@ -100,7 +99,7 @@ func BenchmarkEnhancedBatchProcessor_AdaptiveBatchSize(b *testing.B) {
 		latency := time.Duration(i%50) * time.Millisecond
 		processor.latencyTracker.AddLatency(latency)
 		processor.throughputTracker.AddOperations(1000)
-		processor.memoryManager.UpdateUsage(int64((i % 100) * 1024 * 1024))
+		processor.resourceMonitor.UpdateUsage(int64((i % 100) * 1024 * 1024))
 	}
 	
 	b.ResetTimer()

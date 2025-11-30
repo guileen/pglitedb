@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/guileen/pglitedb/protocol/sql"
 	"github.com/guileen/pglitedb/types"
@@ -65,6 +66,56 @@ func (fe *FunctionExecutor) ExecuteFunctionCall(ctx context.Context, plan *sql.P
 		result.Columns = []string{funcName}
 		result.Rows = [][]interface{}{
 			{"public"},
+		}
+		result.Count = 1
+		return result, nil
+
+	case "current_timestamp", "now":
+		// Return current timestamp
+		result := types.AcquireExecutorResultSet()
+		result.Columns = []string{funcName}
+		result.Rows = [][]interface{}{
+			{time.Now().Format("2006-01-02 15:04:05.999999-07")},
+		}
+		result.Count = 1
+		return result, nil
+
+	case "current_date":
+		// Return current date
+		result := types.AcquireExecutorResultSet()
+		result.Columns = []string{funcName}
+		result.Rows = [][]interface{}{
+			{time.Now().Format("2006-01-02")},
+		}
+		result.Count = 1
+		return result, nil
+
+	case "current_time":
+		// Return current time
+		result := types.AcquireExecutorResultSet()
+		result.Columns = []string{funcName}
+		result.Rows = [][]interface{}{
+			{time.Now().Format("15:04:05.999999-07")},
+		}
+		result.Count = 1
+		return result, nil
+
+	case "pg_backend_pid":
+		// Return backend process ID (placeholder)
+		result := types.AcquireExecutorResultSet()
+		result.Columns = []string{funcName}
+		result.Rows = [][]interface{}{
+			{12345},
+		}
+		result.Count = 1
+		return result, nil
+
+	case "pg_postmaster_start_time":
+		// Return postmaster start time (placeholder)
+		result := types.AcquireExecutorResultSet()
+		result.Columns = []string{funcName}
+		result.Rows = [][]interface{}{
+			{time.Now().Format("2006-01-02 15:04:05.999999-07")},
 		}
 		result.Count = 1
 		return result, nil
