@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
-	
+
 	"github.com/guileen/pglitedb/logger"
 	"github.com/guileen/pglitedb/protocol/sql"
 	"github.com/guileen/pglitedb/protocol/pgserver/components/buffer"
+	"github.com/guileen/pglitedb/protocol/pgserver/components/connection"
+	"github.com/guileen/pglitedb/protocol/pgserver/components/listener"
 	"github.com/guileen/pglitedb/protocol/pgserver/config"
 	"github.com/guileen/pglitedb/protocol/pgserver/internal/components"
 	"github.com/guileen/pglitedb/protocol/pgserver/interfaces"
@@ -22,36 +24,43 @@ type PostgreSQLServer struct {
 	planner  *sql.Planner
 	mu       sync.Mutex
 	closed   bool
-	
-	// Network listener and connection tracking
-	listener        net.Listener
+
+	// Connection tracking
 	connectionCount int64
-	
+
 	// HTTP server for profiling endpoints
 	httpServer *http.Server
 	httpPort   string
-	
+
 	// Buffer pool for memory management
 	bufferPool *buffer.BufferPoolManager
-	
+
 	// Component references with proper interface types
 	connectionHandler interfaces.ConnectionHandlerInterface
 	queryProcessor    interfaces.QueryProcessorInterface
 	statementManager  interfaces.PreparedStatementManagerInterface
 	profilingService  interfaces.ProfilingServiceInterface
+	
+	// Dedicated components for listener management and connection acceptance
+	listenerManager    interfaces.ListenerManagementInterface
+	connectionAcceptor interfaces.ConnectionAcceptanceInterface
 }
 
 // NewPostgreSQLServer creates a new PostgreSQL server instance
 func NewPostgreSQLServer(executor *sql.Executor, planner *sql.Planner) *PostgreSQLServer {
 	logger.Info("Creating new PostgreSQL server instance")
 	parser := sql.NewPGParser()
-	
+
 	// Create components with default timeouts
 	queryProcessor := components.NewQueryProcessor(executor, parser, planner)
 	statementManager := components.NewPreparedStatementManager(parser)
 	connectionHandler := components.NewConnectionHandler(queryProcessor, statementManager, parser)
 	bufferPoolManager := buffer.NewBufferPoolManager()
-	
+
+	// Create dedicated components
+	listenerManager := listener.NewListenerManagerImpl()
+	connectionAcceptor := connection.NewConnectionAcceptorImpl()
+
 	server := &PostgreSQLServer{
 		executor:          executor,
 		parser:            parser,
@@ -61,8 +70,10 @@ func NewPostgreSQLServer(executor *sql.Executor, planner *sql.Planner) *PostgreS
 		statementManager:  statementManager,
 		bufferPool:        bufferPoolManager,
 		httpPort:          "", // No profiling by default
+		listenerManager:   listenerManager,
+		connectionAcceptor: connectionAcceptor,
 	}
-	
+
 	logger.Info("PostgreSQL server instance created successfully")
 	return server
 }
@@ -71,23 +82,27 @@ func NewPostgreSQLServer(executor *sql.Executor, planner *sql.Planner) *PostgreS
 func NewPostgreSQLServerWithConfig(executor *sql.Executor, planner *sql.Planner, cfg *config.ServerConfig) *PostgreSQLServer {
 	logger.Info("Creating new PostgreSQL server instance with config")
 	parser := sql.NewPGParser()
-	
+
 	// Validate config first
 	ValidateConfig(cfg)
-	
+
 	// Create components with timeout configuration
 	queryProcessor := components.NewQueryProcessor(executor, parser, planner)
 	statementManager := components.NewPreparedStatementManager(parser)
 	connectionHandler := components.NewConnectionHandlerWithTimeout(
-		queryProcessor, 
-		statementManager, 
+		queryProcessor,
+		statementManager,
 		parser,
 		cfg.ConnectionTimeout,
 		cfg.IdleTimeout,
 		cfg.MaxLifetime,
 	)
 	bufferPoolManager := buffer.NewBufferPoolManager()
-	
+
+	// Create dedicated components
+	listenerManager := listener.NewListenerManagerImpl()
+	connectionAcceptor := connection.NewConnectionAcceptorImpl()
+
 	server := &PostgreSQLServer{
 		executor:          executor,
 		parser:            parser,
@@ -97,13 +112,15 @@ func NewPostgreSQLServerWithConfig(executor *sql.Executor, planner *sql.Planner,
 		statementManager:  statementManager,
 		bufferPool:        bufferPoolManager,
 		httpPort:          cfg.ProfilingPort,
+		listenerManager:   listenerManager,
+		connectionAcceptor: connectionAcceptor,
 	}
-	
+
 	// Apply configuration
 	if err := server.ApplyConfig(cfg); err != nil {
 		logger.Error("Failed to apply configuration", "error", err)
 	}
-	
+
 	logger.Info("PostgreSQL server instance created successfully with config")
 	return server
 }
@@ -113,14 +130,14 @@ func (s *PostgreSQLServer) WithProfiling(port string) *PostgreSQLServer {
 	s.httpPort = port
 	// Create profiling service
 	s.profilingService = components.NewProfilingService(port)
-	
+
 	return s
 }
 
 // Start starts the PostgreSQL server on the specified TCP port
 func (s *PostgreSQLServer) Start(port string) error {
 	logger.Info("Starting PostgreSQL server", "port", port, "protocol", "TCP")
-	
+
 	// Start the profiling HTTP server if enabled
 	if s.httpPort != "" && s.profilingService != nil {
 		go func() {
@@ -129,7 +146,7 @@ func (s *PostgreSQLServer) Start(port string) error {
 			}
 		}()
 	}
-	
+
 	// Start TCP listener
 	return s.StartTCP(port)
 }
@@ -147,17 +164,15 @@ func (s *PostgreSQLServer) SetProfilingPort(port string) error {
 
 // GetListenerAddress returns the address the server is listening on
 func (s *PostgreSQLServer) GetListenerAddress() net.Addr {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	
-	if s.listener != nil {
-		return s.listener.Addr()
-	}
-	return nil
+	return s.listenerManager.GetListenerAddress()
 }
 
 // GetConnectionCount returns the number of active connections
 func (s *PostgreSQLServer) GetConnectionCount() int {
+	// If we have a connection acceptor that tracks connections, use it
+	if ca, ok := s.connectionAcceptor.(interface{ GetConnectionCount() int }); ok {
+		return ca.GetConnectionCount()
+	}
 	return int(atomic.LoadInt64(&s.connectionCount))
 }
 
@@ -165,21 +180,26 @@ func (s *PostgreSQLServer) GetConnectionCount() int {
 func (s *PostgreSQLServer) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	logger.Info("Closing PostgreSQL server", "was_already_closed", s.closed)
 	if s.closed {
 		return nil
 	}
 	s.closed = true
-	
-	// Close the listener
-	if s.listener != nil {
-		if err := s.listener.Close(); err != nil {
-			logger.Error("Error closing listener", "error", err)
-			// Continue with other cleanup even if this fails
+
+	// Close the listener through listener manager
+	if err := s.listenerManager.CloseListener(); err != nil {
+		logger.Error("Error closing listener", "error", err)
+		// Continue with other cleanup even if this fails
+	}
+
+	// Stop accepting connections
+	if s.connectionAcceptor != nil {
+		if ca, ok := s.connectionAcceptor.(interface{ StopAcceptingConnections() }); ok {
+			ca.StopAcceptingConnections()
 		}
 	}
-	
+
 	// Stop the profiling server
 	if s.profilingService != nil {
 		if err := s.profilingService.Stop(); err != nil {
@@ -187,7 +207,7 @@ func (s *PostgreSQLServer) Close() error {
 			return err
 		}
 	}
-	
+
 	// Close components
 	if s.connectionHandler != nil {
 		if err := s.connectionHandler.Close(); err != nil {
@@ -195,7 +215,7 @@ func (s *PostgreSQLServer) Close() error {
 			// Continue closing other components even if this fails
 		}
 	}
-	
+
 	logger.Info("PostgreSQL server closed successfully")
 	return nil
 }
@@ -208,28 +228,18 @@ func (s *PostgreSQLServer) StartTCP(port string) error {
 		return fmt.Errorf("server is closed")
 	}
 	s.mu.Unlock()
-	
-	// Create TCP listener
-	address := fmt.Sprintf(":%s", port)
-	listener, err := net.Listen("tcp", address)
-	if err != nil {
-		logger.Error("Failed to create TCP listener", "error", err, "address", address)
-		return fmt.Errorf("failed to create TCP listener: %w", err)
+
+	// Start TCP listener through listener manager
+	if err := s.listenerManager.StartTCP(port); err != nil {
+		return err
 	}
-	
-	s.mu.Lock()
-	s.listener = listener
-	s.mu.Unlock()
-	
+
+	listener := s.listenerManager.GetListener()
 	logger.Info("PostgreSQL server listening on TCP", "address", listener.Addr().String())
-	
-	// Start accepting connections
-	go func() {
-		if err := s.acceptConnections(listener); err != nil {
-			logger.Error("Error accepting connections", "error", err)
-		}
-	}()
-	
+
+	// Start accepting connections through connection acceptor
+	s.connectionAcceptor.StartAcceptingConnections(listener, s.connectionHandler)
+
 	return nil
 }
 
@@ -241,65 +251,17 @@ func (s *PostgreSQLServer) StartUnix(socket string) error {
 		return fmt.Errorf("server is closed")
 	}
 	s.mu.Unlock()
-	
-	// Create Unix socket listener
-	listener, err := net.Listen("unix", socket)
-	if err != nil {
-		logger.Error("Failed to create Unix socket listener", "error", err, "socket", socket)
-		return fmt.Errorf("failed to create Unix socket listener: %w", err)
+
+	// Start Unix socket listener through listener manager
+	if err := s.listenerManager.StartUnix(socket); err != nil {
+		return err
 	}
-	
-	s.mu.Lock()
-	s.listener = listener
-	s.mu.Unlock()
-	
+
+	listener := s.listenerManager.GetListener()
 	logger.Info("PostgreSQL server listening on Unix socket", "socket", listener.Addr().String())
-	
-	// Start accepting connections
-	go func() {
-		if err := s.acceptConnections(listener); err != nil {
-			logger.Error("Error accepting connections", "error", err)
-		}
-	}()
-	
+
+	// Start accepting connections through connection acceptor
+	s.connectionAcceptor.StartAcceptingConnections(listener, s.connectionHandler)
+
 	return nil
-}
-
-// acceptConnections handles incoming connections
-func (s *PostgreSQLServer) acceptConnections(listener net.Listener) error {
-	logger.Info("Starting to accept connections", "address", listener.Addr().String())
-	
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			// Check if server is closing
-			s.mu.Lock()
-			closed := s.closed
-			s.mu.Unlock()
-			
-			if closed {
-				logger.Info("Server is closing, stopping connection acceptance")
-				return nil
-			}
-			
-			logger.Error("Failed to accept connection", "error", err)
-			continue
-		}
-
-		// Increment connection count
-		atomic.AddInt64(&s.connectionCount, 1)
-		logger.Info("Accepted new connection", "remote_addr", conn.RemoteAddr().String(), "local_addr", conn.LocalAddr().String(), "connection_count", atomic.LoadInt64(&s.connectionCount))
-
-		// Handle connection in a goroutine
-		go func() {
-			defer func() {
-				atomic.AddInt64(&s.connectionCount, -1)
-				logger.Info("Connection closed", "remote_addr", conn.RemoteAddr().String(), "connection_count", atomic.LoadInt64(&s.connectionCount))
-			}()
-			
-			if err := s.connectionHandler.HandleConnection(conn); err != nil {
-				logger.Error("Error handling connection", "error", err, "remote_addr", conn.RemoteAddr().String())
-			}
-		}()
-	}
 }
