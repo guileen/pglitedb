@@ -188,12 +188,12 @@ run-pg:
 regress_bench:
 	@echo "Starting regression and benchmark tests..."
 	@(make run-pg > /tmp/pglitedb-regress.log 2>&1 &) && sleep 10
-	@TIMESTAMP=$$(date +%s); \
+	@TIMESTAMP=$$(date +%Y%m%d_%H%M%S); \
 	echo "Running regression tests..."; \
 	scripts/run_regress.sh; \
 	echo "Running pgbench tests..."; \
-	mkdir -p bench && scripts/run_pgbench.sh | tee $(PWD)/bench/$$TIMESTAMP.json; \
-	echo "Benchmark test results saved to bench/$$TIMESTAMP.json"; \
+	mkdir -p bench && scripts/run_pgbench.sh | tee $(PWD)/bench/bench_$$TIMESTAMP.json; \
+	echo "Benchmark test results saved to bench/bench_$$TIMESTAMP.json"; \
 	echo "Tests completed. Results saved to regress/ and bench/ directories."
 
 ## run-both: 同时运行 HTTP 和 PostgreSQL 服务器（需要多个终端）

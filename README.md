@@ -4,6 +4,9 @@
 [![GitHub issues](https://img.shields.io/github/issues/guileen/pglitedb)](https://github.com/guileen/pglitedb/issues)
 [![License](https://img.shields.io/github/license/guileen/pglitedb)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/guileen/pglitedb)](https://goreportcard.com/report/github.com/guileen/pglitedb)
+[![Test Coverage](https://img.shields.io/badge/coverage-49.7%25-yellow)](spec/TEST_SUMMARY.md)
+[![Regress Tests](https://img.shields.io/badge/regress%20tests-100%25-brightgreen)](spec/TEST_SUMMARY.md)
+[![Performance](https://img.shields.io/badge/performance-4.87%20TPS-blue)](spec/TEST_SUMMARY.md)
 
 PGLiteDB is a cutting-edge, high-performance embedded database that offers full PostgreSQL wire protocol compatibility. Built on CockroachDB's Pebble storage engine (an LSM-tree based key-value store), PGLiteDB delivers exceptional performance while maintaining PostgreSQL compatibility, making it the ideal choice for applications requiring both speed and SQL functionality.
 
