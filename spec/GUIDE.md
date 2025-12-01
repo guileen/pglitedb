@@ -1,4 +1,4 @@
-# PGLiteDB Development Guide (Updated)
+# PGLiteDB Development Guide (Updated December 2025)
 
 ## Table of Contents
 
@@ -11,6 +11,7 @@
 7. [Performance Optimization](#performance-optimization)
 8. [Documentation](#documentation)
 9. [Contributing](#contributing)
+10. [Long-term Planning](#long-term-planning)
 
 ## Introduction
 

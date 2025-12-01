@@ -168,6 +168,99 @@ func (dp *DDLParser) ExtractDropIndexInfo(parsed *ParsedQuery, query, lowerQuery
 	}
 }
 
+// ExtractCreateDatabaseInfo extracts information from a CREATE DATABASE statement
+func (dp *DDLParser) ExtractCreateDatabaseInfo(parsed *ParsedQuery, query, lowerQuery string) {
+	// Extract database name
+	databaseIndex := strings.Index(lowerQuery, " database ")
+	if databaseIndex != -1 {
+		afterDatabase := strings.TrimSpace(query[databaseIndex+10:])
+		
+		// Check for IF NOT EXISTS
+		if strings.HasPrefix(strings.ToLower(afterDatabase), "if not exists ") {
+			parsed.IfNotExists = true
+			afterDatabase = strings.TrimSpace(afterDatabase[14:]) // Skip "if not exists "
+		}
+		
+		// Database name ends at first space or end of string
+		dbNameEnd := strings.Index(afterDatabase, " ")
+		if dbNameEnd == -1 {
+			parsed.TableName = afterDatabase
+		} else {
+			parsed.TableName = afterDatabase[:dbNameEnd]
+		}
+	}
+}
+
+// ExtractDropDatabaseInfo extracts information from a DROP DATABASE statement
+func (dp *DDLParser) ExtractDropDatabaseInfo(parsed *ParsedQuery, query, lowerQuery string) {
+	// Extract database name
+	databaseIndex := strings.Index(lowerQuery, " database ")
+	if databaseIndex != -1 {
+		afterDatabase := strings.TrimSpace(query[databaseIndex+10:])
+		
+		// Check for IF EXISTS
+		if strings.HasPrefix(strings.ToLower(afterDatabase), "if exists ") {
+			parsed.IfExists = true
+			afterDatabase = strings.TrimSpace(afterDatabase[10:]) // Skip "if exists "
+		}
+		
+		// Database name ends at first space or end of string
+		dbNameEnd := strings.Index(afterDatabase, " ")
+		if dbNameEnd == -1 {
+			parsed.TableName = afterDatabase
+		} else {
+			parsed.TableName = afterDatabase[:dbNameEnd]
+		}
+	}
+}
+
+// ExtractAlterDatabaseInfo extracts information from an ALTER DATABASE statement
+func (dp *DDLParser) ExtractAlterDatabaseInfo(parsed *ParsedQuery, query, lowerQuery string) {
+	// Extract database name
+	databaseIndex := strings.Index(lowerQuery, " database ")
+	if databaseIndex != -1 {
+		// Calculate the correct position in the original query
+		originalDatabaseIndex := strings.Index(strings.ToLower(query), " database ")
+		if originalDatabaseIndex != -1 {
+			// Get the part after "DATABASE"
+			afterDatabase := strings.TrimSpace(query[originalDatabaseIndex+10:])
+			
+			// Debug output
+			// fmt.Printf("DEBUG: afterDatabase = '%s'\n", afterDatabase)
+			
+			// Find the end of the database name by looking for the next keyword
+			dbNameEnd := len(afterDatabase)
+			
+			// Look for common ALTER DATABASE action keywords
+			keywords := []string{" set ", " owner ", " refresh ", " reset ", " rename "}
+			for _, keyword := range keywords {
+				if idx := strings.Index(strings.ToLower(afterDatabase), keyword); idx != -1 && idx < dbNameEnd {
+					dbNameEnd = idx
+				}
+			}
+			
+			// Debug output
+			// fmt.Printf("DEBUG: dbNameEnd = %d\n", dbNameEnd)
+			
+			// Extract the database name
+			dbName := strings.TrimSpace(afterDatabase[:dbNameEnd])
+			
+			// Debug output
+			// fmt.Printf("DEBUG: dbName = '%s'\n", dbName)
+			
+			// Handle quoted database names
+			if strings.HasPrefix(dbName, `"`) && strings.HasSuffix(dbName, `"`) {
+				dbName = dbName[1 : len(dbName)-1]
+			}
+			
+			parsed.TableName = dbName
+			
+			// For now, we'll store the rest of the statement in a field for further processing
+			// In a full implementation, we would parse the specific ALTER DATABASE actions
+		}
+	}
+}
+
 // parseColumnDefinitions parses column definitions from CREATE TABLE statement
 func (dp *DDLParser) parseColumnDefinitions(columnsPart string) []ColumnDefinition {
 	var columns []ColumnDefinition

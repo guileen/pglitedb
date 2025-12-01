@@ -58,12 +58,18 @@ help:
 ## all: 默认目标 - 格式化、检查、测试、构建
 all: fmt vet test build
 
-## build: 编译服务器二进制文件
-build:
-	@echo "Building $(BINARY_NAME)..."
+build-optimized:
+	@echo "Building optimized $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
-	$(GO) build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/server
-	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
+	$(GO) build -ldflags="-s -w" -gcflags="-m -m" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/server
+	@echo "Optimized build complete: $(BUILD_DIR)/$(BINARY_NAME)"
+
+# Enable link-time optimizations
+build-lto:
+	@echo "Building LTO $(BINARY_NAME)..."
+	@mkdir -p $(BUILD_DIR)
+	$(GO) build -ldflags="-s -w -linkmode external -extldflags -static" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/server
+	@echo "LTO build complete: $(BUILD_DIR)/$(BINARY_NAME)"
 
 ## install: 安装到 GOPATH/bin
 install:
@@ -187,6 +193,7 @@ run-pg:
 ## regress_bench: 运行回归测试和性能测试
 regress_bench:
 	@echo "Starting regression and benchmark tests..."
+	@rm -rf /tmp/pglitedb-postgres
 	@(make run-pg > /tmp/pglitedb-regress.log 2>&1 &) && sleep 10
 	@TIMESTAMP=$$(date +%Y%m%d_%H%M%S); \
 	echo "Running regression tests..."; \

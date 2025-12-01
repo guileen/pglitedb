@@ -54,11 +54,11 @@ func (p *FullPGParser) getStatementType(query string) parser.StatementType {
 	// Parse the query to get the AST
 	result, err := pg_query.Parse(query)
 	if err != nil {
-		return parser.SelectStatement
+		return parser.UnknownStatement
 	}
 	
 	if len(result.Stmts) == 0 {
-		return parser.SelectStatement
+		return parser.UnknownStatement
 	}
 	
 	// Get the first statement
@@ -90,6 +90,18 @@ func (p *FullPGParser) getStatementType(query string) parser.StatementType {
 		}
 	case stmt.GetCreateStmt() != nil:
 		return parser.CreateTableStatement
+	case stmt.GetCreatedbStmt() != nil:
+		return parser.CreateDatabaseStatement
+	case stmt.GetDropdbStmt() != nil:
+		return parser.DropDatabaseStatement
+	case stmt.GetAlterDatabaseStmt() != nil:
+		return parser.AlterDatabaseStatement
+	case stmt.GetAlterDatabaseSetStmt() != nil:
+		return parser.AlterDatabaseStatement
+	case stmt.GetAlterDatabaseRefreshCollStmt() != nil:
+		return parser.AlterDatabaseStatement
+	case stmt.GetAlterOwnerStmt() != nil:
+		return parser.AlterDatabaseStatement
 	case stmt.GetDropStmt() != nil:
 		// Check if it's DROP INDEX or DROP VIEW
 		dropStmt := stmt.GetDropStmt()
@@ -114,7 +126,9 @@ func (p *FullPGParser) getStatementType(query string) parser.StatementType {
 		// Handle VACUUM statements if needed
 		return parser.UnknownStatement
 	default:
-		return parser.SelectStatement
+		// Debug: Print the type of statement that we don't recognize
+		// This will help us identify what type of statement is causing the issue
+		return parser.UnknownStatement
 	}
 }
 

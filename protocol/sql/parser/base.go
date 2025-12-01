@@ -24,6 +24,10 @@ const (
 	CreateViewStatement
 	DropViewStatement
 	AnalyzeStatementType
+	CreateDatabaseStatement
+	DropDatabaseStatement
+	AlterDatabaseStatement
+	TruncateTableStatement
 	UnknownStatement
 )
 
@@ -60,6 +64,14 @@ func (s StatementType) String() string {
 		return "DROP_VIEW"
 	case AnalyzeStatementType:
 		return "ANALYZE"
+	case CreateDatabaseStatement:
+		return "CREATE_DATABASE"
+	case DropDatabaseStatement:
+		return "DROP_DATABASE"
+	case AlterDatabaseStatement:
+		return "ALTER_DATABASE"
+	case TruncateTableStatement:
+		return "TRUNCATE_TABLE"
 	default:
 		return "UNKNOWN"
 	}
@@ -67,33 +79,35 @@ func (s StatementType) String() string {
 
 // DDLStatement represents a parsed DDL statement
 type DDLStatement struct {
-	Type          StatementType
-	Query         string
-	TableName     string
-	NewTableName  string // For ALTER TABLE RENAME
-	IfExists      bool
-	IfNotExists   bool
-	Columns       []ColumnDefinition
-	AlterCommands []AlterCommand
-	IndexName     string
-	IndexNames    []string
-	IndexColumns  []string
-	IndexType     string
-	Unique        bool
-	Concurrent    bool
-	Cascade       bool
-	Restrict      bool
-	ViewName      string
-	ViewNames     []string
-	ViewQuery     string
-	Replace       bool
+	Type            StatementType
+	Query           string
+	TableName       string
+	NewTableName    string // For ALTER TABLE RENAME
+	IfExists        bool
+	IfNotExists     bool
+	Columns         []ColumnDefinition
+	AlterCommands   []AlterCommand
+	IndexName       string
+	IndexNames      []string
+	IndexColumns    []string
+	IndexType       string
+	Unique          bool
+	Concurrent      bool
+	Cascade         bool
+	Restrict        bool
+	ViewName        string
+	ViewNames       []string
+	ViewQuery       string
+	Replace         bool
 	ViewColumnNames []string
-	ViewOptions   map[string]string
-	IndexOptions  map[string]string
-	ColumnNames   []string // For ANALYZE statements
-	WhereClause   string   // For partial indexes
-	AllTables     bool     // For ANALYZE statements
-	Statement     interface{} // For storing specific statement types like AnalyzeStatement
+	ViewOptions     map[string]string
+	IndexOptions    map[string]string
+	ColumnNames     []string // For ANALYZE statements
+	WhereClause     string   // For partial indexes
+	AllTables       bool     // For ANALYZE statements
+	Statement       interface{} // For storing specific statement types like AnalyzeStatement
+	TableNames      []string    // For TRUNCATE statements
+	RestartSequences bool       // For TRUNCATE statements
 }
 
 // AlterCommand represents a single ALTER TABLE command

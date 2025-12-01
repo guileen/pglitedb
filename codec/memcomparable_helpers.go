@@ -76,8 +76,16 @@ func encodeString(value interface{}) ([]byte, error) {
 // Global pool for byte slices used in decoding
 var decodeBufferPool = &sync.Pool{
 	New: func() interface{} {
-		// Start with a reasonable default size
-		buf := make([]byte, 0, 128)
+		// Larger default size to reduce reallocations
+		buf := make([]byte, 0, 1024)
+		return &buf
+	},
+}
+
+// Pre-allocate commonly used buffers
+var encodeBufferPool = &sync.Pool{
+	New: func() interface{} {
+		buf := make([]byte, 0, 2048)
 		return &buf
 	},
 }

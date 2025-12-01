@@ -78,6 +78,12 @@ func (p *SimplePGParser) Parse(query string) (*parser.ParsedQuery, error) {
 		p.ddlParser.ExtractCreateIndexInfo(parsed, trimmedQuery, lowerQuery)
 	case parser.DropIndexStatement:
 		p.ddlParser.ExtractDropIndexInfo(parsed, trimmedQuery, lowerQuery)
+	case parser.CreateDatabaseStatement:
+		p.ddlParser.ExtractCreateDatabaseInfo(parsed, trimmedQuery, lowerQuery)
+	case parser.DropDatabaseStatement:
+		p.ddlParser.ExtractDropDatabaseInfo(parsed, trimmedQuery, lowerQuery)
+	case parser.AlterDatabaseStatement:
+		p.ddlParser.ExtractAlterDatabaseInfo(parsed, trimmedQuery, lowerQuery)
 	}
 
 	return parsed, nil

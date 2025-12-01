@@ -18,7 +18,7 @@ This guide explains how to use PGLiteDB as an embedded database in your Go appli
 PGLiteDB is a high-performance embedded database that offers full PostgreSQL wire protocol compatibility. Unlike traditional embedded databases, PGLiteDB provides the familiar PostgreSQL interface that developers love while delivering exceptional performance.
 
 Key benefits of using PGLiteDB in embedded mode:
-- **Performance**: Over 2500 TPS with sub-4ms latency (25% improvement from recent optimizations)
+- **Performance**: ~2,482 TPS with ~4.03ms latency
 - **Compatibility**: Full PostgreSQL SQL support
 - **Simplicity**: Single binary deployment with no external dependencies
 - **Multi-tenancy**: Built-in tenant isolation for SaaS applications

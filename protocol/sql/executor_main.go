@@ -112,7 +112,8 @@ func (e *Executor) Execute(ctx context.Context, query string) (*types.ResultSet,
 	case parser.RollbackStatement:
 		return e.executeRollback(ctx)
 	case parser.CreateTableStatement, parser.DropTableStatement, parser.AlterTableStatement, 
-	     parser.CreateIndexStatement, parser.DropIndexStatement, parser.CreateViewStatement, parser.DropViewStatement:
+	     parser.CreateIndexStatement, parser.DropIndexStatement, parser.CreateViewStatement, parser.DropViewStatement,
+	     parser.CreateDatabaseStatement, parser.DropDatabaseStatement, parser.AlterDatabaseStatement, parser.TruncateTableStatement:
 		return e.executeDDL(ctx, query)
 	case parser.AnalyzeStatementType:
 		return e.executeAnalyze(ctx, query)
@@ -140,6 +141,14 @@ func (e *Executor) ExecuteParsed(ctx context.Context, parsed *parser.ParsedQuery
 	case parser.UnknownStatement:
 		// For unknown statements, try to handle them as system queries
 		return e.executeSystemQuery(ctx, parsed.QueryString)
+	case parser.InsertStatement, parser.UpdateStatement, parser.DeleteStatement,
+	     parser.BeginStatement, parser.CommitStatement, parser.RollbackStatement,
+	     parser.CreateTableStatement, parser.DropTableStatement, parser.AlterTableStatement,
+	     parser.CreateIndexStatement, parser.DropIndexStatement, parser.CreateViewStatement, parser.DropViewStatement,
+	     parser.CreateDatabaseStatement, parser.DropDatabaseStatement, parser.AlterDatabaseStatement,
+	     parser.TruncateTableStatement, parser.AnalyzeStatementType:
+		// Delegate to the main Execute method for all other supported statement types
+		return e.Execute(ctx, parsed.QueryString)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %v", plan.Type)
 	}
@@ -148,53 +157,60 @@ func (e *Executor) ExecuteParsed(ctx context.Context, parsed *parser.ParsedQuery
 // executeSystemQuery handles queries that the parser couldn't classify
 // This is particularly important for system table queries from tools like pgbench
 func (e *Executor) executeSystemQuery(ctx context.Context, query string) (*types.ResultSet, error) {
-	// If we have a catalog, try to handle as a system query
-	if e.catalog != nil {
-		// Try to parse as a simple SELECT query against system tables
-		trimmedQuery := strings.TrimSpace(query)
-		lowerQuery := strings.ToLower(trimmedQuery)
-		
-		// Check if this looks like a SELECT query against system tables
-		if strings.HasPrefix(lowerQuery, "select") {
-			// Try to extract the table name from a simple SELECT query
-			fromIndex := strings.Index(lowerQuery, " from ")
-			if fromIndex != -1 {
-				// Extract everything after FROM until WHERE, ORDER BY, etc.
-				afterFrom := trimmedQuery[fromIndex+6:] // Skip " from "
-				tableEnd := len(afterFrom)
-				
-				// Find end of table name
-				spaceIndex := strings.Index(afterFrom, " ")
-				whereIndex := strings.Index(strings.ToLower(afterFrom), " where ")
-				orderIndex := strings.Index(strings.ToLower(afterFrom), " order by ")
-				limitIndex := strings.Index(strings.ToLower(afterFrom), " limit ")
-				groupIndex := strings.Index(strings.ToLower(afterFrom), " group by ")
-				
-				// Find the earliest termination
-				indices := []int{spaceIndex, whereIndex, orderIndex, limitIndex, groupIndex}
-				for _, idx := range indices {
-					if idx != -1 && idx < tableEnd {
-						tableEnd = idx
-					}
+	// First try to handle as a system query (SELECT against system tables)
+	trimmedQuery := strings.TrimSpace(query)
+	lowerQuery := strings.ToLower(trimmedQuery)
+	
+	// Check if this looks like a SELECT query against system tables
+	if strings.HasPrefix(lowerQuery, "select") {
+		// Try to extract the table name from a simple SELECT query
+		fromIndex := strings.Index(lowerQuery, " from ")
+		if fromIndex != -1 {
+			// Extract everything after FROM until WHERE, ORDER BY, etc.
+			afterFrom := trimmedQuery[fromIndex+6:] // Skip " from "
+			tableEnd := len(afterFrom)
+			
+			// Find end of table name
+			spaceIndex := strings.Index(afterFrom, " ")
+			whereIndex := strings.Index(strings.ToLower(afterFrom), " where ")
+			orderIndex := strings.Index(strings.ToLower(afterFrom), " order by ")
+			limitIndex := strings.Index(strings.ToLower(afterFrom), " limit ")
+			groupIndex := strings.Index(strings.ToLower(afterFrom), " group by ")
+			
+			// Find the earliest termination
+			indices := []int{spaceIndex, whereIndex, orderIndex, limitIndex, groupIndex}
+			for _, idx := range indices {
+				if idx != -1 && idx < tableEnd {
+					tableEnd = idx
 				}
-				
-				tableName := strings.TrimSpace(afterFrom[:tableEnd])
-				
-				// If this looks like a system table, create a fake plan and route to existing system query handler
-				if isSystemTable(tableName) {
-					// Create a minimal plan to pass to the existing system query handler
-					plan := &Plan{
-						QueryString: query,
-						Type:        parser.SelectStatement,
-						Table:       tableName,
-					}
-					return e.executeSystemTableQuery(ctx, plan)
+			}
+			
+			tableName := strings.TrimSpace(afterFrom[:tableEnd])
+			
+			// If this looks like a system table, create a fake plan and route to existing system query handler
+			if isSystemTable(tableName) {
+				// Create a minimal plan to pass to the existing system query handler
+				plan := &Plan{
+					QueryString: query,
+					Type:        parser.SelectStatement,
+					Table:       tableName,
 				}
+				return e.executeSystemTableQuery(ctx, plan)
 			}
 		}
 	}
 	
-	// If we can't handle it as a system query, return the original error
+	// If we can't handle it as a system query, try to parse and execute it normally
+	// This handles cases where the parser marked it as Unknown but it might actually be a valid statement
+	if e.planner != nil {
+		parsed, err := e.planner.parser.Parse(query)
+		if err == nil && parsed.StatementType != parser.UnknownStatement {
+			// If we can parse it and it's not Unknown, delegate to Execute method
+			return e.Execute(ctx, query)
+		}
+	}
+	
+	// If we can't handle it as a system query or parse it successfully, return the original error
 	return nil, fmt.Errorf("unsupported statement type: UNKNOWN")
 }
 

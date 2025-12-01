@@ -9,6 +9,7 @@ import (
 
 type SchemaManager interface {
 	CreateTable(ctx context.Context, tenantID int64, def *types.TableDefinition) error
+	CreateTableIfNotExists(ctx context.Context, tenantID int64, def *types.TableDefinition) error
 	DropTable(ctx context.Context, tenantID int64, tableName string) error
 	GetTableDefinition(ctx context.Context, tenantID int64, tableName string) (*types.TableDefinition, error)
 	AlterTable(ctx context.Context, tenantID int64, tableName string, changes *AlterTableChanges) error

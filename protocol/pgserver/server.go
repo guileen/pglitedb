@@ -166,7 +166,15 @@ func (s *PostgreSQLServer) Start(port string) error {
 	s.profilingManager.StartProfiling()
 
 	// Start TCP listener
-	return s.StartTCP(port)
+	if err := s.StartTCP(port); err != nil {
+		return err
+	}
+
+	// Block until the server is closed
+	// This is needed to keep the server running
+	<-s.lifecycleManager.GetCloseChan()
+
+	return nil
 }
 
 // GetProfilingPort returns the profiling port

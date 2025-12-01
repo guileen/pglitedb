@@ -60,6 +60,9 @@ type QueryPattern struct {
 func NewEnhancedPlanner(parser Parser) *EnhancedPlanner {
 	basePlanner := NewPlanner(parser)
 	
+	// Increase cache size to 50000 entries to reduce CGO overhead
+	basePlanner.planCache = NewLRUCache(50000)
+	
 	return &EnhancedPlanner{
 		Planner:              basePlanner,
 		planDependencyTracker: NewDependencyTracker(),
