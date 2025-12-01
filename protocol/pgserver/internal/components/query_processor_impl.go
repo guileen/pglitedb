@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/guileen/pglitedb/protocol/sql"
 	"github.com/guileen/pglitedb/protocol/pgserver/interfaces"
+	"github.com/guileen/pglitedb/protocol/pgserver/config"
 	"github.com/guileen/pglitedb/protocol/sql/parser"
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 )
@@ -24,6 +25,7 @@ type QueryProcessor struct {
 	executor *sql.Executor
 	parser   sql.Parser
 	planner  *sql.Planner
+	timeoutConfig *config.TimeoutConfig
 }
 
 // NewQueryProcessor creates a new query processor
@@ -32,6 +34,7 @@ func NewQueryProcessor(executor *sql.Executor, parser sql.Parser, planner *sql.P
 		executor: executor,
 		parser:   parser,
 		planner:  planner,
+		timeoutConfig: config.DefaultTimeoutConfig(),
 	}
 }
 
@@ -94,8 +97,13 @@ func (qp *QueryProcessor) ProcessQuery(ctx context.Context, backend *pgproto3.Ba
 			
 			logger.Debug("Statement parsed successfully", "parse_duration", parseDuration.String(), "query_id", queryCtx.QueryID)
 			
+			// Create a context with timeout for query execution based on query type
+			timeout := qp.timeoutConfig.GetTimeoutForQuery(stmt)
+			execCtx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			
 			startTime = time.Now()
-			result, err := qp.planner.Execute(context.Background(), stmt)
+			result, err := qp.planner.Execute(execCtx, stmt)
 			executeDuration := time.Since(startTime)
 			if err != nil {
 				logger.Warn("Statement execution failed", "error", err, "statement", stmt, "execute_duration", executeDuration.String(), "query_id", queryCtx.QueryID)
@@ -220,8 +228,13 @@ func (qp *QueryProcessor) ProcessQuery(ctx context.Context, backend *pgproto3.Ba
 	
 	logger.Debug("Query parsed successfully", "parse_duration", parseDuration.String(), "query_id", queryCtx.QueryID)
 	
+	// Create a context with timeout for query execution based on query type
+	timeout := qp.timeoutConfig.GetTimeoutForQuery(query)
+	execCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	
 	startTime = time.Now()
-	result, err := qp.planner.Execute(context.Background(), query)
+	result, err := qp.planner.Execute(execCtx, query)
 	executeDuration := time.Since(startTime)
 	if err != nil {
 		logger.Warn("Query execution failed", "error", err, "query", query, "execute_duration", executeDuration.String(), "query_id", queryCtx.QueryID)

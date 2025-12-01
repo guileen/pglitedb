@@ -1,5 +1,5 @@
-import { Client, ClientConfig } from 'pg';
-import { dbConfig } from './config';
+import { Client, ClientConfig, QueryConfig } from 'pg';
+import { dbConfig, queryTimeouts } from './config';
 
 export class DatabaseClient {
   private client: Client;
@@ -30,7 +30,13 @@ export class DatabaseClient {
 
   async query(text: string, params?: any[]): Promise<any> {
     try {
-      const result = await this.client.query(text, params);
+      // Create query config
+      const queryConfig: QueryConfig = {
+        text,
+        values: params
+      };
+      
+      const result = await this.client.query(queryConfig);
       return result;
     } catch (error) {
       console.error('Query error:', error);

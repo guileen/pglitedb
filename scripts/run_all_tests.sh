@@ -12,14 +12,14 @@ mkdir -p test_logs
 echo ""
 echo "=== 1. Running Unit Tests ==="
 go test -v ./... -timeout 30s 2>&1 | tee test_logs/unit.log
-UNIT_EXIT=$?
+UNIT_EXIT=${PIPESTATUS[0]}
 
 # 2. Integration Tests
 echo ""
 echo "=== 2. Running Integration Tests ==="
 cd examples/integration_test
 go test -v ./... -timeout 30s 2>&1 | tee ../../test_logs/integration.log
-INTEGRATION_EXIT=$?
+INTEGRATION_EXIT=${PIPESTATUS[0]}
 cd ../..
 
 # 3. Start PostgreSQL Server for client tests
@@ -37,7 +37,7 @@ echo ""
 echo "=== 4. Running GORM Client Test ==="
 cd examples/gorm_test
 timeout 30s go run main.go 2>&1 | tee ../../test_logs/gorm.log
-GORM_EXIT=$?
+GORM_EXIT=${PIPESTATUS[0]}
 cd ../..
 
 # 5. TypeScript Test
@@ -45,7 +45,7 @@ echo ""
 echo "=== 5. Running TypeScript Client Test ==="
 cd examples/typescript_test
 pnpm test 2>&1 | tee ../../test_logs/typescript.log
-TS_EXIT=$?
+TS_EXIT=${PIPESTATUS[0]}
 cd ../..
 
 # 6. Stop PostgreSQL Server
