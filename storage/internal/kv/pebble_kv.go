@@ -396,6 +396,11 @@ func (p *PebbleKV) CommitBatchWithOptions(ctx context.Context, batch shared.Batc
 		return fmt.Errorf("invalid batch type")
 	}
 
+	// Apply sorted operations to ensure keys are in strictly increasing order
+	if err := pebbleBatch.applySorted(); err != nil {
+		return fmt.Errorf("pebble batch sort: %w", err)
+	}
+
 	atomic.AddInt64(&p.pendingWrites, 1)
 	defer atomic.AddInt64(&p.pendingWrites, -1)
 

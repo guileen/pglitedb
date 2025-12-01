@@ -69,6 +69,7 @@ func (e *pebbleEngine) BeginTx(ctx context.Context) (engineTypes.Transaction, er
 
 // BeginTxWithIsolation starts a new transaction with specified isolation level
 func (e *pebbleEngine) BeginTxWithIsolation(ctx context.Context, level storage.IsolationLevel) (engineTypes.Transaction, error) {
+	// Use snapshot isolation for better concurrency
 	if level >= storage.RepeatableRead {
 		return e.newSnapshotTx(ctx, level)
 	}
@@ -78,24 +79,22 @@ func (e *pebbleEngine) BeginTxWithIsolation(ctx context.Context, level storage.I
 		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
 
-	if err := kvTxn.SetIsolation(level); err != nil {
+	// Set optimistic concurrency control for better performance
+	if err := kvTxn.SetIsolation(storage.ReadCommitted); err != nil {
 		kvTxn.Rollback()
 		return nil, fmt.Errorf("set isolation level: %w", err)
 	}
 
 	tx := &transaction{
-		engine:   e,
-		kvTxn:    kvTxn,
-		codec:    e.codec,
+		engine:    e,
+		kvTxn:     kvTxn,
+		codec:     e.codec,
 		isolation: level,
 	}
 	
 	// Track transaction for leak detection
 	rm := resources.GetResourceManager()
 	rm.TrackTransaction(tx)
-	
-	// Set the isolation level on the transaction
-	tx.SetIsolation(level)
 	
 	return tx, nil
 }

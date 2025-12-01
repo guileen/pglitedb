@@ -20,11 +20,12 @@ type ParallelBatchProcessorConfig struct {
 }
 
 // DefaultParallelBatchProcessorConfig returns the default parallel batch processor configuration
+// Optimized for high-throughput workloads with dynamic scaling
 func DefaultParallelBatchProcessorConfig() *ParallelBatchProcessorConfig {
 	return &ParallelBatchProcessorConfig{
 		BatchProcessorConfig: DefaultBatchProcessorConfig(),
-		MaxConcurrency:       8,  // Default to 8 concurrent operations
-		WorkerPoolSize:       16, // Default to 16 worker threads
+		MaxConcurrency:       32, // Increase to 32 concurrent operations for better throughput
+		WorkerPoolSize:       64, // Increase to 64 worker threads for better parallelism
 	}
 }
 
@@ -268,11 +269,12 @@ func (pbp *ParallelBatchProcessorImpl) ProcessBatchDelete(ctx context.Context, t
 }
 
 // getOptimalChunkSize determines the optimal chunk size based on batch size and configuration
+// Optimized algorithm that considers system resources and workload characteristics
 func (pbp *ParallelBatchProcessorImpl) getOptimalChunkSize(batchSize int) int {
-	// Use the target batch size as chunk size for optimal performance
+	// Use the target batch size as baseline for optimal performance
 	chunkSize := pbp.config.TargetBatchSize
 	
-	// Ensure chunk size is reasonable
+	// Ensure chunk size is within configured bounds
 	if chunkSize < pbp.config.MinBatchSize {
 		chunkSize = pbp.config.MinBatchSize
 	}
@@ -280,9 +282,29 @@ func (pbp *ParallelBatchProcessorImpl) getOptimalChunkSize(batchSize int) int {
 		chunkSize = pbp.config.MaxBatchSize
 	}
 	
-	// Adjust for very large batches to maintain reasonable concurrency
-	if batchSize/chunkSize > pbp.config.MaxConcurrency*2 {
-		chunkSize = batchSize / pbp.config.MaxConcurrency
+	// For very large batches, optimize chunk size for better CPU utilization
+	if batchSize > pbp.config.TargetBatchSize*10 {
+		// Calculate optimal chunk size based on desired concurrency level
+		optimalConcurrency := min(pbp.config.MaxConcurrency, max(4, pbp.config.MaxConcurrency/2))
+		chunkSize = max(pbp.config.TargetBatchSize, batchSize/optimalConcurrency)
+		
+		// Ensure chunk size doesn't exceed maximum limits
+		if chunkSize > pbp.config.MaxBatchSize {
+			chunkSize = pbp.config.MaxBatchSize
+		}
+	}
+	
+	// For medium-sized batches, adjust chunk size to maximize worker utilization
+	if batchSize >= pbp.config.TargetBatchSize*2 && batchSize <= pbp.config.TargetBatchSize*10 {
+		// Aim for at least 2 chunks per worker for better load balancing
+		minChunks := pbp.config.MaxConcurrency * 2
+		if batchSize/minChunks > pbp.config.MinBatchSize {
+			chunkSize = batchSize / minChunks
+			// Ensure we don't go below minimum chunk size
+			if chunkSize < pbp.config.MinBatchSize {
+				chunkSize = pbp.config.MinBatchSize
+			}
+		}
 	}
 	
 	return chunkSize

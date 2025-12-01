@@ -46,6 +46,14 @@ func (ce *CoreExecutor) ExecuteParsed(ctx context.Context, parsed *parser.Parsed
 	case parser.UnknownStatement:
 		// Delegate to DML executor to handle as system query
 		return ce.planner.Executor().Execute(ctx, parsed.QueryString)
+	case parser.InsertStatement, parser.UpdateStatement, parser.DeleteStatement,
+	     parser.BeginStatement, parser.CommitStatement, parser.RollbackStatement,
+	     parser.CreateTableStatement, parser.DropTableStatement, parser.AlterTableStatement,
+	     parser.CreateIndexStatement, parser.DropIndexStatement, parser.CreateViewStatement, parser.DropViewStatement,
+	     parser.CreateDatabaseStatement, parser.DropDatabaseStatement, parser.AlterDatabaseStatement,
+	     parser.TruncateTableStatement, parser.AnalyzeStatementType:
+		// Delegate to DML executor for all other supported statement types
+		return ce.planner.Executor().Execute(ctx, parsed.QueryString)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %v", parsed.StatementType)
 	}

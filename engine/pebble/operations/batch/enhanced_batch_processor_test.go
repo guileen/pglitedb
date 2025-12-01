@@ -37,16 +37,16 @@ func TestEnhancedBatchProcessor_Configuration(t *testing.T) {
 	config := DefaultEnhancedBatchProcessorConfig()
 	
 	// Test configuration values
-	if config.MaxBatchSize != 50000 {
-		t.Errorf("Expected MaxBatchSize 50000, got %d", config.MaxBatchSize)
+	if config.MaxBatchSize != 100000 {
+		t.Errorf("Expected MaxBatchSize 100000, got %d", config.MaxBatchSize)
 	}
 	
-	if config.MinBatchSize != 500 {
-		t.Errorf("Expected MinBatchSize 500, got %d", config.MinBatchSize)
+	if config.MinBatchSize != 1000 {
+		t.Errorf("Expected MinBatchSize 1000, got %d", config.MinBatchSize)
 	}
 	
-	if config.TargetBatchSize != 5000 {
-		t.Errorf("Expected TargetBatchSize 5000, got %d", config.TargetBatchSize)
+	if config.TargetBatchSize != 10000 {
+		t.Errorf("Expected TargetBatchSize 10000, got %d", config.TargetBatchSize)
 	}
 	
 	if config.AdaptiveBatchingEnabled != true {

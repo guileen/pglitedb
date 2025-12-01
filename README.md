@@ -6,12 +6,14 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/guileen/pglitedb)](https://goreportcard.com/report/github.com/guileen/pglitedb)
 [![Test Coverage](https://img.shields.io/badge/coverage-27.9%25-orange)](spec/TEST_SUMMARY.md)
 [![Regress Tests](https://img.shields.io/badge/regress%20tests-100%25-brightgreen)](spec/TEST_SUMMARY.md)
-[![Performance](https://img.shields.io/badge/performance-2482%20TPS-blue)](spec/TEST_SUMMARY.md)
+[![Performance](https://img.shields.io/badge/TPS-2482-blue)](spec/TEST_SUMMARY.md)
 [![Parser Tests](https://img.shields.io/badge/parser%20tests-passing-brightgreen)](spec/TEST_SUMMARY.md)
+[![Timeout Tests](https://img.shields.io/badge/timeout%20tests-passing-brightgreen)](spec/TEST_SUMMARY.md)
+[![TRUNCATE Support](https://img.shields.io/badge/TRUNCATE%20support-added-brightgreen)](spec/TEST_SUMMARY.md)
 
 PGLiteDB is a cutting-edge, high-performance embedded database that offers full PostgreSQL wire protocol compatibility. Built on CockroachDB's Pebble storage engine (an LSM-tree based key-value store), PGLiteDB delivers exceptional performance while maintaining PostgreSQL compatibility, making it the ideal choice for applications requiring both speed and SQL functionality.
 
-With 100% PostgreSQL regression test compliance (228/228 tests passing) and optimized performance of ~2,482 TPS with ~4.03ms latency, PGLiteDB provides enterprise-grade PostgreSQL compatibility while delivering exceptional performance for embedded use cases. Recent optimizations have achieved significant performance improvements through query plan caching, parser enhancements, and enhanced resource management. All parser enhancements have been thoroughly tested and verified.
+With 100% PostgreSQL regression test compliance (228/228 tests passing) and optimized performance of ~2,482 TPS with ~4.03ms latency, PGLiteDB provides enterprise-grade PostgreSQL compatibility while delivering exceptional performance for embedded use cases. Recent optimizations have achieved significant performance improvements through query plan caching, parser enhancements, and enhanced resource management. All parser enhancements and timeout implementations have been thoroughly tested and verified.
 
 ## 🌟 Key Selling Points
 
@@ -32,8 +34,9 @@ With 100% PostgreSQL regression test compliance (228/228 tests passing) and opti
 - **📈 Advanced Indexing** - Secondary indexes with B-tree and hash implementations
 - **🏢 Multi-Tenancy** - Built-in tenant isolation for SaaS applications
 - **💾 Robust Storage** - Powered by CockroachDB's Pebble (LSM-tree based key-value store)
-- **🧠 Smart Optimizations** - Object pooling, batch operations, connection pooling, and query plan caching
+- **🧠 Smart Optimizations** - Object pooling, batch operations, connection pooling, query plan caching, and parser enhancements
 - **🛡️ ACID Compliance** - Full transaction support with MVCC and all isolation levels
+- **⏰ Connection Timeout Handling** - Robust timeout implementation with proper resource cleanup
 
 ## Quick Start
 

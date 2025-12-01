@@ -94,7 +94,7 @@ func BenchmarkEnhancedBatchProcessor_AdaptiveBatchSize(b *testing.B) {
 	
 	processor := NewEnhancedBatchProcessorWithConfig(mockKV, c, config)
 	
-	// Warm up with some data
+	// Warm up with realistic data patterns
 	for i := 0; i < 1000; i++ {
 		latency := time.Duration(i%50) * time.Millisecond
 		processor.latencyTracker.AddLatency(latency)
@@ -102,10 +102,47 @@ func BenchmarkEnhancedBatchProcessor_AdaptiveBatchSize(b *testing.B) {
 		processor.resourceMonitor.UpdateUsage(int64((i % 100) * 1024 * 1024))
 	}
 	
+	// Test with realistic batch sizes from production workloads
+	testBatchSizes := []int{100, 500, 1000, 2000, 5000, 10000, 20000, 50000}
+	
 	b.ResetTimer()
 	
 	for i := 0; i < b.N; i++ {
-		batchSize := i % 10000
+		batchSize := testBatchSizes[i%len(testBatchSizes)]
 		_ = processor.getAdaptiveBatchSize(batchSize)
+	}
+}
+
+// Benchmark with realistic workload patterns
+func BenchmarkEnhancedBatchProcessor_RealisticWorkload(b *testing.B) {
+	mockKV := &mockKV{}
+	c := codec.NewMemComparableCodec()
+	config := DefaultEnhancedBatchProcessorConfig()
+	
+	processor := NewEnhancedBatchProcessorWithConfig(mockKV, c, config)
+	
+	// Simulate realistic workload patterns
+	workloadPatterns := []struct{
+		batchSize int
+		latency   time.Duration
+		memoryUsage int64
+	}{
+		{1000, 5 * time.Millisecond, 50 * 1024 * 1024},
+		{5000, 15 * time.Millisecond, 200 * 1024 * 1024},
+		{10000, 30 * time.Millisecond, 500 * 1024 * 1024},
+		{20000, 60 * time.Millisecond, 800 * 1024 * 1024},
+		{50000, 150 * time.Millisecond, 1500 * 1024 * 1024},
+	}
+	
+	b.ResetTimer()
+	
+	for i := 0; i < b.N; i++ {
+		pattern := workloadPatterns[i%len(workloadPatterns)]
+		
+		processor.latencyTracker.AddLatency(pattern.latency)
+		processor.throughputTracker.AddOperations(pattern.batchSize)
+		processor.resourceMonitor.UpdateUsage(pattern.memoryUsage)
+		
+		_ = processor.getAdaptiveBatchSize(pattern.batchSize)
 	}
 }

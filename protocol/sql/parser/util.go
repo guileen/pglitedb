@@ -49,7 +49,14 @@ func ParseReturningColumns(query string) []string {
 
 // GetStatementType determines the type of SQL statement
 func GetStatementType(query string) StatementType {
-	lowerQuery := strings.ToLower(strings.TrimSpace(query))
+	trimmedQuery := strings.TrimSpace(query)
+	lowerQuery := strings.ToLower(trimmedQuery)
+	
+	// Handle multi-line queries by taking only the first line for statement type detection
+	if newlineIndex := strings.Index(trimmedQuery, "\n"); newlineIndex != -1 {
+		firstLine := strings.TrimSpace(trimmedQuery[:newlineIndex])
+		lowerQuery = strings.ToLower(firstLine)
+	}
 	
 	switch {
 	case strings.HasPrefix(lowerQuery, "select"):
@@ -80,8 +87,16 @@ func GetStatementType(query string) StatementType {
 		return CreateViewStatement
 	case strings.HasPrefix(lowerQuery, "drop view"):
 		return DropViewStatement
+	case strings.HasPrefix(lowerQuery, "create database"):
+		return CreateDatabaseStatement
+	case strings.HasPrefix(lowerQuery, "drop database"):
+		return DropDatabaseStatement
+	case strings.HasPrefix(lowerQuery, "alter database"):
+		return AlterDatabaseStatement
 	case strings.HasPrefix(lowerQuery, "analyze"):
 		return AnalyzeStatementType
+	case strings.HasPrefix(lowerQuery, "truncate"):
+		return TruncateTableStatement
 	default:
 		return UnknownStatement
 	}

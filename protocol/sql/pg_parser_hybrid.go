@@ -51,7 +51,7 @@ func NewHybridPGParser() *HybridPGParser {
 	return &HybridPGParser{
 		simpleParser:  NewSimplePGParser(),
 		fullParser:    NewFullPGParser(), // The full CGO parser
-		cache:         NewLRUCache(20000), // Further increased cache size to 20000 entries to reduce CGO overhead
+		cache:         NewLRUCache(50000), // Increase cache size to 50000 entries to reduce CGO overhead
 	}
 }
 
@@ -179,6 +179,15 @@ func (p *HybridPGParser) isSimpleParseValid(parsed *parser.ParsedQuery) bool {
 		if parsed.StatementType == parser.SelectStatement {
 			return p.isSelectQuerySimpleEnough(parsed)
 		}
+		return true
+	case parser.CreateTableStatement, parser.DropTableStatement, parser.AlterTableStatement,
+	     parser.CreateIndexStatement, parser.DropIndexStatement, parser.CreateViewStatement, parser.DropViewStatement,
+	     parser.CreateDatabaseStatement, parser.DropDatabaseStatement, parser.AlterDatabaseStatement,
+	     parser.TruncateTableStatement, parser.AnalyzeStatementType:
+		// Trust the simple parser for DDL statements as well
+		return true
+	case parser.BeginStatement, parser.CommitStatement, parser.RollbackStatement:
+		// Trust the simple parser for transaction control statements
 		return true
 	default:
 		return false
@@ -435,11 +444,18 @@ func (p *HybridPGParser) shouldUseSimpleParser(query string) bool {
 					}
 				}
 				
-				// If we have deeply nested parentheses or subqueries, use full parser
-				if maxParenDepth > 3 || strings.Count(lowerQuery, " select ") > 2 {
+				// Allow deeper nesting for simple operations
+				if maxParenDepth > 5 || strings.Count(lowerQuery, " select ") > 3 {
 					return false
 				}
 			}
+			
+			// Additional optimization: Check for parameterized queries which are typically simple
+			// Parameterized queries often have $1, $2, etc. which are handled well by simple parser
+			if strings.Contains(query, "$") {
+				return true
+			}
+			
 			return true
 		}
 	}
@@ -454,4 +470,29 @@ func (p *HybridPGParser) shouldUseSimpleParser(query string) bool {
 	
 	// For anything else that doesn't clearly fit our simple parser criteria, fall back to full parser
 	return false
+}
+
+// isLikelySimpleQuery performs a fast heuristic check to determine if a query is likely simple
+// This is used as a pre-filter to avoid expensive parsing operations
+func (p *HybridPGParser) isLikelySimpleQuery(query string) bool {
+	// Very fast check - if query is short and contains no complex SQL constructs, it's likely simple
+	if len(query) > 500 {
+		// Long queries are more likely to be complex
+		return false
+	}
+	
+	// Check for presence of complex SQL constructs without full parsing
+	complexIndicators := []string{
+		"JOIN", "UNION", "GROUP BY", "HAVING", "WINDOW", 
+		"WITH", "EXISTS", "CASE", "OVER", "PARTITION BY",
+	}
+	
+	upperQuery := strings.ToUpper(query)
+	for _, indicator := range complexIndicators {
+		if strings.Contains(upperQuery, indicator) {
+			return false
+		}
+	}
+	
+	return true
 }

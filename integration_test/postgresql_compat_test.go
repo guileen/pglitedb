@@ -1,6 +1,6 @@
 //go:build integration
 
-package postgresql
+package integration_test
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/guileen/pglitedb/protocol/pgserver"
-	"github.com/guileen/pglitedb/protocol/sql"
+	pgsql "github.com/guileen/pglitedb/protocol/sql"
 	"github.com/guileen/pglitedb/storage"
 	"github.com/guileen/pglitedb/engine"
 	"github.com/guileen/pglitedb/codec"
@@ -155,8 +155,8 @@ func startTestPostgreSQLServer(dbPath, port string) (*pgserver.PostgreSQLServer,
 	}
 
 	// Create SQL parser and planner
-	parser := sql.NewPGParser()
-	planner := sql.NewPlannerWithCatalog(parser, mgr)
+	parser := pgsql.NewPGParser()
+	planner := pgsql.NewPlannerWithCatalog(parser, mgr)
 	exec := planner.Executor()
 
 	// Create PostgreSQL server

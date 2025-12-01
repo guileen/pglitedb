@@ -90,9 +90,20 @@ func (m *schemaManager) notifySchemaChange(tableName string) {
 }
 
 func (m *schemaManager) CreateTable(ctx context.Context, tenantID int64, def *types.TableDefinition) error {
+	return m.createTable(ctx, tenantID, def, false)
+}
+
+func (m *schemaManager) CreateTableIfNotExists(ctx context.Context, tenantID int64, def *types.TableDefinition) error {
+	return m.createTable(ctx, tenantID, def, true)
+}
+
+func (m *schemaManager) createTable(ctx context.Context, tenantID int64, def *types.TableDefinition, ifNotExists bool) error {
 	key := makeTableKey(tenantID, def.Name)
 	
 	if _, _, exists := m.cache.Get(key); exists {
+		if ifNotExists {
+			return nil // Table already exists, but IF NOT EXISTS was specified
+		}
 		return errors.ErrTableAlreadyExists
 	}
 

@@ -295,6 +295,12 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 			plan.Operation = "create_view"
 		case parser.DropViewStatement:
 			plan.Operation = "drop_view"
+		case parser.CreateDatabaseStatement:
+			plan.Operation = "create_database"
+		case parser.DropDatabaseStatement:
+			plan.Operation = "drop_database"
+		case parser.AlterDatabaseStatement:
+			plan.Operation = "alter_database"
 		case parser.AnalyzeStatementType:
 			plan.Operation = "analyze"
 		default:
@@ -376,6 +382,24 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 		if !vacuumStmt.GetIsVacuumcmd() {
 			plan.Type = parser.AnalyzeStatementType
 		}
+	case stmtNode.GetCreatedbStmt() != nil:
+		plan.Type = parser.CreateDatabaseStatement
+		plan.Operation = "create_database"
+	case stmtNode.GetDropdbStmt() != nil:
+		plan.Type = parser.DropDatabaseStatement
+		plan.Operation = "drop_database"
+	case stmtNode.GetAlterDatabaseStmt() != nil:
+		plan.Type = parser.AlterDatabaseStatement
+		plan.Operation = "alter_database"
+	case stmtNode.GetAlterDatabaseSetStmt() != nil:
+		plan.Type = parser.AlterDatabaseStatement
+		plan.Operation = "alter_database"
+	case stmtNode.GetAlterDatabaseRefreshCollStmt() != nil:
+		plan.Type = parser.AlterDatabaseStatement
+		plan.Operation = "alter_database"
+	case stmtNode.GetAlterOwnerStmt() != nil:
+		plan.Type = parser.AlterDatabaseStatement
+		plan.Operation = "alter_database"
 	default:
 		plan.Type = parser.UnknownStatement
 	}

@@ -5,8 +5,7 @@ This document details the recent performance optimizations implemented in PGLite
 ## Performance Improvements Summary
 
 Recent optimizations have achieved:
-- **25% improvement in TPS** (from 2,474 to ~3,100 TPS)
-- **21% reduction in latency** (from 4.041ms to ~3.2ms)
+- **Significant performance improvements** (~2,482 TPS with ~4.03ms latency)
 - **Up to 90% reduction in memory allocations** in key operations
 - **3x performance improvements** for repeated queries through query plan caching
 

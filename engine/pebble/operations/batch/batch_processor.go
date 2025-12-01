@@ -21,11 +21,12 @@ type BatchProcessorConfig struct {
 }
 
 // DefaultBatchProcessorConfig returns the default batch processor configuration
+// Optimized for high-throughput workloads with better memory utilization
 func DefaultBatchProcessorConfig() *BatchProcessorConfig {
 	return &BatchProcessorConfig{
-		MaxBatchSize:     50000,  // Increased from 10000
-		MinBatchSize:     500,    // Increased from 100
-		TargetBatchSize:  5000,   // Increased from 1000
+		MaxBatchSize:     100000, // Increase to 100000 for better throughput on large batches
+		MinBatchSize:     1000,   // Increase to 1000 for better efficiency on small batches
+		TargetBatchSize:  10000,  // Increase to 10000 for optimal performance
 		AdaptiveBatching: true,
 	}
 }
