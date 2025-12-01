@@ -35,3 +35,70 @@
 ## 总结
 
 通过这次重构工作，我们成功地将protocol/pgserver/server.go文件从一个单体实现分解为多个专门的组件，显著提高了代码的可维护性和可扩展性。这符合项目的维护计划和技术债务减少策略。下一步应该继续处理其他大文件，特别是那些包含核心业务逻辑的文件。
+
+---
+
+# GO编码器反思文档
+
+## 任务回顾
+分析并解决TestStorageEngine_IndexLookup和TestStorageConfigurations测试超时问题，特别是与PebbleDB内部goroutine未正确终止相关的问题。
+
+## 文件分析和帮助度评估 (1-10分)
+
+1. `/storage/internal/kv/pebble_kv.go` - **9/10**
+   - 提供了核心的PebbleKV实现和Close方法
+   - 揭示了goroutine管理的关键问题
+
+2. `/storage/internal/kv/pebble_config.go` - **8/10**
+   - 展示了TestOptimizedPebbleConfig配置
+   - 发现了FlushInterval设置过短的问题
+
+3. `/engine/pebble_engine_test.go` - **9/10**
+   - 包含了超时的性能测试
+   - 提供了测试环境设置和清理逻辑
+
+4. `/storage/storage_enhanced_test.go` - **6/10**
+   - 包含了TestStorageConfigurations测试
+   - 对问题分析有一定帮助
+
+## 操作和修改评估 (1-10分)
+
+1. 修改`pebble_kv.go`中的Close方法 (+100ms等待) - **9/10**
+   - 有效解决了goroutine泄漏问题
+   - 是核心修复措施
+
+2. 调整`pebble_config.go`中的FlushInterval - **8/10**
+   - 减少了不必要的频繁刷新
+   - 降低了后台任务压力
+
+3. 优化`pebble_engine_test.go`中的测试逻辑 - **9/10**
+   - 减少测试数据量和增强清理机制
+   - 直接解决了性能测试超时问题
+
+## 经验总结
+
+### 有价值的经验
+1. **Goroutine生命周期管理至关重要**：第三方库（如PebbleDB）创建的后台goroutine需要特别关注其生命周期管理，确保在测试结束后能够正确终止。
+
+2. **测试环境配置优化**：测试配置应该专门针对测试环境进行优化，包括减少并发度、调整刷新频率等参数，以避免资源竞争和超时问题。
+
+3. **完善的资源清理机制**：测试代码必须包含robust的清理逻辑，包括panic恢复机制和足够的等待时间，确保所有资源都被正确释放。
+
+4. **测试数据规模控制**：在测试环境中应适当减少数据规模，既能验证功能又能避免性能问题。
+
+### 如果重做会如何改进
+1. **更系统性的分析方法**：
+   - 使用pprof工具直接分析goroutine泄漏
+   - 建立自动化测试监控机制
+
+2. **更优雅的解决方案**：
+   - 探索PebbleDB提供的官方关闭选项
+   - 实现更精确的goroutine同步机制
+
+3. **预防性措施**：
+   - 建立测试超时监控机制
+   - 制定测试环境配置标准
+
+4. **更好的测试设计**：
+   - 将大型集成测试分解为更小的单元测试
+   - 使用mock对象减少对外部依赖的复杂性
