@@ -77,8 +77,13 @@ func (m *MVCCStorage) Get(key []byte, timestamp int64) ([]byte, error) {
 	defer m.mu.RUnlock()
 	
 	// Scan backwards from the timestamp to find the most recent committed version
-	// We start from timestamp and go backward to 0
-	for ts := timestamp; ts >= 0; ts-- {
+	// We start from timestamp and go backward, but limit the scan to prevent infinite loops
+	// Only scan back a reasonable number of versions to prevent performance issues
+	maxScans := int64(1000000) // Increase limit significantly
+	scans := int64(0)
+	
+	for ts := timestamp; ts >= 0 && scans < maxScans; ts-- {
+		scans++
 		encodedKey := m.encodeKey(key, ts)
 		value, err := m.kv.Get(context.Background(), encodedKey)
 		if err != nil {
@@ -94,10 +99,17 @@ func (m *MVCCStorage) Get(key []byte, timestamp int64) ([]byte, error) {
 			continue
 		}
 		
-		// Check if this version is visible at the given timestamp
+		// Check if this version is committed and visible at the given timestamp
 		if version.StartTS <= timestamp && 
 		   (version.CommitTS > 0 && version.CommitTS <= timestamp) &&
-		   !version.Aborted && !version.Deleted {
+		   !version.Aborted {
+		   
+			// If this is a deleted version, return not found
+			if version.Deleted {
+				return nil, shared.ErrNotFound
+			}
+			
+			// Return the value for non-deleted versions
 			if version.Value == nil {
 				return nil, shared.ErrNotFound
 			}
