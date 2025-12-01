@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/guileen/pglitedb/codec"
 	engineTypes "github.com/guileen/pglitedb/engine/types"
@@ -62,6 +63,7 @@ type worker struct {
 	workChan   chan workItem
 	processor  *BatchProcessorImpl // Use existing batch processor for individual work items
 	quitChan   chan bool
+	doneChan   chan bool // Channel to signal when worker is done
 }
 
 // newWorker creates a new worker
@@ -71,12 +73,18 @@ func newWorker(id int, kv storage.KV, codec codec.Codec, config *BatchProcessorC
 		workChan:  make(chan workItem),
 		processor: NewBatchProcessorWithConfig(kv, codec, config),
 		quitChan:  make(chan bool),
+		doneChan:  make(chan bool),
 	}
 }
 
 // start begins the worker's processing loop
 func (w *worker) start() {
 	go func() {
+		defer func() {
+			// Signal that worker is done
+			close(w.doneChan)
+		}()
+		
 		for {
 			select {
 			case work := <-w.workChan:
@@ -95,11 +103,26 @@ func (w *worker) start() {
 	}()
 }
 
-// stop signals the worker to stop
+// stop signals the worker to stop and waits for it to finish
 func (w *worker) stop() {
-	go func() {
-		w.quitChan <- true
-	}()
+	// Check if already stopped to prevent panic
+	select {
+	case <-w.quitChan:
+		// Already stopped, return immediately
+		return
+	default:
+		// Not stopped yet, proceed with stopping
+		close(w.quitChan)
+	}
+	
+	// Wait for worker to finish (with timeout)
+	select {
+	case <-w.doneChan:
+		// Worker finished normally
+	case <-time.After(1 * time.Second):
+		// Timeout - worker didn't finish in time
+		// In a real implementation, you might want to log this
+	}
 }
 
 // NewParallelBatchProcessor creates a new parallel batch processor
@@ -271,9 +294,6 @@ func (pbp *ParallelBatchProcessorImpl) Close() error {
 	for _, worker := range pbp.workers {
 		worker.stop()
 	}
-	
-	// Wait for workers to finish
-	pbp.wg.Wait()
 	
 	return nil
 }

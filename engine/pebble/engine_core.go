@@ -69,6 +69,11 @@ func NewPebbleEngine(kvStore storage.KV, c codec.Codec) engineTypes.StorageEngin
 }
 
 func (e *pebbleEngine) Close() error {
+	// Close the deadlock detector if it exists
+	if e.deadlockDetector != nil {
+		e.deadlockDetector.Close()
+	}
+	
 	// Close the parallel batch processor if it exists
 	if closer, ok := e.batchProcessor.(interface{ Close() error }); ok {
 		if err := closer.Close(); err != nil {
