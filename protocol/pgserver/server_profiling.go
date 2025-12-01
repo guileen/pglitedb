@@ -17,51 +17,20 @@ type ProfilingConfig struct {
 func (s *PostgreSQLServer) StartProfiling() error {
 	// The server manager handles starting the server which includes profiling
 	// This method is kept for backward compatibility
-	if s.httpPort != "" && s.profilingService != nil {
-		// Type assert to the expected interface and call Start
-		if profiler, ok := s.profilingService.(interface {
-			Start() error
-		}); ok {
-			logger.Info("Starting profiling service", "port", s.httpPort)
-			go func() {
-				if err := profiler.Start(); err != nil {
-					logger.Error("Failed to start profiling service", "error", err)
-				}
-			}()
-			return nil
-		}
-	}
+	s.profilingManager.StartProfiling()
 	
-	logger.Info("Profiling not configured or disabled")
+	logger.Info("Profiling service started")
 	return nil
 }
 
 // StopProfiling stops the profiling service
 func (s *PostgreSQLServer) StopProfiling() error {
-	if s.profilingService != nil {
-		// Type assert to the expected interface and call Stop
-		if profiler, ok := s.profilingService.(interface {
-			Stop() error
-		}); ok {
-			logger.Info("Stopping profiling service")
-			if err := profiler.Stop(); err != nil {
-				logger.Error("Failed to stop profiling service", "error", err)
-				return err
-			}
-		}
-	}
-	return nil
+	return s.profilingManager.StopProfiling()
 }
 
 // IsProfilingEnabled returns whether profiling is enabled
 func (s *PostgreSQLServer) IsProfilingEnabled() bool {
-	// Type assert to the expected interface and call methods
-	if profiler, ok := s.profilingService.(interface {
-		IsEnabled() bool
-	}); ok {
-		return profiler.IsEnabled()
-	}
-	return s.httpPort != ""
+	return s.profilingManager.GetProfilingPort() != ""
 }
 
 // ProfilingStatus returns the current profiling status
@@ -75,8 +44,8 @@ type ProfilingStatus struct {
 // GetProfilingStatus returns the current profiling status
 func (s *PostgreSQLServer) GetProfilingStatus() *ProfilingStatus {
 	status := &ProfilingStatus{
-		Enabled: s.httpPort != "",
-		Port: s.httpPort,
+		Enabled: s.profilingManager.GetProfilingPort() != "",
+		Port: s.profilingManager.GetProfilingPort(),
 	}
 	
 	// Add more status information as needed
@@ -92,9 +61,9 @@ func (s *PostgreSQLServer) CollectProfilingData(ctx context.Context) (map[string
 	
 	// Add some basic server information
 	data["server_status"] = "running"
-	data["profiling_enabled"] = s.httpPort != ""
-	if s.httpPort != "" {
-		data["profiling_port"] = s.httpPort
+	data["profiling_enabled"] = s.profilingManager.GetProfilingPort() != ""
+	if s.profilingManager.GetProfilingPort() != "" {
+		data["profiling_port"] = s.profilingManager.GetProfilingPort()
 	}
 	
 	// Add more profiling data collection here

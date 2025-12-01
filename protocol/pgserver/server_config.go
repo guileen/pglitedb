@@ -45,18 +45,18 @@ func ValidateConfig(cfg *config.ServerConfig) error {
 	if cfg.MaxConnections <= 0 {
 		cfg.MaxConnections = 100 // default
 	}
-	
+
 	if cfg.ConnectionTimeout <= 0 {
 		cfg.ConnectionTimeout = 30 * time.Second // default
 	}
-	
+
 	if cfg.IdleTimeout <= 0 {
 		cfg.IdleTimeout = 5 * time.Minute // default
 	}
-	
+
 	if cfg.MaxLifetime <= 0 {
 		cfg.MaxLifetime = 1 * time.Hour // default
 	}
-	
+
 	return nil
 }
