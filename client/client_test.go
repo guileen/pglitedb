@@ -25,10 +25,10 @@ func TestClientCreation(t *testing.T) {
 
 	dbPath := tmpDir + "/test-db"
 	client := NewClient(dbPath)
-	defer client.Close()
 	if client == nil {
 		t.Error("NewClient returned nil")
 	}
+	// Only call Close once to avoid "close of closed channel" error
 	defer client.Close()
 }
 
@@ -226,7 +226,7 @@ func TestInsert(t *testing.T) {
 	})
 
 	t.Run("InsertWithEmptyData", func(t *testing.T) {
-		// Test Insert with empty data
+		// Test Insert with empty data - should fail as it's not valid to create a table with no columns
 		tmpDir, err := ioutil.TempDir("", "pglitedb-client-test-*")
 		require.NoError(t, err)
 		defer os.RemoveAll(tmpDir)
@@ -239,9 +239,10 @@ func TestInsert(t *testing.T) {
 		data := map[string]interface{}{}
 
 		result, err := client.Insert(ctx, 1, "users", data)
-		// With the updated implementation, this should not return a nil result
-		assert.NoError(t, err)
-		assert.NotNil(t, result)
+		// With the updated implementation, this should return an error for empty data
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "no data provided")
 	})
 }
 
