@@ -1,99 +1,93 @@
 # PGLiteDB Documentation
 
-Welcome to the official documentation for PGLiteDB, a high-performance PostgreSQL-compatible embedded database.
+Welcome to the PGLiteDB documentation. This documentation provides comprehensive information about using and understanding PGLiteDB.
 
-## About PGLiteDB
+## Table of Contents
 
-PGLiteDB is a cutting-edge embedded database that offers full PostgreSQL wire protocol compatibility while delivering exceptional performance. Built on CockroachDB's Pebble storage engine (an LSM-tree based key-value store), PGLiteDB provides the familiar PostgreSQL interface that developers love with the performance characteristics needed for modern applications.
+1. [Getting Started](#getting-started)
+2. [Architecture](#architecture)
+3. [Components](#components)
+4. [Performance](#performance)
+5. [Resource Management](#resource-management)
+6. [API Reference](#api-reference)
+7. [Examples](#examples)
+8. [Troubleshooting](#troubleshooting)
 
-With over 2500 TPS and sub-4ms latency in benchmarks, PGLiteDB outperforms traditional embedded databases while maintaining PostgreSQL compatibility. Recent optimizations have achieved a 25% improvement in TPS and 21% reduction in latency through targeted memory management and performance enhancements.
+## Getting Started
 
-## Key Features
+### Installation
+- [Quick Start Guide](guides/quickstart.md) - Step-by-step guide to get started with PGLiteDB
+- [Installation Instructions](../README.md#installation) - How to install PGLiteDB
 
-- **⚡ Unmatched Performance** - Over 2500 TPS with sub-4ms latency (10x faster than SQLite)
-- **🔌 True PostgreSQL Compatibility** - Full PostgreSQL wire protocol support
-- **🤖 100% AI-Automated Development** - Entire codebase written and optimized by AI agents
-- **📦 Embedded & Server Modes** - Run as embedded library or standalone server
-- **🌐 Multi-Protocol Access** - PostgreSQL wire protocol, HTTP REST API, and native Go client
-- **📋 Full SQL Support** - Standard SQL operations with comprehensive DDL support
-- **📈 Advanced Indexing** - Secondary indexes with B-tree and hash implementations
-- **🏢 Multi-Tenancy** - Built-in tenant isolation for SaaS applications
-- **🧠 Smart Optimizations** - Object pooling, batch operations, connection pooling, and query plan caching
-- **🛡️ ACID Compliance** - Full transaction support with MVCC and all isolation levels
+### Basic Usage
+- [Embedded Usage Guide](guides/embedded_usage.md) - How to use PGLiteDB as an embedded database
+- [Server Mode](../README.md#starting-the-server) - Running PGLiteDB as a server
+- [Client Connections](../README.md#using-with-postgresql-clients) - Connecting with PostgreSQL clients
 
-## Documentation Sections
+## Architecture
 
-### 📚 Getting Started
-
-- [Quick Start Guides](./guides/quickstart.md) - Step-by-step guides for different use cases
-- [Installation Guide](../README.md#installation) - How to install and set up PGLiteDB
-- [Basic Usage](./guides/embedded_usage.md#basic-usage) - Simple examples to get you started
-
-### 🎯 User Guides
-
-- [Embedded Usage Guide](./guides/embedded_usage.md) - Comprehensive guide for using PGLiteDB as an embedded database
-- [Multi-tenancy Guide](./guides/embedded_usage.md#multi-tenancy) - How to use PGLiteDB's multi-tenancy features
-- [Transaction Management](./guides/embedded_usage.md#transaction-management) - Working with transactions and isolation levels
-- [Performance Considerations](./guides/embedded_usage.md#performance-considerations) - Tips for optimizing performance
-
-### 🛠️ API Reference
-
-- [API Reference](./api/reference.md) - Detailed documentation of all public APIs
-- [Client Package](./api/reference.md#client-package) - Main client interface
-- [Types Package](./api/reference.md#types-package) - Common data types
-- [Transaction Methods](./api/reference.md#transaction-methods) - Transaction handling APIs
-
-### 💡 Examples
-
-- [Interactive Examples](./guides/interactive_examples.md) - Runnable examples demonstrating key features
-- [Basic Operations](./guides/interactive_examples.md#basic-operations) - CRUD operations examples
-- [Advanced Querying](./guides/interactive_examples.md#advanced-querying) - Complex queries and joins
-- [Transactions](./guides/interactive_examples.md#transactions) - Transaction management examples
-- [Multi-tenancy](./guides/interactive_examples.md#multi-tenancy) - Multi-tenancy implementation examples
-- [Performance Testing](./guides/interactive_examples.md#performance-testing) - Performance benchmarking examples
-
-### 🏗️ Architecture
-
-- [System Architecture](../README.md#architecture) - Overview of PGLiteDB's architecture
+- [Architecture Overview](architecture.md) - Detailed architecture documentation
+- [Component Structure](component_structure.md) - Detailed component structure and interactions
 - [Layer Responsibilities](../README.md#layer-responsibilities) - Understanding the different layers
-- [Storage Engine](../README.md#storage-layer) - Details about the Pebble storage engine
 
-### ⚙️ Configuration
+## Components
 
-- [Server Configuration](../README.md#starting-the-server) - Running PGLiteDB as a server
-- [Embedded Configuration](./guides/embedded_usage.md#creating-a-client) - Configuring embedded mode
-- [Connection Parameters](./api/reference.md#begintx) - Database connection settings
+### Protocol Layer
+- [PostgreSQL Wire Protocol](../README.md#postgresql-wire-protocol-server-pgserver) - PostgreSQL protocol implementation
+- [HTTP REST API](../README.md#http-rest-api) - REST API implementation
 
-### 🧪 Testing
+### Executor Layer
+- [SQL Parser](../README.md#sql-parser) - SQL parsing functionality
+- [Query Planner](../README.md#query-planner) - Query planning and optimization
+- [Query Executor](../README.md#query-executor) - Query execution
 
-- [Running Tests](../README.md#testing) - How to run unit and integration tests
-- [Performance Tests](../README.md#performance-tests) - Running performance benchmarks
-- [Compatibility Tests](../README.md#integration-tests) - Testing PostgreSQL compatibility
+### Engine Layer
+- [Storage Engine](../README.md#storage-engine) - Core storage engine implementation
+- [Table Management](../README.md#table-manager) - Table management functionality
+- [Index Management](../README.md#index-manager) - Index management functionality
 
-### 📈 Performance
+### Storage Layer
+- [Pebble Storage](../README.md#storage-layer) - Pebble storage engine integration
+- [Data Encoding](../README.md#codec) - Data encoding and decoding
 
-- [Benchmark Results](../README.md#-performance-benchmarks) - Current performance metrics
-- [Optimization Techniques](./guides/embedded_usage.md#performance-considerations) - Performance tuning tips
-- [Memory Management](./guides/embedded_usage.md#memory-management) - Understanding memory usage
-- [Performance Optimizations](./performance_optimizations.md) - Detailed overview of recent performance improvements
+## Performance
 
-## Getting Help
+- [Performance Optimizations](performance_optimizations.md) - Detailed performance optimization techniques
+- [Benchmark Results](../README.md#-performance-benchmarks) - Current performance benchmarks
+- [Query Plan Caching](performance_optimizations.md#query-plan-caching) - Query plan caching implementation
+- [Object Pooling](performance_optimizations.md#object-pooling) - Object pooling strategies
+- [Connection Pooling](performance_optimizations.md#connection-pooling) - Connection pooling implementation
 
-If you need help with PGLiteDB, you can:
+## Resource Management
 
-1. **Check the FAQ** - Coming soon
-2. **Browse Issues** - Check existing issues on GitHub
-3. **Create an Issue** - Report bugs or request features
-4. **Join the Community** - Coming soon
+- [Resource Management Overview](resource_management.md) - Comprehensive resource management strategies
+- [Object Pooling](resource_management.md#object-pooling) - Object pooling implementation details
+- [Connection Management](resource_management.md#connection-management) - Connection management strategies
+- [Leak Detection](resource_management.md#leak-detection) - Resource leak detection and prevention
+- [Memory Management](resource_management.md#memory-management) - Memory management techniques
+- [Resource Monitoring](resource_management.md#resource-monitoring) - Resource monitoring and metrics
 
-## Contributing
+## API Reference
 
-Contributions to PGLiteDB are welcome! Please see our [contribution guidelines](../README.md#contributing) for more information.
+- [Client API](api/reference.md) - Complete API reference for the embedded client
+- [Server API](api/server.md) - Server API documentation
+- [REST API](api/rest.md) - HTTP REST API reference
 
-## License
+## Examples
 
-PGLiteDB is released under the Elastic License 2.0. See the [LICENSE](../LICENSE) file for details.
+- [Basic Operations](guides/interactive_examples.md#basic-operations) - CRUD operations examples
+- [Advanced Querying](guides/interactive_examples.md#advanced-querying) - Complex queries and joins
+- [Transactions](guides/interactive_examples.md#transactions) - Transaction management examples
+- [Multi-tenancy](guides/interactive_examples.md#multi-tenancy) - Multi-tenancy implementation examples
+- [Performance Testing](guides/interactive_examples.md#performance-testing) - Performance benchmarking examples
+
+## Troubleshooting
+
+- [Common Issues](troubleshooting/common_issues.md) - Solutions to common problems
+- [Performance Issues](troubleshooting/performance_issues.md) - Diagnosing and resolving performance problems
+- [Connection Issues](troubleshooting/connection_issues.md) - Troubleshooting connection problems
+- [Error Messages](troubleshooting/error_messages.md) - Understanding error messages
 
 ---
 
-*Documentation last updated: November 2025*
+*Last updated: December 2025*
