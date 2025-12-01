@@ -131,6 +131,10 @@ func (dd *DeadlockDetector) CheckForConflicts(currentTxnID uint64, key string) e
 	// Check if any transaction holds this key
 	if conflictTxnID, exists := dd.keyHolders[key]; exists && conflictTxnID != currentTxnID {
 		// Conflict found, add to wait graph
+		// Ensure the waitGraph entry exists for currentTxnID
+		if _, exists := dd.waitGraph[currentTxnID]; !exists {
+			dd.waitGraph[currentTxnID] = make(map[uint64]bool)
+		}
 		dd.waitGraph[currentTxnID][conflictTxnID] = true
 		
 		// Mark that current transaction is waiting for this key
@@ -153,6 +157,11 @@ func (dd *DeadlockDetector) CheckForConflicts(currentTxnID uint64, key string) e
 		txnInfo.locksHeld[key] = true
 		delete(txnInfo.locksWaiting, key) // Remove from waiting if it was waiting
 		dd.keyHolders[key] = currentTxnID
+		
+		// Ensure the waitGraph entry exists for currentTxnID
+		if _, exists := dd.waitGraph[currentTxnID]; !exists {
+			dd.waitGraph[currentTxnID] = make(map[uint64]bool)
+		}
 	}
 	
 	return nil
@@ -324,6 +333,14 @@ func (dd *DeadlockDetector) removeTransactionLocked(txnID uint64) {
 
 // Close stops the deadlock detector
 func (dd *DeadlockDetector) Close() {
-	close(dd.stopChan)
-	dd.wg.Wait()
+	// Check if already closed to prevent panic
+	select {
+	case <-dd.stopChan:
+		// Already closed, return immediately
+		return
+	default:
+		// Not closed yet, proceed with closing
+		close(dd.stopChan)
+		dd.wg.Wait()
+	}
 }
