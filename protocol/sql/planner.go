@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 	"github.com/guileen/pglitedb/catalog"
@@ -202,6 +203,38 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 			}
 		}
 		
+		// Handle INSERT statement values for simple parser
+		if parsedQuery.StatementType == parser.InsertStatement {
+			// Convert parsedQuery.Values ([][]string) to plan.Values (map[string]interface{})
+			plan.Values = make(map[string]interface{})
+			
+			// Get column names from Fields or create generic names
+			columns := parsedQuery.Fields
+			if len(columns) == 0 && len(parsedQuery.Values) > 0 && len(parsedQuery.Values[0]) > 0 {
+				// Create generic column names if none provided
+				columns = make([]string, len(parsedQuery.Values[0]))
+				for i := range columns {
+					columns[i] = fmt.Sprintf("col%d", i)
+				}
+			}
+			
+			// Use first row of values (assuming single row insert)
+			if len(parsedQuery.Values) > 0 && len(columns) > 0 {
+				firstRow := parsedQuery.Values[0]
+				for i, value := range firstRow {
+					if i < len(columns) {
+						// Try to parse the value to the appropriate type
+						if parsedValue, err := parseLiteralValue(value); err == nil {
+							plan.Values[columns[i]] = parsedValue
+						} else {
+							// Keep as string if parsing fails
+							plan.Values[columns[i]] = value
+						}
+					}
+				}
+			}
+		}
+		
 		// Set operation based on statement type
 		switch parsedQuery.StatementType {
 		case parser.SelectStatement:
@@ -331,6 +364,41 @@ func (p *Planner) CreatePlan(query string) (*Plan, error) {
 	}
 
 	return plan, nil
+}
+
+// parseLiteralValue parses a literal value string into the appropriate Go type
+func parseLiteralValue(value string) (interface{}, error) {
+	trimmed := strings.TrimSpace(value)
+	
+	// Handle string literals (single or double quotes)
+	if (strings.HasPrefix(trimmed, "'") && strings.HasSuffix(trimmed, "'")) ||
+	   (strings.HasPrefix(trimmed, "\"") && strings.HasSuffix(trimmed, "\"")) {
+		// Remove quotes
+		unquoted := trimmed[1 : len(trimmed)-1]
+		// Handle escaped quotes
+		unquoted = strings.ReplaceAll(unquoted, "''", "'")
+		unquoted = strings.ReplaceAll(unquoted, "\\\"", "\"")
+		return unquoted, nil
+	}
+	
+	// Handle boolean values
+	if strings.ToLower(trimmed) == "true" {
+		return true, nil
+	}
+	if strings.ToLower(trimmed) == "false" {
+		return false, nil
+	}
+	
+	// Handle numeric values
+	if i, err := strconv.ParseInt(trimmed, 10, 32); err == nil {
+		return int32(i), nil
+	}
+	if f, err := strconv.ParseFloat(trimmed, 64); err == nil {
+		return f, nil
+	}
+	
+	// Return as string if no other type matches
+	return trimmed, fmt.Errorf("could not parse as literal")
 }
 
 // normalizeSQL normalizes a SQL query string for use as a cache key

@@ -21,7 +21,7 @@ import (
 // It can be used both for embedded access and for connecting to a remote server
 type Client struct {
 	executor *sql.Executor
-	planner  *sql.Planner
+	planner  interface{ Executor() *sql.Executor }
 	engine   interface{ Close() error } // Store reference to engine for cleanup
 	manager  catalog.Manager            // Store reference to catalog manager for direct operations
 }
@@ -50,7 +50,7 @@ func NewClient(dbPath string) *Client {
 	// Create SQL parser and planner with catalog
 	// Use hybrid parser for better performance with caching
 	parser := sql.NewHybridPGParser()
-	planner := sql.NewPlannerWithCatalog(parser, mgr)
+	planner := sql.NewEnhancedPlannerWithCatalog(parser, mgr)
 	
 	// Get executor from planner
 	exec := planner.Executor()
@@ -86,7 +86,7 @@ func NewClientWithConfig(dbPath string, config *storage.PebbleConfig) *Client {
 	// Create SQL parser and planner with catalog
 	// Use hybrid parser for better performance with caching
 	parser := sql.NewHybridPGParser()
-	planner := sql.NewPlannerWithCatalog(parser, mgr)
+	planner := sql.NewEnhancedPlannerWithCatalog(parser, mgr)
 	
 	// Get executor from planner
 	exec := planner.Executor()
@@ -172,6 +172,13 @@ func (c *Client) DirectInsert(ctx context.Context, tenantID int64, tableName str
 
 // Insert inserts a new record into the specified table
 func (c *Client) Insert(ctx context.Context, tenantID int64, tableName string, data map[string]interface{}) (*types.QueryResult, error) {
+	// Validate data map to prevent empty column names
+	for column := range data {
+		if column == "" {
+			return nil, fmt.Errorf("empty column name found in insert data")
+		}
+	}
+
 	// Convert data map to SQL INSERT statement
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("INSERT INTO %s (", tableName))
@@ -327,6 +334,22 @@ func (c *Client) Select(ctx context.Context, tenantID int64, tableName string, o
 
 // Update updates records in the specified table
 func (c *Client) Update(ctx context.Context, tenantID int64, tableName string, data map[string]interface{}, where map[string]interface{}) (*types.QueryResult, error) {
+	// Validate data map to prevent empty column names
+	for column := range data {
+		if column == "" {
+			return nil, fmt.Errorf("empty column name found in update data")
+		}
+	}
+	
+	// Validate where conditions to prevent empty column names
+	if where != nil {
+		for column := range where {
+			if column == "" {
+				return nil, fmt.Errorf("empty column name found in where conditions")
+			}
+		}
+	}
+
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("UPDATE %s SET ", tableName))
 	
@@ -525,6 +548,15 @@ func (c *Client) BatchInsert(ctx context.Context, tenantID int64, tableName stri
 		return &types.QueryResult{
 			Count: 0,
 		}, nil
+	}
+	
+	// Validate data maps to prevent empty column names
+	for _, data := range dataList {
+		for column := range data {
+			if column == "" {
+				return nil, fmt.Errorf("empty column name found in batch insert data")
+			}
+		}
 	}
 
 	// Pre-allocate string builder with estimated capacity to reduce reallocations

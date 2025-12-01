@@ -30,11 +30,15 @@ type PebbleKV struct {
 
 	// Compaction monitor for performance tracking
 	compactionMonitor *CompactionMonitor
+	
+	// Cache reference for proper cleanup
+	cache *pebble.Cache
 }
 
 func NewPebbleKV(config *PebbleConfig) (*PebbleKV, error) {
 	cache := pebble.NewCache(config.CacheSize)
-	defer cache.Unref()
+	// Note: We don't defer cache.Unref() here because we need to unreference the cache
+	// when the database is closed, not when this function returns
 
 	// Configure compression levels
 	compression := make([]pebble.Compression, 3)
@@ -162,6 +166,20 @@ func NewPebbleKV(config *PebbleConfig) (*PebbleKV, error) {
 		MaxManifestFileSize: config.MaxManifestFileSize, // Configurable max manifest file size
 		Comparer:            postgresComparer,           // Custom comparer for better key ordering
 	}
+	
+	// Use custom filesystem if provided (useful for testing with in-memory FS)
+	// This helps avoid disk I/O and background goroutines that can cause test hangs
+	if config.FS != nil {
+		opts.FS = config.FS
+	}
+	
+	// Configure WAL and compaction options for testing
+	if config.DisableWAL {
+		opts.DisableWAL = true
+	}
+	if config.DisableAutoCompaction {
+		opts.DisableAutomaticCompactions = true
+	}
 
 	// Configure rate limiter if enabled
 	// Note: In Pebble v1.1.5, rate limiting is handled via TargetByteDeletionRate
@@ -196,6 +214,7 @@ func NewPebbleKV(config *PebbleConfig) (*PebbleKV, error) {
 		flushDone:          make(chan struct{}),
 		activeTransactions: &sync.Map{},
 		nextTxnID:          1, // Start from 1 to avoid issues with ID 0
+		cache:              cache, // Store cache reference for proper cleanup
 	}
 
 	// Initialize compaction monitor for performance tracking
@@ -557,17 +576,22 @@ func (p *PebbleKV) Flush() error {
 }
 
 func (p *PebbleKV) backgroundFlush() {
+	defer func() {
+		// Ensure any cleanup happens here if needed
+	}()
+	
 	for {
 		select {
 		case <-p.flushTicker.C:
+			// Check if we should exit first
+			p.mu.RLock()
+			if p.closed {
+				p.mu.RUnlock()
+				return
+			}
+			
 			// Only flush if there are pending writes
 			if atomic.LoadInt64(&p.pendingWrites) > 0 {
-				// Use a read lock first to check if closed
-				p.mu.RLock()
-				if p.closed {
-					p.mu.RUnlock()
-					return
-				}
 				p.mu.RUnlock()
 				
 				// Perform flush without holding the lock
@@ -575,8 +599,11 @@ func (p *PebbleKV) backgroundFlush() {
 				
 				// Reset pending writes counter when background flushing (process all pending writes)
 				atomic.StoreInt64(&p.pendingWrites, 0)
+			} else {
+				p.mu.RUnlock()
 			}
 		case <-p.flushDone:
+			// Received signal to stop
 			return
 		}
 	}
@@ -616,18 +643,22 @@ func (p *PebbleKV) CheckForConflicts(txn shared.Transaction, key []byte) error {
 }
 
 func (p *PebbleKV) Close() error {
+	// Lock to check and set closed state
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if p.closed {
+		p.mu.Unlock()
 		return nil
 	}
-
 	p.closed = true
+	p.mu.Unlock()
 
-	// Stop the flush ticker and background goroutine
-	p.flushTicker.Stop()
-	close(p.flushDone)
+	// Stop the flush ticker and signal background goroutine to stop
+	if p.flushTicker != nil {
+		p.flushTicker.Stop()
+	}
+	if p.flushDone != nil {
+		close(p.flushDone)
+	}
 
 	// Stop the compaction monitor
 	if p.compactionMonitor != nil {
@@ -635,22 +666,56 @@ func (p *PebbleKV) Close() error {
 	}
 
 	// Wait for pending writes to complete (with timeout)
-	timeout := time.After(5 * time.Second)
-	ticker := time.NewTicker(10 * time.Millisecond)
+	// Use a more robust waiting mechanism
+	timeout := time.After(1 * time.Second) // Reduced timeout to prevent test hangs
+	ticker := time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
 
+	// Wait for pending writes to complete or timeout
 	waiting := true
-	for waiting {
+	for waiting && atomic.LoadInt64(&p.pendingWrites) > 0 {
 		select {
 		case <-timeout:
-			// Timeout - proceed with close anyway
+			// Timeout - proceed with close anyway to prevent hanging
 			waiting = false
 		case <-ticker.C:
-			if atomic.LoadInt64(&p.pendingWrites) <= 0 {
-				waiting = false
-			}
+			// Continue waiting
 		}
 	}
 
-	return p.db.Close()
+	// Force flush any remaining data before closing
+	// Use read lock for flush since we only need to check if db is not nil
+	p.mu.RLock()
+	var flushErr error
+	if p.db != nil {
+		flushErr = p.db.Flush()
+	}
+	p.mu.RUnlock()
+
+	// Close the database - this should properly terminate all internal goroutines
+	p.mu.Lock()
+	var err error
+	if p.db != nil {
+		err = p.db.Close()
+		p.db = nil // Prevent further use
+	}
+
+	// Unreference the cache to allow it to be garbage collected
+	if p.cache != nil {
+		p.cache.Unref()
+		p.cache = nil
+	}
+	p.mu.Unlock()
+
+	// Additional wait to ensure all goroutines have exited
+	// This is a workaround for Pebble's internal goroutines that may not exit immediately
+	// Use a shorter sleep time to reduce test duration
+	time.Sleep(5 * time.Millisecond)
+
+	// Return any error from flush or close operations
+	// Prioritize flush errors over close errors
+	if flushErr != nil {
+		return fmt.Errorf("flush error: %w", flushErr)
+	}
+	return err
 }
