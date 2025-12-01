@@ -177,4 +177,4 @@ benchmark_*
 pglitedb-benchmarks
 coverage
 coverage*
-*.trace
+*.tracebadges/

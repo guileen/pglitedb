@@ -45,6 +45,7 @@ help:
 	@echo "  make concurrent-validate-short - 运行短时间并发访问验证"
 	@echo "  make concurrent-validate-long - 运行长时间并发访问验证"
 	@echo "  make concurrent-clean - 清理并发验证数据"
+	@echo "  make ci-test - 运行完整的CI测试（启动服务器、运行所有测试、清理）"
 	@echo ""
 	@echo "运行相关:"
 	@echo "  make run            - 运行 HTTP 服务器"
@@ -190,18 +191,10 @@ run-pg:
 	@mkdir -p $(DB_PATH)-postgres
 	PG_PORT=$(PG_PORT) $(GO) run ./cmd/server $(DB_PATH) pg
 
-## regress_bench: 运行回归测试和性能测试
-regress_bench:
-	@echo "Starting regression and benchmark tests..."
-	@rm -rf /tmp/pglitedb-postgres
-	@(make run-pg > /tmp/pglitedb-regress.log 2>&1 &) && sleep 10
-	@TIMESTAMP=$$(date +%Y%m%d_%H%M%S); \
-	echo "Running regression tests..."; \
-	scripts/run_regress.sh; \
-	echo "Running pgbench tests..."; \
-	mkdir -p bench && scripts/run_pgbench.sh | tee $(PWD)/bench/bench_$$TIMESTAMP.log; \
-	echo "Benchmark test results saved to bench/bench_$$TIMESTAMP.log"; \
-	echo "Tests completed. Results saved to regress/ and bench/ directories."
+## ci-test: 运行完整的CI测试（启动服务器、运行所有测试、清理）
+ci-test:
+	@echo "Running complete CI test..."
+	@scripts/run_ci_tests.sh
 
 ## run-both: 同时运行 HTTP 和 PostgreSQL 服务器（需要多个终端）
 run-both:
