@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -19,7 +20,8 @@ func BenchmarkCheckForConflictsNew(b *testing.B) {
 	numTransactions := 10000
 	for i := 0; i < numTransactions; i++ {
 		dd.AddTransaction(uint64(i))
-		dd.AddLock(uint64(i), "key"+string(rune(i%1000))) // Distribute keys
+		// Add locks after ensuring transaction exists in waitGraph
+		dd.AddLock(uint64(i), fmt.Sprintf("key%d", i%1000)) // Distribute keys
 	}
 
 	b.ResetTimer()
@@ -27,7 +29,7 @@ func BenchmarkCheckForConflictsNew(b *testing.B) {
 	// Benchmark checking for conflicts
 	for i := 0; i < b.N; i++ {
 		txnID := uint64(i % numTransactions)
-		key := "key" + string(rune((i+500)%1000))
+		key := fmt.Sprintf("key%d", (i+500)%1000)
 		dd.CheckForConflicts(txnID, key)
 	}
 }
