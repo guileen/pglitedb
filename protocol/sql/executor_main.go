@@ -3,6 +3,7 @@ package sql
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/guileen/pglitedb/catalog"
 	"github.com/guileen/pglitedb/logger"
@@ -115,6 +116,10 @@ func (e *Executor) Execute(ctx context.Context, query string) (*types.ResultSet,
 		return e.executeDDL(ctx, query)
 	case parser.AnalyzeStatementType:
 		return e.executeAnalyze(ctx, query)
+	case parser.UnknownStatement:
+		// For unknown statements, try to handle them as system queries
+		// This is particularly important for pgbench and other tools that query system tables
+		return e.executeSystemQuery(ctx, query)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %v", parsed.StatementType)
 	}
@@ -132,9 +137,65 @@ func (e *Executor) ExecuteParsed(ctx context.Context, parsed *parser.ParsedQuery
 	switch plan.Type {
 	case parser.SelectStatement:
 		return e.executeSelect(ctx, plan)
+	case parser.UnknownStatement:
+		// For unknown statements, try to handle them as system queries
+		return e.executeSystemQuery(ctx, parsed.QueryString)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %v", plan.Type)
 	}
+}
+
+// executeSystemQuery handles queries that the parser couldn't classify
+// This is particularly important for system table queries from tools like pgbench
+func (e *Executor) executeSystemQuery(ctx context.Context, query string) (*types.ResultSet, error) {
+	// If we have a catalog, try to handle as a system query
+	if e.catalog != nil {
+		// Try to parse as a simple SELECT query against system tables
+		trimmedQuery := strings.TrimSpace(query)
+		lowerQuery := strings.ToLower(trimmedQuery)
+		
+		// Check if this looks like a SELECT query against system tables
+		if strings.HasPrefix(lowerQuery, "select") {
+			// Try to extract the table name from a simple SELECT query
+			fromIndex := strings.Index(lowerQuery, " from ")
+			if fromIndex != -1 {
+				// Extract everything after FROM until WHERE, ORDER BY, etc.
+				afterFrom := trimmedQuery[fromIndex+6:] // Skip " from "
+				tableEnd := len(afterFrom)
+				
+				// Find end of table name
+				spaceIndex := strings.Index(afterFrom, " ")
+				whereIndex := strings.Index(strings.ToLower(afterFrom), " where ")
+				orderIndex := strings.Index(strings.ToLower(afterFrom), " order by ")
+				limitIndex := strings.Index(strings.ToLower(afterFrom), " limit ")
+				groupIndex := strings.Index(strings.ToLower(afterFrom), " group by ")
+				
+				// Find the earliest termination
+				indices := []int{spaceIndex, whereIndex, orderIndex, limitIndex, groupIndex}
+				for _, idx := range indices {
+					if idx != -1 && idx < tableEnd {
+						tableEnd = idx
+					}
+				}
+				
+				tableName := strings.TrimSpace(afterFrom[:tableEnd])
+				
+				// If this looks like a system table, create a fake plan and route to existing system query handler
+				if isSystemTable(tableName) {
+					// Create a minimal plan to pass to the existing system query handler
+					plan := &Plan{
+						QueryString: query,
+						Type:        parser.SelectStatement,
+						Table:       tableName,
+					}
+					return e.executeSystemTableQuery(ctx, plan)
+				}
+			}
+		}
+	}
+	
+	// If we can't handle it as a system query, return the original error
+	return nil, fmt.Errorf("unsupported statement type: UNKNOWN")
 }
 
 func (e *Executor) ValidateQuery(query string) error {

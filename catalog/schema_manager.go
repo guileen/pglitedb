@@ -48,6 +48,11 @@ func mapPostgreSQLTypeToInternal(pgType string) string {
 	return pgType
 }
 
+// SchemaChangeCallback defines the interface for schema change notifications
+type SchemaChangeCallback interface {
+	OnSchemaChange(tableName string)
+}
+
 const (
 	schemaKeyPrefix = "\x00schema\x00"
 	viewKeyPrefix   = "\x00view\x00"
@@ -58,6 +63,8 @@ type schemaManager struct {
 	kv        storage.KV
 	cache     *internal.SchemaCache
 	persister *persistence.Persister
+	// Add a reference to the planner for schema change notifications
+	planner   SchemaChangeCallback
 }
 
 func newSchemaManager(idGen engineTypes.IDGeneration, kv storage.KV, cache *internal.SchemaCache) SchemaManager {
@@ -66,6 +73,19 @@ func newSchemaManager(idGen engineTypes.IDGeneration, kv storage.KV, cache *inte
 		kv:        kv,
 		cache:     cache,
 		persister: persistence.NewPersister(kv),
+		planner:   nil,
+	}
+}
+
+// SetPlanner sets the planner for schema change notifications
+func (m *schemaManager) SetPlanner(planner SchemaChangeCallback) {
+	m.planner = planner
+}
+
+// notifySchemaChange notifies the planner of a schema change
+func (m *schemaManager) notifySchemaChange(tableName string) {
+	if m.planner != nil {
+		m.planner.OnSchemaChange(tableName)
 	}
 }
 
@@ -113,6 +133,9 @@ func (m *schemaManager) CreateTable(ctx context.Context, tenantID int64, def *ty
 	}
 
 	m.cache.Set(key, def, tableID)
+	
+	// Notify planner of schema change
+	m.notifySchemaChange(def.Name)
 
 	return nil
 }
@@ -131,6 +154,9 @@ func (m *schemaManager) DropTable(ctx context.Context, tenantID int64, tableName
 	}
 
 	m.cache.Delete(key)
+	
+	// Notify planner of schema change
+	m.notifySchemaChange(tableName)
 
 	return nil
 }
@@ -256,6 +282,9 @@ func (m *schemaManager) AlterTable(ctx context.Context, tenantID int64, tableNam
 	}
 
 	m.cache.Set(key, &newDef, tableID)
+	
+	// Notify planner of schema change
+	m.notifySchemaChange(tableName)
 
 	return nil
 }
