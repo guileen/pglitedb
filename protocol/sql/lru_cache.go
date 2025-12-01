@@ -18,13 +18,19 @@ type LRUCache struct {
 	// Atomic counters for better performance monitoring
 	hits   int64
 	misses int64
+	
+	// Active expiration
+	expirationTicker *time.Ticker
+	stopChan         chan struct{}
+	activeExpiration bool
 }
 
 // cacheEntry represents a cached item
 type cacheEntry struct {
-	key       string
-	value     interface{}
-	timestamp time.Time
+	key        string
+	value      interface{}
+	timestamp  time.Time
+	expiration time.Duration // Per-entry expiration, 0 means use default
 }
 
 // NewLRUCache creates a new LRU cache with the specified capacity
@@ -38,11 +44,67 @@ func NewLRUCache(capacity int) *LRUCache {
 
 // NewLRUCacheWithExpiration creates a new LRU cache with expiration
 func NewLRUCacheWithExpiration(capacity int, expiration time.Duration) *LRUCache {
-	return &LRUCache{
-		capacity:   int64(capacity),
-		cache:      make(map[string]*list.Element),
-		evictList:  list.New(),
-		expiration: expiration,
+	cache := &LRUCache{
+		capacity:         int64(capacity),
+		cache:            make(map[string]*list.Element),
+		evictList:        list.New(),
+		expiration:       expiration,
+		activeExpiration: expiration > 0,
+	}
+	
+	// Start active expiration if needed
+	if cache.activeExpiration {
+		cache.startActiveExpiration()
+	}
+	
+	return cache
+}
+
+// startActiveExpiration starts the active expiration goroutine
+func (c *LRUCache) startActiveExpiration() {
+	if c.expiration <= 0 {
+		return
+	}
+	
+	c.stopChan = make(chan struct{})
+	c.expirationTicker = time.NewTicker(c.expiration / 2) // Check every half expiration period
+	
+	go func() {
+		for {
+			select {
+			case <-c.expirationTicker.C:
+				c.cleanupExpired()
+			case <-c.stopChan:
+				return
+			}
+		}
+	}()
+}
+
+// cleanupExpired removes expired entries from the cache
+func (c *LRUCache) cleanupExpired() {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	
+	now := time.Now()
+	var toRemove []*list.Element
+	
+	// Collect expired entries
+	for element := c.evictList.Front(); element != nil; element = element.Next() {
+		entry := element.Value.(*cacheEntry)
+		expiration := c.expiration
+		if entry.expiration > 0 {
+			expiration = entry.expiration
+		}
+		
+		if expiration > 0 && now.Sub(entry.timestamp) > expiration {
+			toRemove = append(toRemove, element)
+		}
+	}
+	
+	// Remove expired entries
+	for _, element := range toRemove {
+		c.removeElement(element)
 	}
 }
 
@@ -55,7 +117,12 @@ func (c *LRUCache) Get(key string) (interface{}, bool) {
 		entry := element.Value.(*cacheEntry)
 		
 		// Check if entry has expired
-		if c.expiration > 0 && time.Since(entry.timestamp) > c.expiration {
+		expiration := c.expiration
+		if entry.expiration > 0 {
+			expiration = entry.expiration
+		}
+		
+		if expiration > 0 && time.Since(entry.timestamp) > expiration {
 			// Entry expired, remove it
 			c.removeElement(element)
 			atomic.AddInt64(&c.misses, 1)
@@ -75,6 +142,11 @@ func (c *LRUCache) Get(key string) (interface{}, bool) {
 
 // Put adds a value to the cache
 func (c *LRUCache) Put(key string, value interface{}) {
+	c.PutWithExpiration(key, value, 0)
+}
+
+// PutWithExpiration adds a value to the cache with a specific expiration time
+func (c *LRUCache) PutWithExpiration(key string, value interface{}, expiration time.Duration) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
@@ -85,14 +157,16 @@ func (c *LRUCache) Put(key string, value interface{}) {
 		entry := element.Value.(*cacheEntry)
 		entry.value = value
 		entry.timestamp = time.Now()
+		entry.expiration = expiration
 		return
 	}
 
 	// Add new entry
 	entry := &cacheEntry{
-		key:       key,
-		value:     value,
-		timestamp: time.Now(),
+		key:        key,
+		value:      value,
+		timestamp:  time.Now(),
+		expiration: expiration,
 	}
 	element := c.evictList.PushFront(entry)
 	c.cache[key] = element
@@ -126,6 +200,16 @@ func (c *LRUCache) Clear() {
 	defer c.mutex.Unlock()
 	c.cache = make(map[string]*list.Element)
 	c.evictList.Init()
+	
+	// Stop active expiration if running
+	if c.stopChan != nil {
+		close(c.stopChan)
+		c.stopChan = nil
+	}
+	if c.expirationTicker != nil {
+		c.expirationTicker.Stop()
+		c.expirationTicker = nil
+	}
 }
 
 // Stats returns cache hit/miss statistics
@@ -147,6 +231,22 @@ func (c *LRUCache) HitRate() float64 {
 func (c *LRUCache) ResetStats() {
 	atomic.StoreInt64(&c.hits, 0)
 	atomic.StoreInt64(&c.misses, 0)
+}
+
+// Close stops the active expiration goroutine and cleans up resources
+func (c *LRUCache) Close() {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	
+	// Stop active expiration if running
+	if c.stopChan != nil {
+		close(c.stopChan)
+		c.stopChan = nil
+	}
+	if c.expirationTicker != nil {
+		c.expirationTicker.Stop()
+		c.expirationTicker = nil
+	}
 }
 
 // evictOldest removes the oldest entry from the cache

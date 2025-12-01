@@ -92,6 +92,10 @@ func startHTTPServer(dbPath string) {
 	logger.Info("Creating SQL parser and planner")
 	parser := sql.NewPGParser()
 	planner := sql.NewPlannerWithCatalog(parser, mgr)
+	// Connect the planner with the schema manager for schema change notifications
+	if schemaMgr, ok := mgr.(interface{ SetPlanner(sql.SchemaChangeCallback) }); ok {
+		schemaMgr.SetPlanner(planner)
+	}
 	exec := planner.Executor()
 	logger.Info("SQL parser and planner created successfully")
 
@@ -213,6 +217,10 @@ func startPostgreSQLServer(dbPath string) {
 	logger.Info("Creating SQL parser and planner")
 	parser := sql.NewPGParser()
 	planner := sql.NewPlannerWithCatalog(parser, mgr)
+	// Connect the planner with the schema manager for schema change notifications
+	if schemaMgr, ok := mgr.(interface{ SetPlanner(sql.SchemaChangeCallback) }); ok {
+		schemaMgr.SetPlanner(planner)
+	}
 	exec := planner.Executor()
 	logger.Info("SQL parser and planner created successfully")
 	

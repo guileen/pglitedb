@@ -43,11 +43,7 @@ func (s *PebbleSnapshot) NewIterator(opts *shared.IteratorOptions) shared.Iterat
 		return nil
 	}
 
-	return &PebbleIterator{
-		iter:    iter,
-		reverse: opts != nil && opts.Reverse,
-		err:     err,
-	}
+	return NewSimpleIterator(iter, opts)
 }
 
 func (s *PebbleSnapshot) Close() error {

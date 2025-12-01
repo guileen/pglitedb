@@ -24,6 +24,11 @@ type Cache interface {
 	ResetStats()
 }
 
+// SchemaChangeCallback defines the interface for schema change notifications
+type SchemaChangeCallback interface {
+	OnSchemaChange(tableName string)
+}
+
 // Planner is responsible for creating execution plans from parsed queries
 type Planner struct {
 	parser    Parser
@@ -31,6 +36,7 @@ type Planner struct {
 	optimizer *QueryOptimizer
 	planCache Cache
 	planPool  *PlanPool
+	schemaCallbacks []SchemaChangeCallback
 }
 
 // NewPlanner creates a new query planner
@@ -51,6 +57,7 @@ func NewPlanner(parser Parser) *Planner {
 		optimizer: NewQueryOptimizer(),
 		planCache: planCache,
 		planPool:  NewPlanPool(),
+		schemaCallbacks: make([]SchemaChangeCallback, 0),
 	}
 }
 
@@ -67,10 +74,33 @@ func NewPlannerWithCatalog(parser Parser, catalogMgr catalog.Manager) *Planner {
 		optimizer: NewQueryOptimizerWithDataManager(catalogMgr),
 		planCache: planCache,
 		planPool:  NewPlanPool(),
+		schemaCallbacks: make([]SchemaChangeCallback, 0),
 	}
 	// Create executor with this planner and catalog
 	planner.executor = NewExecutorWithCatalog(planner, catalogMgr)
 	return planner
+}
+
+// RegisterSchemaChangeCallback registers a callback for schema change notifications
+func (p *Planner) RegisterSchemaChangeCallback(callback SchemaChangeCallback) {
+	p.schemaCallbacks = append(p.schemaCallbacks, callback)
+}
+
+// NotifySchemaChange notifies all registered callbacks of a schema change
+func (p *Planner) NotifySchemaChange(tableName string) {
+	// Clear the plan cache when schema changes
+	p.ClearPlanCache()
+	
+	// Notify all registered callbacks
+	for _, callback := range p.schemaCallbacks {
+		callback.OnSchemaChange(tableName)
+	}
+}
+
+// OnSchemaChange implements the SchemaChangeCallback interface
+func (p *Planner) OnSchemaChange(tableName string) {
+	// Clear the plan cache when schema changes
+	p.ClearPlanCache()
 }
 
 // Execute executes a SQL query and returns the result

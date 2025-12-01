@@ -31,6 +31,12 @@ func (h *RESTHandler) RegisterRoutes(r chi.Router) {
 		r.Delete("/{rowID}", h.DeleteRecord)
 		r.Get("/{rowID}", h.GetRecord)
 	})
+	
+	// Cache management routes
+	r.Route("/api/cache", func(r chi.Router) {
+		r.Post("/clear", h.ClearCache)
+		r.Get("/stats", h.GetCacheStats)
+	})
 }
 
 type QueryRequest struct {
@@ -385,4 +391,41 @@ func getIntQueryParam(r *http.Request, key string, defaultValue int) int {
 	}
 	
 	return value
+}
+
+// Cache management handlers
+
+type CacheStatsResponse struct {
+	Size     int     `json:"size"`
+	Hits     int64   `json:"hits"`
+	Misses   int64   `json:"misses"`
+	HitRate  float64 `json:"hit_rate"`
+}
+
+type ClearCacheResponse struct {
+	Message string `json:"message"`
+}
+
+// ClearCache clears the query plan cache
+func (h *RESTHandler) ClearCache(w http.ResponseWriter, r *http.Request) {
+	h.planner.ClearPlanCache()
+	response := ClearCacheResponse{
+		Message: "Cache cleared successfully",
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+// GetCacheStats returns cache statistics
+func (h *RESTHandler) GetCacheStats(w http.ResponseWriter, r *http.Request) {
+	hits, misses := h.planner.CacheStats()
+	hitRate := h.planner.CacheHitRate()
+	size := h.planner.PlanCacheSize()
+	
+	response := CacheStatsResponse{
+		Size:    size,
+		Hits:    hits,
+		Misses:  misses,
+		HitRate: hitRate,
+	}
+	writeJSON(w, http.StatusOK, response)
 }
