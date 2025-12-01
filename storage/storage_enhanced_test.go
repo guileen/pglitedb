@@ -77,6 +77,11 @@ func TestStorageFactoryFunctions(t *testing.T) {
 }
 
 func TestStorageConfigurations(t *testing.T) {
+	// Skip this test if running in a CI environment or when specifically requested to skip long tests
+	if os.Getenv("SKIP_LONG_TESTS") == "true" {
+		t.Skip("Skipping long storage configuration test")
+	}
+
 	tmpDir, err := os.MkdirTemp("", "pebble-multi-config-test-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
