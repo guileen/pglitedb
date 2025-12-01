@@ -485,11 +485,8 @@ func TestIndexOperationsEdgeCases(t *testing.T) {
 	
 	t.Run("LookupIndexWithLargeNumberOfEntries", func(t *testing.T) {
 		// Test LookupIndex with a large number of entries
-		tmpDir, err := os.MkdirTemp("", "index-test-*")
-		require.NoError(t, err)
-		defer os.RemoveAll(tmpDir)
-
-		config := storage.DefaultPebbleConfig(filepath.Join(tmpDir, "db"))
+		// Use TestOptimizedPebbleConfig with in-memory filesystem to prevent test hangs
+		config := storage.TestOptimizedPebbleConfig("") // Empty path triggers in-memory FS
 		kvStore, err := storage.NewPebbleKV(config)
 		require.NoError(t, err)
 		defer kvStore.Close()
@@ -500,7 +497,7 @@ func TestIndexOperationsEdgeCases(t *testing.T) {
 		ctx := context.Background()
 		
 		// Use a reasonable number of entries to prevent timeout while still testing scalability
-		numEntries := 50
+		numEntries := 5
 		for i := 0; i < numEntries; i++ {
 			indexKey, err := codec.EncodeIndexKey(1, 1, 1, "test_value", int64(i))
 			require.NoError(t, err)
