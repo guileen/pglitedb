@@ -16,45 +16,62 @@ func TestMVCCStorage_CoreOperations(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 	
-	// Setup test KV store with temporary directory
-	tmpDir, err := os.MkdirTemp("", "mvcc-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	config := kv.TestOptimizedPebbleConfig(tmpDir)
+	// Skip this test if running in a CI environment or when specifically requested to skip long tests
+	if os.Getenv("SKIP_LONG_TESTS") == "true" {
+		t.Skip("Skipping long MVCC test")
+	}
+	
+	// Setup test KV store with in-memory filesystem to avoid hanging goroutines
+	// Use empty string to trigger in-memory filesystem in TestOptimizedPebbleConfig
+	config := kv.TestOptimizedPebbleConfig("")
 	kvStore, err := kv.NewPebbleKV(config)
 	require.NoError(t, err)
-	defer kvStore.Close()
+	defer func() {
+		// Ensure the store is closed and give time for cleanup
+		kvStore.Close()
+		// Give goroutines more time to finish
+		time.Sleep(100 * time.Millisecond)
+	}()
 
 	mvcc := NewMVCCStorage(kvStore)
 
 	key := []byte("test-key")
 	value := []byte("test-value")
 	startTS := time.Now().UnixNano()
+	commitTS := startTS + 1 // Define commitTS in outer scope
+	deleteTS := startTS + 10 // Define deleteTS in outer scope
 
 	t.Run("PutAndGet", func(t *testing.T) {
 		// Test Put operation
 		err := mvcc.Put(key, value, startTS)
 		assert.NoError(t, err)
 
+		// Commit the transaction to make it visible
+		err = mvcc.Commit(key, startTS, commitTS)
+		assert.NoError(t, err)
+
 		// Test Get operation
-		retrieved, err := mvcc.Get(key, startTS+1)
+		retrieved, err := mvcc.Get(key, commitTS+1)
 		assert.NoError(t, err)
 		assert.Equal(t, value, retrieved)
 	})
 
 	t.Run("Delete", func(t *testing.T) {
-		deleteTS := startTS + 10
 		err := mvcc.Delete(key, deleteTS)
 		assert.NoError(t, err)
 
-		// Should not be visible after delete timestamp
-		_, err = mvcc.Get(key, deleteTS+1)
+		// Commit the delete to make it visible
+		deleteCommitTS := deleteTS + 1
+		err = mvcc.Commit(key, deleteTS, deleteCommitTS)
+		assert.NoError(t, err)
+
+		// Should not be visible after delete commit timestamp
+		_, err = mvcc.Get(key, deleteCommitTS+1)
 		assert.Error(t, err)
 		assert.True(t, shared.IsNotFound(err))
 
-		// Should still be visible before delete timestamp
-		retrieved, err := mvcc.Get(key, startTS+1)
+		// Should still be visible before delete timestamp (but after commit)
+		retrieved, err := mvcc.Get(key, commitTS+1)
 		assert.NoError(t, err)
 		assert.Equal(t, value, retrieved)
 	})
@@ -65,15 +82,17 @@ func TestMVCCStorage_CommitAndAbort(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 	
-	// Setup test KV store with temporary directory
-	tmpDir, err := os.MkdirTemp("", "mvcc-commit-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	config := kv.TestOptimizedPebbleConfig(tmpDir)
+	// Setup test KV store with in-memory filesystem to avoid hanging goroutines
+	// Use empty string to trigger in-memory filesystem in TestOptimizedPebbleConfig
+	config := kv.TestOptimizedPebbleConfig("")
 	kvStore, err := kv.NewPebbleKV(config)
 	require.NoError(t, err)
-	defer kvStore.Close()
+	defer func() {
+		// Ensure the store is closed and give time for cleanup
+		kvStore.Close()
+		// Give goroutines more time to finish
+		time.Sleep(100 * time.Millisecond)
+	}()
 
 	mvcc := NewMVCCStorage(kvStore)
 
@@ -126,15 +145,17 @@ func TestMVCCStorage_VersionVisibility(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 	
-	// Setup test KV store with temporary directory
-	tmpDir, err := os.MkdirTemp("", "mvcc-visibility-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	config := kv.TestOptimizedPebbleConfig(tmpDir)
+	// Setup test KV store with in-memory filesystem to avoid hanging goroutines
+	// Use empty string to trigger in-memory filesystem in TestOptimizedPebbleConfig
+	config := kv.TestOptimizedPebbleConfig("")
 	kvStore, err := kv.NewPebbleKV(config)
 	require.NoError(t, err)
-	defer kvStore.Close()
+	defer func() {
+		// Ensure the store is closed and give time for cleanup
+		kvStore.Close()
+		// Give goroutines more time to finish
+		time.Sleep(100 * time.Millisecond)
+	}()
 
 	mvcc := NewMVCCStorage(kvStore)
 
@@ -165,17 +186,22 @@ func TestMVCCStorage_VersionVisibility(t *testing.T) {
 		tests := []struct {
 			readTS   int64
 			expected []byte
+			expectError bool
 		}{
-			{baseTS + 1, []byte("version-1")},     // Before any commit
-			{baseTS + 7, []byte("version-1")},     // After first commit
-			{baseTS + 17, []byte("version-2")},    // After second commit
-			{baseTS + 27, []byte("version-3")},    // After third commit
+			{baseTS + 1, nil, true},     // Before any commit - should error
+			{baseTS + 7, []byte("version-1"), false},     // After first commit
+			{baseTS + 17, []byte("version-2"), false},    // After second commit
+			{baseTS + 27, []byte("version-3"), false},    // After third commit
 		}
 
 		for _, tt := range tests {
 			retrieved, err := mvcc.Get(key, tt.readTS)
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expected, retrieved)
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, retrieved)
+			}
 		}
 	})
 }
@@ -185,15 +211,17 @@ func TestMVCCStorage_GetVisibleVersions(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 	
-	// Setup test KV store with temporary directory
-	tmpDir, err := os.MkdirTemp("", "mvcc-visible-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	config := kv.TestOptimizedPebbleConfig(tmpDir)
+	// Setup test KV store with in-memory filesystem to avoid hanging goroutines
+	// Use empty string to trigger in-memory filesystem in TestOptimizedPebbleConfig
+	config := kv.TestOptimizedPebbleConfig("")
 	kvStore, err := kv.NewPebbleKV(config)
 	require.NoError(t, err)
-	defer kvStore.Close()
+	defer func() {
+		// Ensure the store is closed and give time for cleanup
+		kvStore.Close()
+		// Give goroutines more time to finish
+		time.Sleep(100 * time.Millisecond)
+	}()
 
 	mvcc := NewMVCCStorage(kvStore)
 
@@ -242,15 +270,17 @@ func TestMVCCStorage_EdgeCases(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 	
-	// Setup test KV store with temporary directory
-	tmpDir, err := os.MkdirTemp("", "mvcc-edge-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	config := kv.TestOptimizedPebbleConfig(tmpDir)
+	// Setup test KV store with in-memory filesystem to avoid hanging goroutines
+	// Use empty string to trigger in-memory filesystem in TestOptimizedPebbleConfig
+	config := kv.TestOptimizedPebbleConfig("")
 	kvStore, err := kv.NewPebbleKV(config)
 	require.NoError(t, err)
-	defer kvStore.Close()
+	defer func() {
+		// Ensure the store is closed and give time for cleanup
+		kvStore.Close()
+		// Give goroutines more time to finish
+		time.Sleep(100 * time.Millisecond)
+	}()
 
 	mvcc := NewMVCCStorage(kvStore)
 

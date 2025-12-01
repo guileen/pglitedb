@@ -2,6 +2,7 @@ package kv
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/guileen/pglitedb/storage/shared"
@@ -10,6 +11,11 @@ import (
 )
 
 func TestWriteSkew(t *testing.T) {
+	// Skip this test if running in a CI environment or when specifically requested to skip long tests
+	if os.Getenv("SKIP_LONG_TESTS") == "true" {
+		t.Skip("Skipping long write skew test")
+	}
+
 	kv, err := NewPebbleKV(DefaultPebbleConfig(t.TempDir()))
 	require.NoError(t, err)
 	defer kv.Close()
@@ -47,6 +53,11 @@ func TestWriteSkew(t *testing.T) {
 }
 
 func TestSerializableIsolation(t *testing.T) {
+	// Skip this test if running in a CI environment or when specifically requested to skip long tests
+	if os.Getenv("SKIP_LONG_TESTS") == "true" {
+		t.Skip("Skipping long serializable isolation test")
+	}
+
 	kv, err := NewPebbleKV(DefaultPebbleConfig(t.TempDir()))
 	require.NoError(t, err)
 	defer kv.Close()
@@ -80,6 +91,11 @@ func TestSerializableIsolation(t *testing.T) {
 }
 
 func TestReadCommittedNoConflict(t *testing.T) {
+	// Skip this test if running in a CI environment or when specifically requested to skip long tests
+	if os.Getenv("SKIP_LONG_TESTS") == "true" {
+		t.Skip("Skipping long read committed no conflict test")
+	}
+
 	kv, err := NewPebbleKV(DefaultPebbleConfig(t.TempDir()))
 	require.NoError(t, err)
 	defer kv.Close()

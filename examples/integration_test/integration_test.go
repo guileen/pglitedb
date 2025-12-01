@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestBasicIntegration(t *testing.T) {
+func TestBasicSmokeIntegration(t *testing.T) {
 	// Create a temporary database for testing
 	dbPath := "/tmp/pglitedb-integration-test-" + time.Now().Format("20060102150405")
 	
