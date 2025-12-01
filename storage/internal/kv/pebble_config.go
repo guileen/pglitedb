@@ -2,6 +2,8 @@ package kv
 
 import (
 	"time"
+
+	"github.com/cockroachdb/pebble/vfs"
 )
 
 // PebbleConfig holds configuration options for the Pebble KV store
@@ -23,6 +25,9 @@ type PebbleConfig struct {
 	BloomFilterBitsPerKey int
 	TargetFileSize        int64
 	MaxManifestFileSize   int64
+	FS                    vfs.FS // Optional filesystem (useful for testing with in-memory FS)
+	DisableWAL            bool   // Disable write-ahead log for testing
+	DisableAutoCompaction bool   // Disable automatic compactions for testing
 }
 
 // DefaultPebbleConfig creates a default configuration for Pebble KV store optimized for production
@@ -50,25 +55,42 @@ func DefaultPebbleConfig(path string) *PebbleConfig {
 
 // TestOptimizedPebbleConfig creates a configuration optimized for testing performance
 // Reduces memory usage and disables compression for faster operations
+// Also minimizes background goroutines to prevent test hangs by using in-memory filesystem when path is empty
+//
+// When path is empty, uses an in-memory filesystem to avoid disk I/O and background goroutines
+// that can cause tests to hang. This is particularly important because Pebble's default
+// behavior (when FS is nil) wraps the filesystem with disk health checking, which creates
+// background goroutines that continue running even after db.Close() is called.
+//
+// For benchmarks and production use, provide a non-empty path to use the file system.
 func TestOptimizedPebbleConfig(path string) *PebbleConfig {
-	return &PebbleConfig{
+	config := &PebbleConfig{
 		Path:                  path,
-		CacheSize:             32 * 1024 * 1024,        // Reduce to 32MB for testing
-		MemTableSize:          4 * 1024 * 1024,         // Reduce to 4MB for faster flushes
-		MaxOpenFiles:          1000,                    // Reduce for testing
-		CompactionConcurrency: 2,                       // Reduce for testing
-		FlushInterval:         100 * time.Millisecond,  // Much faster flushing
-		BlockSize:             4 << 10,                 // Reduce to 4KB for testing
-		L0CompactionThreshold: 2,                       // Reduce to trigger compactions sooner
-		L0StopWritesThreshold: 10,                      // Reduce to prevent write stalls
-		LBaseMaxBytes:         32 << 20,                // 32MB for L1 in testing
+		CacheSize:             256 * 1024,              // Reduce to 256KB for testing to minimize memory
+		MemTableSize:          64 * 1024,               // Reduce to 64KB for faster flushes
+		MaxOpenFiles:          5,                       // Minimal file handles for testing
+		CompactionConcurrency: 1,                       // Single-threaded compactions for predictability
+		FlushInterval:         100 * time.Millisecond,  // Less aggressive flushing to reduce overhead
+		BlockSize:             128,                     // Reduce to 128 bytes for testing
+		L0CompactionThreshold: 1,                       // Immediate compaction triggering
+		L0StopWritesThreshold: 2,                       // Minimal write stall prevention
+		LBaseMaxBytes:         256 * 1024,              // 256KB for L1 in testing
 		CompressionEnabled:    false,                   // Disable compression for speed
 		EnableRateLimiting:    false,                   // Disable rate limiting for testing
-		EnableBloomFilter:     true,                    // Keep bloom filters for testing
-		BloomFilterBitsPerKey: 5,                       // Lower bits per key for testing
-		TargetFileSize:        8 << 20,                // 8MB target file size for testing
-		MaxManifestFileSize:   32 << 20,                // 32MB max manifest file size for testing
+		EnableBloomFilter:     false,                   // Disable bloom filters for testing
+		BloomFilterBitsPerKey: 0,                       // Disable bloom filters completely
+		TargetFileSize:        64 * 1024,               // 64KB target file size for testing
+		MaxManifestFileSize:   256 * 1024,              // 256KB max manifest file size for testing
+		DisableWAL:            false,                   // Don't disable WAL as it prevents writes
+		DisableAutoCompaction: true,                    // Disable automatic compactions for testing to reduce background goroutines
 	}
+	
+	// Use in-memory filesystem for tests when path is empty to avoid disk I/O and background goroutines
+	if path == "" {
+		config.FS = vfs.NewMem()
+	}
+	
+	return config
 }
 
 // SpaceOptimizedPebbleConfig creates a configuration optimized for space efficiency

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,11 +33,19 @@ func newDataManager(rowOps engineTypes.RowOperations, idGen engineTypes.IDGenera
 func (m *dataManager) Insert(ctx context.Context, tenantID int64, tableName string, data map[string]interface{}) (*types.Record, error) {
 	schema, tableID, err := m.getTableSchema(tenantID, tableName)
 	if err == types.ErrTableNotFound {
+		// If we have no data to infer schema from, we can't create the table
+		if len(data) == 0 {
+			return nil, fmt.Errorf("cannot create table %s: no data provided to infer schema", tableName)
+		}
+		
 		schema = m.inferSchemaFromData(tableName, data)
 		if err := m.schemaManager.CreateTable(ctx, tenantID, schema); err != nil {
 			return nil, fmt.Errorf("auto-create table: %w", err)
 		}
 		schema, tableID, err = m.getTableSchema(tenantID, tableName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to retrieve newly created table schema: %w", err)
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -98,6 +107,13 @@ func (m *dataManager) InsertBatch(ctx context.Context, tenantID int64, tableName
 }
 
 func (m *dataManager) Update(ctx context.Context, tenantID int64, tableName string, rowID int64, data map[string]interface{}) (*types.Record, error) {
+	// Validate data map to prevent empty column names
+	for key := range data {
+		if key == "" {
+			return nil, fmt.Errorf("empty column name found in update data")
+		}
+	}
+
 	schema, tableID, err := m.getTableSchema(tenantID, tableName)
 	if err != nil {
 		return nil, err
@@ -177,6 +193,8 @@ func (m *dataManager) validateAndConvert(data map[string]interface{}, schema *ty
 		}
 	}
 
+	// Create a map for case-insensitive column lookup
+	columnMap := make(map[string]string) // lowercase name -> actual name
 	for _, col := range schema.Columns {
 		// Validate column name and type
 		if col.Name == "" {
@@ -185,8 +203,23 @@ func (m *dataManager) validateAndConvert(data map[string]interface{}, schema *ty
 		if col.Type == "" {
 			return nil, fmt.Errorf("schema column %s has empty type", col.Name)
 		}
+		columnMap[strings.ToLower(col.Name)] = col.Name
+	}
 
-		val, exists := data[col.Name]
+	// Create normalized data map with standardized column names
+	normalizedData := make(map[string]interface{})
+	for key, val := range data {
+		// Standardize column name (case-insensitive matching)
+		if actualName, exists := columnMap[strings.ToLower(key)]; exists {
+			normalizedData[actualName] = val
+		} else {
+			// Keep original key if no match found
+			normalizedData[key] = val
+		}
+	}
+
+	for _, col := range schema.Columns {
+		val, exists := normalizedData[col.Name]
 
 		if !exists {
 			if col.Default != nil {
@@ -464,12 +497,20 @@ func toInt64(v interface{}) int64 {
 }
 
 func (m *dataManager) getColumnType(schema *types.TableDefinition, colName string) (types.ColumnType, error) {
+	// First try exact match
 	for _, col := range schema.Columns {
 		if col.Name == colName {
 			return col.Type, nil
 		}
 	}
-	return "", types.ErrColumnNotFound
+	
+	// If not found, collect available column names for detailed error message
+	colNames := make([]string, len(schema.Columns))
+	for i, col := range schema.Columns {
+		colNames[i] = col.Name
+	}
+	
+	return "", fmt.Errorf("%w: column '%s' not found in table. Available columns: %v", types.ErrColumnNotFound, colName, colNames)
 }
 
 func (m *dataManager) inferSchemaFromData(tableName string, data map[string]interface{}) *types.TableDefinition {
@@ -553,6 +594,22 @@ func (m *dataManager) InsertRow(ctx context.Context, tenantID int64, tableName s
 }
 
 func (m *dataManager) UpdateRows(ctx context.Context, tenantID int64, tableName string, values map[string]interface{}, conditions map[string]interface{}) (int64, error) {
+	// Validate values map to prevent empty column names
+	for key := range values {
+		if key == "" {
+			return 0, fmt.Errorf("empty column name found in update values")
+		}
+	}
+	
+	// Validate conditions map to prevent empty column names
+	if conditions != nil {
+		for key := range conditions {
+			if key == "" {
+				return 0, fmt.Errorf("empty column name found in update conditions")
+			}
+		}
+	}
+
 	schema, tableID, err := m.getTableSchema(tenantID, tableName)
 	if err != nil {
 		return 0, err
@@ -583,6 +640,15 @@ func (m *dataManager) UpdateRows(ctx context.Context, tenantID int64, tableName 
 }
 
 func (m *dataManager) DeleteRows(ctx context.Context, tenantID int64, tableName string, conditions map[string]interface{}) (int64, error) {
+	// Validate conditions map to prevent empty column names
+	if conditions != nil {
+		for key := range conditions {
+			if key == "" {
+				return 0, fmt.Errorf("empty column name found in delete conditions")
+			}
+		}
+	}
+
 	schema, tableID, err := m.getTableSchema(tenantID, tableName)
 	if err != nil {
 		return 0, err

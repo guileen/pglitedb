@@ -53,6 +53,7 @@ func (p *SimplePGParser) Parse(query string) (*parser.ParsedQuery, error) {
 		IndexColumns:     []string{},
 		Subqueries:       []parser.Subquery{},
 		SetClauses:       make(map[string]string),
+		QueryString:      query, // Add this line
 	}
 
 	// Normalize query for easier parsing

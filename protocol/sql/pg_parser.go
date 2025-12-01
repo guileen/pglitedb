@@ -42,6 +42,8 @@ func (p *FullPGParser) Parse(query string) (*parser.ParsedQuery, error) {
 	parsed := &parser.ParsedQuery{
 		StatementType:    p.getStatementType(query),
 		ReturningColumns: returningColumns,
+		QueryString:      query, // Add this line
+		RawStmt:          result, // Add this line
 	}
 
 	return parsed, nil

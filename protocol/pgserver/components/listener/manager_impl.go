@@ -33,14 +33,20 @@ func (lm *ListenerManagerImpl) StartTCP(port string) error {
 		return fmt.Errorf("listener manager is closed")
 	}
 
-	listener, err := net.Listen("tcp", ":"+port)
+	// Try to bind to IPv4 first, then fall back to default
+	listener, err := net.Listen("tcp4", "0.0.0.0:"+port)
 	if err != nil {
-		logger.Error("Failed to start TCP listener", "error", err, "port", port)
-		return fmt.Errorf("failed to start TCP listener: %w", err)
+		logger.Warn("Failed to start IPv4 TCP listener, trying default", "error", err, "port", port)
+		// Fall back to default behavior
+		listener, err = net.Listen("tcp", ":"+port)
+		if err != nil {
+			logger.Error("Failed to start TCP listener", "error", err, "port", port)
+			return fmt.Errorf("failed to start TCP listener: %w", err)
+		}
 	}
 
 	lm.listener = listener
-	logger.Info("TCP listener started successfully", "port", port)
+	logger.Info("TCP listener started successfully", "port", port, "address", listener.Addr().String())
 	return nil
 }
 

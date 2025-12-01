@@ -110,8 +110,8 @@ func (e *Executor) Execute(ctx context.Context, query string) (*types.ResultSet,
 		return e.executeCommit(ctx)
 	case parser.RollbackStatement:
 		return e.executeRollback(ctx)
-	case parser.CreateTableStatement, parser.DropTableStatement, parser.AlterTableStatement: 
-	case parser.CreateIndexStatement, parser.DropIndexStatement, parser.CreateViewStatement, parser.DropViewStatement:
+	case parser.CreateTableStatement, parser.DropTableStatement, parser.AlterTableStatement, 
+	     parser.CreateIndexStatement, parser.DropIndexStatement, parser.CreateViewStatement, parser.DropViewStatement:
 		return e.executeDDL(ctx, query)
 	case parser.AnalyzeStatementType:
 		return e.executeAnalyze(ctx, query)
