@@ -16,7 +16,6 @@ import (
 func TestSimpleTwoWayDeadlock(t *testing.T) {
 	// Create test engine
 	engine := createTestEngine(t)
-	defer engine.Close()
 
 	// Create a simple schema for testing
 	schemaDef := &types.TableDefinition{

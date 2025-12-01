@@ -18,7 +18,6 @@ import (
 func TestRaceConditions(t *testing.T) {
     // Create test engine
     engine := createTestEngine(t)
-    defer engine.Close()
 
     // Create a simple schema for testing
     schemaDef := &types.TableDefinition{
@@ -301,7 +300,6 @@ func TestRaceConditions(t *testing.T) {
 func TestConcurrentIteratorUsage(t *testing.T) {
     // Create test engine
     engine := createTestEngine(t)
-    defer engine.Close()
 
     // Create a simple schema for testing
     schemaDef := &types.TableDefinition{
