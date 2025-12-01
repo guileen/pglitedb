@@ -59,6 +59,18 @@ func (p *DDLParser) Parse(query string) (*parser.DDLStatement, error) {
 	case stmt.GetAlterTableStmt() != nil:
 		ddlStmt.Type = parser.AlterTableStatement
 		p.parseAlterTable(stmt.GetAlterTableStmt(), ddlStmt)
+	case stmt.GetAlterDatabaseStmt() != nil:
+		ddlStmt.Type = parser.AlterDatabaseStatement
+		p.parseAlterDatabase(stmt.GetAlterDatabaseStmt(), ddlStmt)
+	case stmt.GetAlterDatabaseSetStmt() != nil:
+		ddlStmt.Type = parser.AlterDatabaseStatement
+		p.parseAlterDatabaseSet(stmt.GetAlterDatabaseSetStmt(), ddlStmt)
+	case stmt.GetAlterDatabaseRefreshCollStmt() != nil:
+		ddlStmt.Type = parser.AlterDatabaseStatement
+		p.parseAlterDatabaseRefreshColl(stmt.GetAlterDatabaseRefreshCollStmt(), ddlStmt)
+	case stmt.GetAlterOwnerStmt() != nil:
+		ddlStmt.Type = parser.AlterDatabaseStatement
+		p.parseAlterOwner(stmt.GetAlterOwnerStmt(), ddlStmt)
 	case stmt.GetVacuumStmt() != nil:
 		// ANALYZE statements are parsed as VacuumStmt with IsVacuumcmd = false
 		vacuumStmt := stmt.GetVacuumStmt()
@@ -68,6 +80,15 @@ func (p *DDLParser) Parse(query string) (*parser.DDLStatement, error) {
 			// Handle VACUUM statements if needed
 			return nil, fmt.Errorf("VACUUM statements not supported")
 		}
+	case stmt.GetCreatedbStmt() != nil:
+		ddlStmt.Type = parser.CreateDatabaseStatement
+		p.parseCreateDatabase(stmt.GetCreatedbStmt(), ddlStmt)
+	case stmt.GetDropdbStmt() != nil:
+		ddlStmt.Type = parser.DropDatabaseStatement
+		p.parseDropDatabase(stmt.GetDropdbStmt(), ddlStmt)
+	case stmt.GetTruncateStmt() != nil:
+		ddlStmt.Type = parser.TruncateTableStatement
+		p.parseTruncate(stmt.GetTruncateStmt(), ddlStmt)
 	default:
 		return nil, fmt.Errorf("unsupported DDL statement type")
 	}
@@ -80,6 +101,9 @@ func (p *DDLParser) parseCreateTable(stmt *pg_query.CreateStmt, ddlStmt *parser.
 	if relation := stmt.GetRelation(); relation != nil {
 		ddlStmt.TableName = relation.GetRelname()
 	}
+	
+	// Set IF NOT EXISTS flag
+	ddlStmt.IfNotExists = stmt.GetIfNotExists()
 
 	if columnDefs := stmt.GetTableElts(); columnDefs != nil {
 		columns := make([]parser.ColumnDefinition, 0)
@@ -451,6 +475,149 @@ func (p *DDLParser) parseDropView(stmt *pg_query.DropStmt, ddlStmt *parser.DDLSt
 		}
 		ddlStmt.ViewNames = viewNames
 	}
+	
+	// Parse CASCADE/RESTRICT options
+	ddlStmt.Cascade = stmt.GetBehavior() == pg_query.DropBehavior_DROP_CASCADE
+	ddlStmt.Restrict = stmt.GetBehavior() == pg_query.DropBehavior_DROP_RESTRICT
+}
+
+// parseCreateDatabase parses a CREATE DATABASE statement
+func (p *DDLParser) parseCreateDatabase(stmt *pg_query.CreatedbStmt, ddlStmt *parser.DDLStatement) {
+	ddlStmt.TableName = stmt.GetDbname()
+	
+	// Parse options if present
+	if options := stmt.GetOptions(); options != nil {
+		// For now, we'll just acknowledge that options exist
+		// In a full implementation, we would parse the specific options
+	}
+}
+
+// parseDropDatabase parses a DROP DATABASE statement
+func (p *DDLParser) parseDropDatabase(stmt *pg_query.DropdbStmt, ddlStmt *parser.DDLStatement) {
+	ddlStmt.TableName = stmt.GetDbname()
+	ddlStmt.IfExists = stmt.GetMissingOk()
+	
+	// Parse options if present
+	if options := stmt.GetOptions(); options != nil {
+		// For now, we'll just acknowledge that options exist
+		// In a full implementation, we would parse the specific options
+	}
+}
+
+// parseAlterDatabase parses an ALTER DATABASE statement
+func (p *DDLParser) parseAlterDatabase(stmt *pg_query.AlterDatabaseStmt, ddlStmt *parser.DDLStatement) {
+	ddlStmt.TableName = stmt.GetDbname()
+	
+	// Parse options if present
+	if options := stmt.GetOptions(); options != nil {
+		// For now, we'll just acknowledge that options exist
+		// In a full implementation, we would parse the specific options
+	}
+}
+
+// parseAlterDatabaseSet parses an ALTER DATABASE SET statement
+func (p *DDLParser) parseAlterDatabaseSet(stmt *pg_query.AlterDatabaseSetStmt, ddlStmt *parser.DDLStatement) {
+	ddlStmt.TableName = stmt.GetDbname()
+	
+	// Parse the set statement if present
+	if setStmt := stmt.GetSetstmt(); setStmt != nil {
+		// For now, we'll just acknowledge that set statement exists
+		// In a full implementation, we would parse the specific set options
+	}
+}
+
+// parseAlterDatabaseRefreshColl parses an ALTER DATABASE REFRESH COLL statement
+func (p *DDLParser) parseAlterDatabaseRefreshColl(stmt *pg_query.AlterDatabaseRefreshCollStmt, ddlStmt *parser.DDLStatement) {
+	ddlStmt.TableName = stmt.GetDbname()
+	
+	// For now, we'll just acknowledge that this statement exists
+	// In a full implementation, we would parse the specific options
+}
+
+// parseAlterOwner parses an ALTER OWNER statement
+func (p *DDLParser) parseAlterOwner(stmt *pg_query.AlterOwnerStmt, ddlStmt *parser.DDLStatement) {
+	// Extract database name from object
+	if object := stmt.GetObject(); object != nil {
+		if list := object.GetList(); list != nil {
+			if items := list.GetItems(); items != nil {
+				// Get the last item which should be the database name
+				if len(items) > 0 {
+					if lastItem := items[len(items)-1]; lastItem != nil {
+						if str := lastItem.GetString_(); str != nil {
+							ddlStmt.TableName = str.GetSval()
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	// If we couldn't extract the database name from the AST, fall back to string parsing
+	if ddlStmt.TableName == "" {
+		// Use our helper method to extract database name from the query string
+		parsedQuery := &parser.ParsedQuery{}
+		p.ExtractAlterDatabaseInfoFromRawQuery(parsedQuery, ddlStmt.Query)
+		ddlStmt.TableName = parsedQuery.TableName
+	}
+	
+	// For now, we'll just acknowledge that this statement exists
+	// In a full implementation, we would parse the specific owner information
+}
+
+// ExtractAlterDatabaseInfoFromRawQuery extracts database name from ALTER DATABASE query string
+func (p *DDLParser) ExtractAlterDatabaseInfoFromRawQuery(parsed *parser.ParsedQuery, query string) {
+	lowerQuery := strings.ToLower(query)
+	// Extract database name
+	databaseIndex := strings.Index(lowerQuery, " database ")
+	if databaseIndex != -1 {
+		// Calculate the correct position in the original query
+		originalDatabaseIndex := strings.Index(strings.ToLower(query), " database ")
+		if originalDatabaseIndex != -1 {
+			// Get the part after "DATABASE"
+			afterDatabase := strings.TrimSpace(query[originalDatabaseIndex+10:])
+			
+			// Find the end of the database name by looking for the next keyword
+			dbNameEnd := len(afterDatabase)
+			
+			// Look for common ALTER DATABASE action keywords
+			keywords := []string{" set ", " owner ", " refresh ", " reset ", " rename "}
+			for _, keyword := range keywords {
+				if idx := strings.Index(strings.ToLower(afterDatabase), keyword); idx != -1 && idx < dbNameEnd {
+					dbNameEnd = idx
+				}
+			}
+			
+			// Extract the database name
+			dbName := strings.TrimSpace(afterDatabase[:dbNameEnd])
+			
+			// Handle quoted database names
+			if strings.HasPrefix(dbName, `"`) && strings.HasSuffix(dbName, `"`) {
+				dbName = dbName[1 : len(dbName)-1]
+			}
+			
+			parsed.TableName = dbName
+		}
+	}
+}
+
+// parseTruncate parses a TRUNCATE TABLE statement
+func (p *DDLParser) parseTruncate(stmt *pg_query.TruncateStmt, ddlStmt *parser.DDLStatement) {
+	// Parse table names from the relations
+	if relations := stmt.GetRelations(); relations != nil {
+		tableNames := make([]string, 0)
+		for _, relationNode := range relations {
+			if relation := relationNode.GetRangeVar(); relation != nil {
+				tableNames = append(tableNames, relation.GetRelname())
+			}
+		}
+		if len(tableNames) > 0 {
+			ddlStmt.TableName = tableNames[0] // For simplicity, we take the first table name
+			ddlStmt.TableNames = tableNames   // Store all table names
+		}
+	}
+	
+	// Parse RESTART IDENTITY option
+	ddlStmt.RestartSequences = stmt.GetRestartSeqs()
 	
 	// Parse CASCADE/RESTRICT options
 	ddlStmt.Cascade = stmt.GetBehavior() == pg_query.DropBehavior_DROP_CASCADE

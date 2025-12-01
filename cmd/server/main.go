@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/pprof"
@@ -90,7 +91,7 @@ func startHTTPServer(dbPath string) {
 	}
 	
 	logger.Info("Creating SQL parser and planner")
-	parser := sql.NewPGParser()
+	parser := sql.NewFullPGParser()
 	planner := sql.NewPlannerWithCatalog(parser, mgr)
 	// Connect the planner with the schema manager for schema change notifications
 	if schemaMgr, ok := mgr.(interface{ SetPlanner(sql.SchemaChangeCallback) }); ok {
@@ -98,18 +99,18 @@ func startHTTPServer(dbPath string) {
 	}
 	exec := planner.Executor()
 	logger.Info("SQL parser and planner created successfully")
-
+	
 	// Create REST handler
 	logger.Info("Creating REST handler")
 	restHandler := api.NewRESTHandler(exec, planner)
 	logger.Info("REST handler created successfully")
-
+	
 	// Setup router
 	logger.Info("Setting up router")
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-
+	
 	// Register pprof handlers for profiling
 	r.HandleFunc("/debug/pprof/", pprof.Index)
 	r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
@@ -121,22 +122,22 @@ func startHTTPServer(dbPath string) {
 	r.Handle("/debug/pprof/threadcreate", pprof.Handler("threadcreate"))
 	r.Handle("/debug/pprof/block", pprof.Handler("block"))
 	r.Handle("/debug/pprof/mutex", pprof.Handler("mutex"))
-
+	
 	// Register API routes
 	restHandler.RegisterRoutes(r)
-
+	
 	// Start server
 	port := ":8080"
 	if p := os.Getenv("PORT"); p != "" {
 		port = ":" + p
 	}
-
+	
 	logger.Info("Creating HTTP server", "port", port)
 	server := &http.Server{
 		Addr:    port,
 		Handler: r,
 	}
-
+	
 	// Start server in a goroutine
 	go func() {
 		logger.Info("Starting HTTP server", "port", port)
@@ -150,12 +151,12 @@ func startHTTPServer(dbPath string) {
 	initDuration := time.Since(startTime)
 	logger.Info("HTTP server initialization complete", "init_duration", initDuration.String())
 	logger.Info("HTTP server initialized", "init_duration", initDuration.String())
-
+	
 	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
-
+	
 	// Shutdown server gracefully
 	shutdownStart := time.Now()
 	logger.Info("Shutting down HTTP server...", "shutdown_start", shutdownStart.Format(time.RFC3339))
@@ -177,6 +178,13 @@ func startPostgreSQLServer(dbPath string) {
 	if err := os.MkdirAll(dbPath, 0755); err != nil {
 		logger.Error("Failed to create database directory", "error", err, "dbPath", dbPath)
 		log.Fatalf("failed to create database directory: %v", err)
+	}
+	
+	// Clean up previous database directory if it exists
+	dbPostgresPath := dbPath + "-postgres"
+	if err := ensureCleanDBPath(dbPostgresPath); err != nil {
+		logger.Error("Failed to clean database directory", "error", err, "dbPath", dbPostgresPath)
+		log.Fatalf("failed to clean database directory: %v", err)
 	}
 	
 	// Create database components
@@ -215,7 +223,7 @@ func startPostgreSQLServer(dbPath string) {
 	}
 	
 	logger.Info("Creating SQL parser and planner")
-	parser := sql.NewPGParser()
+	parser := sql.NewFullPGParser()
 	planner := sql.NewPlannerWithCatalog(parser, mgr)
 	// Connect the planner with the schema manager for schema change notifications
 	if schemaMgr, ok := mgr.(interface{ SetPlanner(sql.SchemaChangeCallback) }); ok {
@@ -235,8 +243,8 @@ func startPostgreSQLServer(dbPath string) {
 	} else {
 		// Enable profiling on default port 6060 if not disabled
 		if os.Getenv("DISABLE_PROFILING") == "" {
-			logger.Info("Enabling profiling on default port", "port", "6060")
-			server.WithProfiling("6060")
+			logger.Info("Enabling profiling on default port", "port", "6061") // Changed to 6061 to avoid conflicts
+			server.WithProfiling("6061")
 		} else {
 			logger.Info("Profiling disabled by DISABLE_PROFILING environment variable")
 			server.WithProfiling("") // Disable profiling
@@ -253,13 +261,17 @@ func startPostgreSQLServer(dbPath string) {
 	}
 	
 	logger.Info("Starting PostgreSQL server", "port", port)
+	logger.Info("About to start PostgreSQL server in goroutine", "port", port)
 	go func() {
 		logger.Info("PostgreSQL server goroutine started", "port", port)
 		if err := server.Start(port); err != nil {
 			logger.Error("PostgreSQL server failed to start", "error", err, "port", port)
 			log.Fatalf("PostgreSQL server failed: %v", err)
 		}
+		logger.Info("PostgreSQL server Start method returned", "port", port)
 	}()
+	
+	logger.Info("PostgreSQL server goroutine launched", "port", port)
 	
 	logger.Info("PostgreSQL server started", "port", port, "startup_duration", time.Since(startTime).String())
 	logger.Info("PostgreSQL server started", "port", port)
@@ -268,7 +280,8 @@ func startPostgreSQLServer(dbPath string) {
 	logger.Info("Waiting for interrupt signal")
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
+	sig := <-sigChan
+	logger.Info("Received signal", "signal", sig)
 	
 	// Shutdown server gracefully
 	shutdownStart := time.Now()
@@ -281,4 +294,21 @@ func startPostgreSQLServer(dbPath string) {
 	shutdownDuration := time.Since(shutdownStart)
 	logger.Info("PostgreSQL server shutdown complete", "shutdown_duration", shutdownDuration.String())
 	logger.Info("PostgreSQL server shutdown complete", "shutdown_duration", shutdownDuration.String())
+}
+
+// ensureCleanDBPath ensures the database path is clean and ready for use
+func ensureCleanDBPath(dbPath string) error {
+	// Check if directory exists
+	if _, err := os.Stat(dbPath); err == nil {
+		// Directory exists, try to remove it
+		logger.Info("Removing existing database directory", "dbPath", dbPath)
+		if err := os.RemoveAll(dbPath); err != nil {
+			return fmt.Errorf("failed to remove existing database directory: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		// Some other error occurred
+		return fmt.Errorf("failed to stat database directory: %w", err)
+	}
+	
+	return nil
 }

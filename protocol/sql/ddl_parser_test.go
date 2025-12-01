@@ -40,6 +40,66 @@ func TestDDLParser(t *testing.T) {
 		assert.True(t, stmt.Columns[2].Unique)
 	})
 
+	t.Run("CreateTableIfNotExists", func(t *testing.T) {
+		query := `CREATE TABLE IF NOT EXISTS users (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			email VARCHAR(255) UNIQUE
+		)`
+
+		stmt, err := ddlParser.Parse(query)
+		require.NoError(t, err)
+		assert.Equal(t, parser.CreateTableStatement, stmt.Type)
+		assert.Equal(t, "users", stmt.TableName)
+		assert.True(t, stmt.IfNotExists)
+		assert.Len(t, stmt.Columns, 3)
+
+		// Check id column
+		assert.Equal(t, "id", stmt.Columns[0].Name)
+		assert.Equal(t, "serial", stmt.Columns[0].Type)
+		assert.True(t, stmt.Columns[0].PrimaryKey)
+
+		// Check name column
+		assert.Equal(t, "name", stmt.Columns[1].Name)
+		assert.Equal(t, "varchar", stmt.Columns[1].Type)
+		assert.True(t, stmt.Columns[1].NotNull)
+
+		// Check email column
+		assert.Equal(t, "email", stmt.Columns[2].Name)
+		assert.Equal(t, "varchar", stmt.Columns[2].Type)
+		assert.True(t, stmt.Columns[2].Unique)
+	})
+
+	t.Run("CreateTableIfNotExistsLowerCase", func(t *testing.T) {
+		query := `create table if not exists lowercase_test (id integer primary key)`
+
+		stmt, err := ddlParser.Parse(query)
+		require.NoError(t, err)
+		assert.Equal(t, parser.CreateTableStatement, stmt.Type)
+		assert.Equal(t, "lowercase_test", stmt.TableName)
+		assert.True(t, stmt.IfNotExists)
+	})
+
+	t.Run("CreateTableIfNotExistsMixedCase", func(t *testing.T) {
+		query := `Create Table If Not Exists mixed_case_test (id integer primary key)`
+
+		stmt, err := ddlParser.Parse(query)
+		require.NoError(t, err)
+		assert.Equal(t, parser.CreateTableStatement, stmt.Type)
+		assert.Equal(t, "mixed_case_test", stmt.TableName)
+		assert.True(t, stmt.IfNotExists)
+	})
+
+	t.Run("CreateTableWithSchema", func(t *testing.T) {
+		query := `CREATE TABLE IF NOT EXISTS public.schema_test (id integer primary key)`
+
+		stmt, err := ddlParser.Parse(query)
+		require.NoError(t, err)
+		assert.Equal(t, parser.CreateTableStatement, stmt.Type)
+		assert.Equal(t, "schema_test", stmt.TableName)
+		assert.True(t, stmt.IfNotExists)
+	})
+
 	t.Run("DropTable", func(t *testing.T) {
 		query := "DROP TABLE users"
 
