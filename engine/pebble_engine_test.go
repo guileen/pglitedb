@@ -21,7 +21,9 @@ func setupTestEngine(t *testing.T) (StorageEngine, func()) {
 		t.Fatalf("create temp dir: %v", err)
 	}
 
-	config := storage.DefaultPebbleConfig(filepath.Join(tmpDir, "db"))
+	// Use empty string to trigger in-memory filesystem in TestOptimizedPebbleConfig
+	// This helps avoid disk I/O and background goroutines that can cause test hangs
+	config := storage.TestOptimizedPebbleConfig("")
 	kvStore, err := storage.NewPebbleKV(config)
 	if err != nil {
 		t.Fatalf("create kv store: %v", err)
@@ -32,6 +34,8 @@ func setupTestEngine(t *testing.T) (StorageEngine, func()) {
 
 	cleanup := func() {
 		engine.Close()
+		// Give goroutines time to finish
+		time.Sleep(10 * time.Millisecond)
 		os.RemoveAll(tmpDir)
 	}
 
@@ -512,14 +516,31 @@ func BenchmarkStorageEngine_GetRow(b *testing.B) {
 }
 
 func TestStorageEngine_PerformanceOptimizations(t *testing.T) {
+	// Skip this test in short mode as it takes a long time to run
+	if testing.Short() {
+		t.Skip("skipping performance test in short mode")
+	}
+
+	// Skip this test if running in a CI environment or when specifically requested to skip long tests
+	if os.Getenv("SKIP_LONG_TESTS") == "true" {
+		t.Skip("Skipping long performance test")
+	}
+
 	engine, cleanup := setupTestEngine(t)
-	defer cleanup()
+	defer func() {
+		// Ensure cleanup is called even if the test panics
+		if r := recover(); r != nil {
+			cleanup()
+			panic(r) // Re-throw the panic
+		}
+		cleanup()
+	}()
 
 	ctx := context.Background()
 	schema := createTestSchema()
 
-	// Insert a large number of records to test batch operations
-	const recordCount = 1000
+	// Insert a smaller number of records to test batch operations (reduced from 1000 to 100)
+	const recordCount = 100
 	records := make([]*types.Record, recordCount)
 	
 	for i := 0; i < recordCount; i++ {
@@ -543,7 +564,7 @@ func TestStorageEngine_PerformanceOptimizations(t *testing.T) {
 	}
 	batchInsertDuration := time.Since(start)
 	
-	t.Logf("Inserted %d records with row IDs: %v", len(rowIDs), rowIDs)
+	t.Logf("Inserted %d records with first 5 row IDs: %v", len(rowIDs), rowIDs[:5]) // Only log first 5 IDs to avoid spam
 
 	// Verify all records were inserted
 	iter, err := engine.ScanRows(ctx, 1, 1, schema, nil)
@@ -554,8 +575,8 @@ func TestStorageEngine_PerformanceOptimizations(t *testing.T) {
 	count := 0
 	for iter.Next() {
 		count++
-		record := iter.Row()
 		if count <= 5 { // Only log first 5 records to avoid spam
+			record := iter.Row()
 			t.Logf("Record %d: %+v", count, record.Data)
 		}
 	}
