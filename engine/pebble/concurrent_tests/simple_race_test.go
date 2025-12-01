@@ -19,7 +19,6 @@ import (
 func TestSimpleRaceConditions(t *testing.T) {
 	// Create test engine
 	engine := createSimpleTestEngine(t)
-	defer engine.Close()
 
 	t.Run("ConcurrentAccessToSameKey", func(t *testing.T) {
 		const numGoroutines = 20
@@ -145,11 +144,9 @@ func TestSimpleRaceConditions(t *testing.T) {
 func createSimpleTestEngine(t *testing.T) engineTypes.StorageEngine {
 	t.Helper()
 	
-	// Create a temporary directory for the test
-	tempDir := t.TempDir()
-	
-	// Create Pebble KV store
-	config := storage.DefaultPebbleConfig(tempDir)
+	// Create Pebble KV store with test-optimized config using in-memory filesystem
+	// This avoids disk I/O and background goroutines that can cause test hangs
+	config := storage.TestOptimizedPebbleConfig("")
 	kvStore, err := storage.NewPebbleKV(config)
 	if err != nil {
 		t.Fatalf("Failed to create KV store: %v", err)
@@ -160,6 +157,13 @@ func createSimpleTestEngine(t *testing.T) engineTypes.StorageEngine {
 	
 	// Create engine
 	engine := pebble.NewPebbleEngine(kvStore, c)
+	
+	// Register cleanup function
+	t.Cleanup(func() {
+		engine.Close()
+		// Give goroutines time to finish
+		time.Sleep(10 * time.Millisecond)
+	})
 	
 	return engine
 }

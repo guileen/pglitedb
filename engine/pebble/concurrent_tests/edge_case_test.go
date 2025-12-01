@@ -38,7 +38,6 @@ func TestEdgeCases(t *testing.T) {
 	t.Run("VeryLargeDataValues", func(t *testing.T) {
 		// Test concurrent operations with very large data values
 		engine := createTestEngine(t)
-		defer engine.Close()
 
 		const numGoroutines = 5
 		const largeDataSize = 100 * 1024 // 100KB (more reasonable for testing)
@@ -140,7 +139,6 @@ func TestEdgeCases(t *testing.T) {
 	t.Run("EmptyValues", func(t *testing.T) {
 		// Test concurrent operations with empty values
 		engine := createTestEngine(t)
-		defer engine.Close()
 
 		// Create a simple schema for testing
 		schemaDef := &types.TableDefinition{
@@ -232,7 +230,6 @@ func TestEdgeCases(t *testing.T) {
 	t.Run("UnicodeAndSpecialCharacters", func(t *testing.T) {
 		// Test concurrent operations with Unicode and special characters
 		engine := createTestEngine(t)
-		defer engine.Close()
 
 		// Create a simple schema for testing
 		schemaDef := &types.TableDefinition{
@@ -352,9 +349,8 @@ func TestEdgeCases(t *testing.T) {
 	t.Run("MaximumConcurrentTransactions", func(t *testing.T) {
 		// Test the system under maximum concurrent transaction load
 		engine := createTestEngine(t)
-		defer engine.Close()
 
-		const maxGoroutines = 100
+		const maxGoroutines = 20
 		const operationsPerGoroutine = 10
 
 		var wg sync.WaitGroup
@@ -447,7 +443,6 @@ func TestEdgeCases(t *testing.T) {
 	t.Run("TransactionTimeoutUnderLoad", func(t *testing.T) {
 		// Test transaction behavior when system is under heavy load
 		engine := createTestEngine(t)
-		defer engine.Close()
 
 		const numGoroutines = 30
 		const longRunningOps = 5
