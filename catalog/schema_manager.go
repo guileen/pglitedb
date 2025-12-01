@@ -16,7 +16,6 @@ import (
 
 // mapPostgreSQLTypeToInternal maps PostgreSQL type names to internal column types
 func mapPostgreSQLTypeToInternal(pgType string) string {
-	originalType := pgType
 	switch pgType {
 	case "int4":
 		pgType = "integer"
@@ -44,11 +43,6 @@ func mapPostgreSQLTypeToInternal(pgType string) string {
 		pgType = "smallserial"
 	default:
 		// Return the original type if no mapping is found
-	}
-	
-	// Debug logging
-	if originalType != pgType {
-		fmt.Printf("Mapped PostgreSQL type '%s' to internal type '%s'\n", originalType, pgType)
 	}
 	
 	return pgType
@@ -96,14 +90,7 @@ func (m *schemaManager) CreateTable(ctx context.Context, tenantID int64, def *ty
 		mappedType := mapPostgreSQLTypeToInternal(originalType)
 		col.Type = types.ColumnType(mappedType)
 		
-		// Debug logging
-		if originalType != mappedType {
-			fmt.Printf("Mapped column type from '%s' to '%s' for column '%s'\n", originalType, mappedType, col.Name)
-		}
-		
-		fmt.Printf("Validating column '%s' with type '%s'\n", col.Name, col.Type)
 		if !types.IsValidColumnType(col.Type) {
-			fmt.Printf("Invalid column type '%s' for column '%s'\n", col.Type, col.Name)
 			return errors.Wrap(nil, "invalid_column_type", "invalid column type '%s' for column '%s'", col.Type, col.Name)
 		}
 	}
