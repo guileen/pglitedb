@@ -373,6 +373,13 @@ func TestAdvancedErrorRecovery(t *testing.T) {
 				Nullable: false,
 			},
 		},
+		Indexes: []types.IndexDefinition{
+			{
+				Name:    "idx_constrained_field",
+				Columns: []string{"constrained_field"},
+				Unique:  true,
+			},
+		},
 	}
 
 	t.Run("ConstraintViolationRecovery", func(t *testing.T) {
@@ -415,21 +422,15 @@ func TestAdvancedErrorRecovery(t *testing.T) {
 			},
 		}
 
-		// Note: Constraint validation may not be fully implemented yet
-		// For now, we'll skip the constraint validation assertions
 		_, err = tx2.InsertRow(ctx, 1, 1, record2, schemaDef)
-		// Temporarily remove constraint validation assertion until it's fully implemented
-		// assert.Error(t, err, "Constraint violation should occur")
+		// Constraint validation should now be implemented
+		assert.Error(t, err, "Constraint violation should occur")
 
-		// Even if constraint validation isn't working, the transaction should still handle errors properly
+		// Transaction should be automatically rolled back due to error
 		if err != nil {
+			tx2.Rollback()
 			err = tx2.Commit()
-			// Transaction should be automatically rolled back due to error
-			// assert.Error(t, err, "Commit should fail after constraint violation")
-		} else {
-			// If no error occurred, still commit and check behavior
-			err = tx2.Commit()
-			assert.NoError(t, err)
+			assert.Error(t, err, "Commit should fail after constraint violation")
 		}
 
 		// Verify only the first record exists
