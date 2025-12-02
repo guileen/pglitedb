@@ -3,6 +3,7 @@ package sql
 import (
 	"container/list"
 	"hash/fnv"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -41,10 +42,32 @@ func NewShardedLRUCache(capacity int) *ShardedLRUCache {
 	return NewShardedLRUCacheWithExpiration(capacity, 0)
 }
 
+// nextPowerOfTwo returns the next power of two for a given number
+func nextPowerOfTwo(v int) int {
+	v--
+	v |= v >> 1
+	v |= v >> 2
+	v |= v >> 4
+	v |= v >> 8
+	v |= v >> 16
+	v++
+	return v
+}
+
 // NewShardedLRUCacheWithExpiration creates a new sharded LRU cache with expiration
 func NewShardedLRUCacheWithExpiration(capacity int, expiration time.Duration) *ShardedLRUCache {
-	// Use number of shards as a power of 2 for efficient hashing
-	numShards := 16
+	// Dynamically determine optimal number of shards based on CPU cores
+	numShards := runtime.NumCPU() * 4
+	if numShards < 16 {
+		numShards = 16
+	}
+	if numShards > 256 {
+		numShards = 256
+	}
+	
+	// Ensure numShards is a power of two for efficient hashing
+	numShards = nextPowerOfTwo(numShards)
+	
 	shardCapacity := capacity / numShards
 	if shardCapacity == 0 {
 		shardCapacity = 1

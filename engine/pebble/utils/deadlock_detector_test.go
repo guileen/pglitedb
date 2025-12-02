@@ -13,7 +13,7 @@ func BenchmarkCheckForConflictsOld(b *testing.B) {
 }
 
 func BenchmarkCheckForConflictsNew(b *testing.B) {
-	dd := NewDeadlockDetector(100*time.Millisecond, func(txnID uint64) {})
+	dd := NewDeadlockDetector(10*time.Second, func(txnID uint64) {}) // Longer interval to avoid interference
 	defer dd.Close()
 
 	// Add a large number of transactions
@@ -35,7 +35,7 @@ func BenchmarkCheckForConflictsNew(b *testing.B) {
 }
 
 func BenchmarkHasCycle(b *testing.B) {
-	dd := NewDeadlockDetector(100*time.Millisecond, func(txnID uint64) {})
+	dd := NewDeadlockDetector(10*time.Second, func(txnID uint64) {}) // Longer interval to avoid interference
 	defer dd.Close()
 
 	// Create a chain of waiting transactions
@@ -44,8 +44,10 @@ func BenchmarkHasCycle(b *testing.B) {
 		dd.AddTransaction(uint64(i))
 		if i > 0 {
 			// Make transaction i wait for transaction i-1
-			if waitMap, exists := dd.waitGraph[uint64(i)]; exists {
-				waitMap[uint64(i-1)] = true
+			if waitVal, exists := dd.waitGraph.Load(uint64(i)); exists {
+				if waitMap, ok := waitVal.(map[uint64]bool); ok {
+					waitMap[uint64(i-1)] = true
+				}
 			}
 		}
 	}

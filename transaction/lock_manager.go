@@ -49,6 +49,9 @@ type LockManager struct {
 	transactions map[TransactionID]*TxnContext
 	detector     *DeadlockDetector
 	mu           sync.RWMutex
+	
+	// Fine-grained locking for individual resources
+	resourceLocks map[string]*sync.Mutex
 }
 
 // DeadlockDetector detects and resolves deadlocks
@@ -60,9 +63,10 @@ type DeadlockDetector struct {
 // NewLockManager creates a new lock manager
 func NewLockManager() *LockManager {
 	lm := &LockManager{
-		locks:        make(map[string]*Lock),
-		waiters:      make(map[TransactionID][]string),
-		transactions: make(map[TransactionID]*TxnContext),
+		locks:         make(map[string]*Lock),
+		waiters:       make(map[TransactionID][]string),
+		transactions:  make(map[TransactionID]*TxnContext),
+		resourceLocks: make(map[string]*sync.Mutex),
 	}
 	
 	lm.detector = &DeadlockDetector{
@@ -97,8 +101,37 @@ func (lm *LockManager) UnregisterTransaction(txnID TransactionID) {
 	delete(lm.waiters, txnID)
 }
 
+// getResourceLock returns the mutex for a specific resource
+func (lm *LockManager) getResourceLock(resourceID string) *sync.Mutex {
+	lm.mu.RLock()
+	if lock, exists := lm.resourceLocks[resourceID]; exists {
+		lm.mu.RUnlock()
+		return lock
+	}
+	lm.mu.RUnlock()
+	
+	// Need to create a new lock, upgrade to write lock
+	lm.mu.Lock()
+	defer lm.mu.Unlock()
+	
+	// Double-check pattern to avoid duplicate creation
+	if lock, exists := lm.resourceLocks[resourceID]; exists {
+		return lock
+	}
+	
+	newLock := &sync.Mutex{}
+	lm.resourceLocks[resourceID] = newLock
+	return newLock
+}
+
 // Lock acquires a lock on a resource
 func (lm *LockManager) Lock(txnID TransactionID, resourceID string, lockType LockType, mode LockMode) error {
+	// Use fine-grained locking for individual resources
+	resourceLock := lm.getResourceLock(resourceID)
+	resourceLock.Lock()
+	defer resourceLock.Unlock()
+	
+	// Lock the main structure
 	lm.mu.Lock()
 	defer lm.mu.Unlock()
 	
@@ -155,8 +188,15 @@ func (lm *LockManager) Lock(txnID TransactionID, resourceID string, lockType Loc
 		lock.Waiters = append(lock.Waiters, txnID)
 		lm.waiters[txnID] = append(lm.waiters[txnID], resourceID)
 		
+		// Copy detector reference for deadlock detection outside of lock
+		detector := lm.detector
+		lm.mu.Unlock()
+		
 		// Check for deadlock
-		if lm.detector.detectDeadlock(txnID, resourceID) {
+		if detector.detectDeadlock(txnID, resourceID) {
+			// Re-acquire lock for cleanup
+			lm.mu.Lock()
+			
 			// Resolve deadlock by aborting this transaction
 			if txn, exists := lm.transactions[txnID]; exists {
 				// Mark as aborted
@@ -171,8 +211,12 @@ func (lm *LockManager) Lock(txnID TransactionID, resourceID string, lockType Loc
 					}
 				}
 			}
+			lm.mu.Lock() // We already unlocked above, so we need to re-lock
+			lm.mu.Unlock()
 			return fmt.Errorf("deadlock detected, transaction aborted")
 		}
+		
+		lm.mu.Lock() // We already unlocked above, so we need to re-lock
 		
 		// Wait for lock (in a real implementation, this would block)
 		// For now, we'll return an error to indicate waiting
@@ -184,6 +228,11 @@ func (lm *LockManager) Lock(txnID TransactionID, resourceID string, lockType Loc
 
 // Unlock releases a lock on a resource
 func (lm *LockManager) Unlock(txnID TransactionID, resourceID string) error {
+	// Use fine-grained locking for individual resources
+	resourceLock := lm.getResourceLock(resourceID)
+	resourceLock.Lock()
+	defer resourceLock.Unlock()
+	
 	lm.mu.Lock()
 	defer lm.mu.Unlock()
 	
