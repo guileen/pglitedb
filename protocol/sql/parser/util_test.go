@@ -25,6 +25,7 @@ func TestGetStatementType(t *testing.T) {
 		{"CREATE INDEX idx_users_name ON users (name)", CreateIndexStatement},
 		{"DROP INDEX idx_users_name", DropIndexStatement},
 		{"CREATE VIEW user_view AS SELECT * FROM users", CreateViewStatement},
+		{"CREATE OR REPLACE VIEW user_view AS SELECT * FROM users", CreateViewStatement},
 		{"DROP VIEW user_view", DropViewStatement},
 		{"ANALYZE users", AnalyzeStatementType},
 		{"CREATE DATABASE testdb", CreateDatabaseStatement},

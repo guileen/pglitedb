@@ -270,9 +270,10 @@ func IsConflict(err error) bool {
 
 // Predefined error variables
 var (
-	ErrClosed      = &EngineError{Code: "closed", Message: "connection closed"}
-	ErrConflict    = &EngineError{Code: ErrCodeConflict, Message: "conflict"}
-	ErrRowNotFound = &EngineError{Code: ErrCodeNotFound, Message: "row not found"}
+	ErrClosed             = &EngineError{Code: "closed", Message: "connection closed"}
+	ErrConflict           = &EngineError{Code: ErrCodeConflict, Message: "conflict"}
+	ErrRowNotFound        = &EngineError{Code: ErrCodeNotFound, Message: "row not found"}
+	ErrConstraintViolation = &EngineError{Code: ErrCodeValidation, Message: "constraint violation"}
 )
 
 // IsClosedError checks if an error indicates a closed connection
@@ -291,6 +292,12 @@ func IsConflictError(err error) bool {
 func IsRowNotFoundError(err error) bool {
 	var e *EngineError
 	return errors.As(err, &e) && e.Code == ErrCodeNotFound
+}
+
+// IsConstraintViolationError checks if an error indicates a constraint violation
+func IsConstraintViolationError(err error) bool {
+	var e *EngineError
+	return errors.As(err, &e) && e.Code == ErrCodeValidation
 }
 
 // LogError logs an error at error level

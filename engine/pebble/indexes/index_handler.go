@@ -180,6 +180,19 @@ func (h *Handler) UpdateIndexes(ctx context.Context, tenantID, tableID, rowID in
 				return fmt.Errorf("encode index key: %w", err)
 			}
 
+			// Check for unique constraint violations on insert
+			if isInsert && indexDef.Unique {
+				// Look up existing entries with the same index values
+				existingRowIDs, err := h.LookupIndex(ctx, tenantID, tableID, indexID, indexValues[0])
+				if err != nil {
+					return fmt.Errorf("lookup index: %w", err)
+				}
+				// If any existing entries found, it's a constraint violation
+				if len(existingRowIDs) > 0 {
+					return errors.NewValidationError("unique_constraint", fmt.Sprintf("duplicate key value violates unique constraint \"%s\"", indexDef.Name))
+				}
+			}
+
 			if isInsert {
 				if err := h.kv.Set(ctx, indexKey, []byte{}); err != nil {
 					return fmt.Errorf("set index: %w", err)

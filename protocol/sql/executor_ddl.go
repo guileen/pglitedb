@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/guileen/pglitedb/catalog/errors"
 	"github.com/guileen/pglitedb/protocol/sql/parser"
 	"github.com/guileen/pglitedb/types"
 )
@@ -160,7 +161,7 @@ func (e *Executor) executeDropTable(ctx context.Context, ddlStmt *parser.DDLStat
 	err := e.catalog.DropTable(ctx, 1, ddlStmt.TableName)
 	if err != nil {
 		// If IF EXISTS is specified, ignore table not found errors
-		if ddlStmt.IfExists && err == types.ErrTableNotFound {
+		if ddlStmt.IfExists && errors.IsTableNotFoundError(err) {
 			// Table doesn't exist, but IF EXISTS was specified, so this is not an error
 			return &types.ResultSet{
 				Columns: []string{},
@@ -253,9 +254,15 @@ func (e *Executor) executeTruncate(ctx context.Context, ddlStmt *parser.DDLState
 		return nil, fmt.Errorf("catalog not initialized")
 	}
 
-	// For now, we'll just return a successful result
-	// In a full implementation, we would handle truncating the table data
-	// This is a simplified implementation that acknowledges the TRUNCATE statement
+	// TRUNCATE TABLE deletes all rows from the specified table
+	// We use DeleteRows with nil conditions to delete all rows
+	// According to PostgreSQL documentation, TRUNCATE doesn't return affected row count
+	_, err := e.catalog.DeleteRows(ctx, 1, ddlStmt.TableName, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to truncate table %s: %w", ddlStmt.TableName, err)
+	}
+
+	// TRUNCATE should always return Count = 0 (no affected row count returned)
 	return &types.ResultSet{
 		Columns: []string{},
 		Rows:    [][]interface{}{},

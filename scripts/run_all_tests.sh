@@ -8,6 +8,17 @@ echo "======================================"
 # Create test logs directory
 mkdir -p test_logs
 
+# Find available port for testing
+find_available_port() {
+    local port=5433
+    while lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1; do
+        port=$((port + 1))
+    done
+    echo $port
+}
+
+TEST_PORT=$(find_available_port)
+
 # 1. Unit Tests
 echo ""
 echo "=== 1. Running Unit Tests ==="
@@ -24,8 +35,8 @@ cd ../..
 
 # 3. Start PostgreSQL Server for client tests
 echo ""
-echo "=== 3. Starting PostgreSQL Server (port 5433) ==="
-PG_PORT=5433 go run cmd/server/main.go pg > test_logs/server.log 2>&1 &
+echo "=== 3. Starting PostgreSQL Server (port $TEST_PORT) ==="
+PG_PORT=$TEST_PORT go run cmd/server/main.go pg > test_logs/server.log 2>&1 &
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
 
@@ -36,15 +47,18 @@ sleep 3
 echo ""
 echo "=== 4. Running GORM Client Test ==="
 cd examples/gorm_test
+# Update the database connection URL to use the dynamic port
+sed -i.bak 's/localhost:[0-9]\+/localhost:'"$TEST_PORT"'/g' main.go
 timeout 30s go run main.go 2>&1 | tee ../../test_logs/gorm.log
 GORM_EXIT=${PIPESTATUS[0]}
+mv main.go.bak main.go 2>/dev/null || true
 cd ../..
 
 # 5. TypeScript Test
 echo ""
 echo "=== 5. Running TypeScript Client Test ==="
 cd examples/typescript_test
-pnpm test 2>&1 | tee ../../test_logs/typescript.log
+PG_TEST_PORT=$TEST_PORT timeout 30s pnpm test 2>&1 | tee ../../test_logs/typescript.log
 TS_EXIT=${PIPESTATUS[0]}
 cd ../..
 
