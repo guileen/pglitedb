@@ -1,0 +1,82 @@
+name: CI Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [1.21.x, 1.22.x]
+    
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go-version }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install pnpm
+      run: npm install -g pnpm
+
+    - name: Install dependencies
+      run: |
+        go mod tidy
+        make deps
+
+    - name: Initialize example dependencies
+      run: make init-examples
+
+    - name: Run all tests
+      run: make test-all
+
+    - name: Generate coverage report
+      run: make coverage
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-${{ matrix.go-version }}
+        path: |
+          test_logs/
+          coverage.out
+          coverage.html
+
+    - name: Generate and upload badges
+      if: matrix.go-version == '1.22.x' && github.ref == 'refs/heads/main'
+      run: |
+        mkdir -p badges
+        bash scripts/generate_coverage_badges.sh
+        bash scripts/generate_badges.sh
+
+    - name: Upload badges
+      if: matrix.go-version == '1.22.x' && github.ref == 'refs/heads/main'
+      uses: actions/upload-artifact@v4
+      with:
+        name: badges
+        path: badges/
