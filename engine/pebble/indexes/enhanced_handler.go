@@ -3,6 +3,7 @@ package indexes
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"sync"
 	"sync/atomic"
 
@@ -42,6 +43,12 @@ type EnhancedIndexMetrics struct {
 
 // IndexStatsTracker tracks index usage statistics for optimization
 type IndexStatsTracker struct {
+	shards    []*statsShard
+	numShards int
+}
+
+// statsShard represents a single shard of index statistics
+type statsShard struct {
 	stats map[string]*IndexStats
 	mutex sync.RWMutex
 }
@@ -353,22 +360,39 @@ func (eh *EnhancedHandler) GetEnhancedMetrics() *EnhancedIndexMetrics {
 
 // NewIndexStatsTracker creates a new index stats tracker
 func NewIndexStatsTracker() *IndexStatsTracker {
-	return &IndexStatsTracker{
-		stats: make(map[string]*IndexStats),
+	numShards := 16
+	shards := make([]*statsShard, numShards)
+	for i := 0; i < numShards; i++ {
+		shards[i] = &statsShard{
+			stats: make(map[string]*IndexStats),
+		}
 	}
+	return &IndexStatsTracker{
+		shards:    shards,
+		numShards: numShards,
+	}
+}
+
+// getShard returns the shard responsible for the given key
+func (ist *IndexStatsTracker) getShard(key string) *statsShard {
+	hasher := fnv.New32a()
+	hasher.Write([]byte(key))
+	hash := hasher.Sum32()
+	return ist.shards[hash%uint32(ist.numShards)]
 }
 
 // UpdateLookupStats updates lookup statistics for an index
 func (ist *IndexStatsTracker) UpdateLookupStats(tenantID, tableID, indexID int64, duration int64) {
 	key := fmt.Sprintf("%d:%d:%d", tenantID, tableID, indexID)
+	shard := ist.getShard(key)
 	
-	ist.mutex.Lock()
-	defer ist.mutex.Unlock()
+	shard.mutex.Lock()
+	defer shard.mutex.Unlock()
 	
-	stats, exists := ist.stats[key]
+	stats, exists := shard.stats[key]
 	if !exists {
 		stats = &IndexStats{}
-		ist.stats[key] = stats
+		shard.stats[key] = stats
 	}
 	
 	atomic.AddInt64(&stats.LookupCount, 1)
@@ -388,11 +412,12 @@ func (ist *IndexStatsTracker) UpdateLookupStats(tenantID, tableID, indexID int64
 // GetIndexStats returns statistics for an index
 func (ist *IndexStatsTracker) GetIndexStats(tenantID, tableID, indexID int64) *IndexStats {
 	key := fmt.Sprintf("%d:%d:%d", tenantID, tableID, indexID)
+	shard := ist.getShard(key)
 	
-	ist.mutex.RLock()
-	defer ist.mutex.RUnlock()
+	shard.mutex.RLock()
+	defer shard.mutex.RUnlock()
 	
-	if stats, exists := ist.stats[key]; exists {
+	if stats, exists := shard.stats[key]; exists {
 		return &IndexStats{
 			LookupCount:    atomic.LoadInt64(&stats.LookupCount),
 			UpdateCount:    atomic.LoadInt64(&stats.UpdateCount),
