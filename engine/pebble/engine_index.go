@@ -24,6 +24,8 @@ func (e *pebbleEngine) updateIndexes(ctx context.Context, tenantID, tableID, row
 }
 
 func (e *pebbleEngine) batchUpdateIndexes(batch storage.Batch, tenantID, tableID, rowID int64, row *dbTypes.Record, schemaDef *dbTypes.TableDefinition) error {
+	// For batch operations, we can't easily check constraints since they're committed together
+	// Constraint checking for batch operations would need to be done at a higher level
 	return e.indexManager.BatchUpdateIndexes(batch, tenantID, tableID, rowID, row, schemaDef)
 }
 

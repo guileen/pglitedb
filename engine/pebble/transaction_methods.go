@@ -62,6 +62,11 @@ func (t *transaction) InsertRow(ctx context.Context, tenantID, tableID int64, ro
 		return 0, fmt.Errorf("insert row: %w", err)
 	}
 
+	// Update indexes for the inserted row
+	if err := t.engine.updateIndexes(ctx, tenantID, tableID, rowID, row, schemaDef, true); err != nil {
+		return 0, fmt.Errorf("update indexes: %w", err)
+	}
+
 	return rowID, nil
 }
 

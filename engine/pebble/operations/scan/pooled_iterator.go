@@ -41,6 +41,11 @@ func (pii *PooledIndexIterator) Close() error {
 	return nil
 }
 
+// Reset resets the pooled iterator for reuse
+func (pii *PooledIndexIterator) Reset() {
+	// Reset is handled by the pool when releasing
+}
+
 // PooledRowIterator wraps a RowIterator and returns it to the pool when closed
 type PooledRowIterator struct {
 	iter *RowIterator
@@ -76,6 +81,11 @@ func (pri *PooledRowIterator) Close() error {
 	return nil
 }
 
+// Reset resets the pooled iterator for reuse
+func (pri *PooledRowIterator) Reset() {
+	// Reset is handled by the pool when releasing
+}
+
 // PooledIndexOnlyIterator wraps an IndexOnlyIterator and returns it to the pool when closed
 type PooledIndexOnlyIterator struct {
 	iter *IndexOnlyIterator
@@ -109,6 +119,11 @@ func (pioi *PooledIndexOnlyIterator) Close() error {
 	}
 	pioi.pool.ReleaseIndexOnlyIterator(pioi.iter)
 	return nil
+}
+
+// Reset resets the pooled iterator for reuse
+func (pioi *PooledIndexOnlyIterator) Reset() {
+	// Reset is handled by the pool when releasing
 }
 
 // IteratorPool manages iterator resources with minimal overhead

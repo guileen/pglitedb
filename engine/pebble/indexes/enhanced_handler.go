@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/guileen/pglitedb/codec"
+	"github.com/guileen/pglitedb/engine/errors"
 	"github.com/guileen/pglitedb/storage"
 	dbTypes "github.com/guileen/pglitedb/types"
 )
@@ -201,6 +202,39 @@ func (eh *EnhancedHandler) UpdateIndexes(ctx context.Context, tenantID, tableID,
 
 // updateIndexesParallel updates indexes using parallel workers
 func (eh *EnhancedHandler) updateIndexesParallel(ctx context.Context, tenantID, tableID, rowID int64, row *dbTypes.Record, schemaDef *dbTypes.TableDefinition, isInsert bool) error {
+	// Check for unique constraint violations on insert before proceeding
+	if isInsert {
+		for i, indexDef := range schemaDef.Indexes {
+			if indexDef.Unique {
+				indexID := int64(i + 1)
+				
+				indexValues := make([]interface{}, 0, len(indexDef.Columns))
+				allValuesPresent := true
+				
+				for _, colName := range indexDef.Columns {
+					if val, ok := row.Data[colName]; ok && val != nil {
+						indexValues = append(indexValues, val.Data)
+					} else {
+						allValuesPresent = false
+						break
+					}
+				}
+				
+				if allValuesPresent && len(indexValues) > 0 {
+					// Look up existing entries with the same index values
+					existingRowIDs, err := eh.LookupIndex(ctx, tenantID, tableID, indexID, indexValues[0])
+					if err != nil {
+						return fmt.Errorf("lookup index: %w", err)
+					}
+					// If any existing entries found, it's a constraint violation
+					if len(existingRowIDs) > 0 {
+						return errors.NewValidationError("unique_constraint", fmt.Sprintf("duplicate key value violates unique constraint \"%s\"", indexDef.Name))
+					}
+				}
+			}
+		}
+	}
+	
 	// Split indexes into chunks for parallel processing
 	jobs := make([]indexUpdateJob, 0, len(schemaDef.Indexes))
 	resultChans := make([]chan error, 0, len(schemaDef.Indexes))

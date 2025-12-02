@@ -1,7 +1,6 @@
 package scan
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/guileen/pglitedb/codec"
@@ -17,6 +16,19 @@ type MultiColumnOptimizer struct{}
 // NewMultiColumnOptimizer creates a new MultiColumnOptimizer
 func NewMultiColumnOptimizer() *MultiColumnOptimizer {
 	return &MultiColumnOptimizer{}
+}
+
+// Optimize optimizes the index definition based on the provided columns
+func (mco *MultiColumnOptimizer) Optimize(indexDef *dbTypes.IndexDefinition, columns []string) *dbTypes.IndexDefinition {
+	// If no columns or nil definition, return as-is
+	if indexDef == nil || len(columns) == 0 {
+		return indexDef
+	}
+	
+	// For now, return the original index definition
+	// In a more sophisticated implementation, this could reorder columns
+	// or select a different index based on the query columns
+	return indexDef
 }
 
 // OptimizeMultiColumnIndexRange optimizes index range for multi-column indexes with AND filters
@@ -186,7 +198,7 @@ func NewIndexScanner(kv storage.KV, codec codec.Codec) *IndexScanner {
 }
 
 // ScanIndex performs an index scan
-func (is *IndexScanner) ScanIndex(ctx context.Context, tenantID, tableID, indexID int64, schemaDef *dbTypes.TableDefinition, opts *engineTypes.ScanOptions) (engineTypes.RowIterator, error) {
+func (is *IndexScanner) ScanIndex(tenantID, tableID, indexID int64, schemaDef *dbTypes.TableDefinition, opts *engineTypes.ScanOptions) (engineTypes.RowIterator, error) {
 	// Find the index definition to get column types
 	var indexDef *dbTypes.IndexDefinition
 	for i, idx := range schemaDef.Indexes {
@@ -274,6 +286,38 @@ func (is *IndexScanner) ScanIndex(ctx context.Context, tenantID, tableID, indexI
 		tableID,
 		nil, // engine will be set by caller
 	), nil
+}
+
+// ScanRows performs a table scan - implemented to satisfy Scanner interface
+func (is *IndexScanner) ScanRows(tenantID, tableID int64, schemaDef *dbTypes.TableDefinition, opts *engineTypes.ScanOptions) (engineTypes.RowIterator, error) {
+	// For IndexScanner, we'll create a basic table scan implementation
+	// In practice, this might delegate to a TableScanner or use similar logic
+	
+	var startKey, endKey []byte
+
+	if opts != nil && opts.StartKey != nil {
+		startKey = opts.StartKey
+	} else {
+		startKey = is.codec.EncodeTableKey(tenantID, tableID, 0)
+	}
+
+	if opts != nil && opts.EndKey != nil {
+		endKey = opts.EndKey
+	} else {
+		endKey = is.codec.EncodeTableKey(tenantID, tableID, int64(^uint64(0)>>1))
+	}
+
+	iterOpts := &storage.IteratorOptions{
+		LowerBound: startKey,
+		UpperBound: endKey,
+	}
+
+	if opts != nil && opts.Reverse {
+		iterOpts.Reverse = true
+	}
+
+	iter := is.kv.NewIterator(iterOpts)
+	return NewRowIterator(iter, is.codec, schemaDef, opts, nil), nil
 }
 
 // buildIndexRangeFromFilter constructs index scan range based on filter expression

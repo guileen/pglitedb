@@ -32,6 +32,11 @@ func (lm *ListenerManager) StartTCP(port string) error {
 		return fmt.Errorf("listener manager is closed")
 	}
 
+	// Check if listener is already started
+	if lm.listener != nil {
+		return fmt.Errorf("listener already started")
+	}
+
 	listener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		logger.Error("Failed to start TCP listener", "error", err, "port", port)
@@ -52,6 +57,11 @@ func (lm *ListenerManager) StartUnix(socketPath string) error {
 
 	if lm.closed {
 		return fmt.Errorf("listener manager is closed")
+	}
+
+	// Check if listener is already started
+	if lm.listener != nil {
+		return fmt.Errorf("listener already started")
 	}
 
 	// Remove existing socket file if it exists

@@ -108,9 +108,7 @@ dev: fmt vet test
 	@echo "Development checks passed"
 
 ## test: 运行所有单元测试
-test:
-	@echo "Running tests..."
-	$(GO) test ./... -short
+test: test-unit
 
 ## test-unit: 运行单元测试
 test-unit:
@@ -153,28 +151,17 @@ pgbench:
 ## test-client: 运行客户端兼容性测试（需要启动服务器）
 test-client:
 	@echo "Running client compatibility tests..."
-	@echo "Starting PostgreSQL server on port 5433..."
-	@PG_PORT=5433 $(GO) run cmd/server/main.go pg > /tmp/pglitedb-test-server.log 2>&1 & \
-	SERVER_PID=$$!; \
-	echo "Server PID: $$SERVER_PID"; \
-	sleep 3; \
-	echo "Running GORM test..."; \
-	cd examples/gorm_test && go run main.go; \
-	GORM_EXIT=$$?; \
-	echo "Running TypeScript test..."; \
-	cd ../typescript_test && pnpm test; \
-	TS_EXIT=$$?; \
-	echo "Stopping server..."; \
-	kill $$SERVER_PID 2>/dev/null || true; \
-	if [ $$GORM_EXIT -ne 0 ] || [ $$TS_EXIT -ne 0 ]; then \
-		echo "Client tests failed"; \
-		exit 1; \
-	fi
+	@scripts/run_all_tests.sh
 
 ## test-all: 运行所有测试（单元测试、集成测试、客户端测试）
 test-all:
 	@echo "Running all tests..."
-	@bash scripts/run_all_tests.sh
+	@scripts/run_all_tests.sh
+
+## test-principles: 查看测试设计原则
+test-principles:
+	@echo "查看测试设计原则，请阅读 spec/goals/TESTING_PRINCIPLES.md"
+	@cat spec/goals/TESTING_PRINCIPLES.md
 
 ## run: 运行 HTTP REST API 服务器
 run: run-http

@@ -155,7 +155,7 @@ func (m *schemaManager) DropTable(ctx context.Context, tenantID int64, tableName
 	key := makeTableKey(tenantID, tableName)
 	
 	if _, _, exists := m.cache.Get(key); !exists {
-		return types.ErrTableNotFound
+		return errors.ErrTableNotFound
 	}
 
 	if m.kv != nil {
@@ -177,7 +177,7 @@ func (m *schemaManager) GetTableDefinition(ctx context.Context, tenantID int64, 
 	
 	schema, _, exists := m.cache.Get(key)
 	if !exists {
-		return nil, types.ErrTableNotFound
+		return nil, errors.ErrTableNotFound
 	}
 
 	return schema, nil
@@ -188,7 +188,7 @@ func (m *schemaManager) AlterTable(ctx context.Context, tenantID int64, tableNam
 	
 	schema, tableID, exists := m.cache.Get(key)
 	if !exists {
-		return types.ErrTableNotFound
+		return errors.ErrTableNotFound
 	}
 
 	newDef := *schema

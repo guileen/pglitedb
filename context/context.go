@@ -166,20 +166,23 @@ var (
 	requestContextPool    *RequestContextPool
 	transactionContextPool *TransactionContextPool
 	queryContextPool      *QueryContextPool
+	once sync.Once
 )
 
 // Initialize initializes the global context pools
 func Initialize() {
-	requestContextPool = NewRequestContextPool()
-	transactionContextPool = NewTransactionContextPool()
-	queryContextPool = NewQueryContextPool()
+	once.Do(func() {
+		requestContextPool = NewRequestContextPool()
+		transactionContextPool = NewTransactionContextPool()
+		queryContextPool = NewQueryContextPool()
+	})
 }
 
 // GetRequestContext retrieves a RequestContext from the global pool
 func GetRequestContext() *RequestContext {
-	if requestContextPool == nil {
+	once.Do(func() {
 		Initialize()
-	}
+	})
 	return requestContextPool.Get()
 }
 
@@ -192,9 +195,9 @@ func PutRequestContext(ctx *RequestContext) {
 
 // GetTransactionContext retrieves a TransactionContext from the global pool
 func GetTransactionContext() *TransactionContext {
-	if transactionContextPool == nil {
+	once.Do(func() {
 		Initialize()
-	}
+	})
 	return transactionContextPool.Get()
 }
 
@@ -207,9 +210,9 @@ func PutTransactionContext(ctx *TransactionContext) {
 
 // GetQueryContext retrieves a QueryContext from the global pool
 func GetQueryContext() *QueryContext {
-	if queryContextPool == nil {
+	once.Do(func() {
 		Initialize()
-	}
+	})
 	return queryContextPool.Get()
 }
 

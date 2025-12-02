@@ -47,7 +47,9 @@ func (m *mockCodec) DecodeTableKey(key []byte) (tenantID, tableID, rowID int64, 
 }
 
 func (m *mockCodec) DecodeRow(value []byte, schemaDef interface{}) (interface{}, error) {
-	return &dbTypes.Record{}, nil
+	return &dbTypes.Record{
+		Data: make(map[string]*dbTypes.Value),
+	}, nil
 }
 
 func (m *mockCodec) DecodeIndexKeyWithSchema(key []byte, columnTypes []interface{}) (tenantID, tableID, indexID int64, indexValues []interface{}, rowID int64, err error) {

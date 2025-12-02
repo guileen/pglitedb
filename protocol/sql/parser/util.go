@@ -83,7 +83,7 @@ func GetStatementType(query string) StatementType {
 		return CreateIndexStatement
 	case strings.HasPrefix(lowerQuery, "drop index"):
 		return DropIndexStatement
-	case strings.HasPrefix(lowerQuery, "create view"):
+	case strings.HasPrefix(lowerQuery, "create view") || strings.HasPrefix(lowerQuery, "create or replace view"):
 		return CreateViewStatement
 	case strings.HasPrefix(lowerQuery, "drop view"):
 		return DropViewStatement
